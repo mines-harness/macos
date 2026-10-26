@@ -1,0 +1,35 @@
+{
+  "name": "@t3tools/mobile-source-text",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "ios",
+    "src",
+    "index.ts",
+    "LICENSE",
+    "UPSTREAM.md",
+    "MinesSourceText.podspec",
+    "react-native.config.js"
+  ],
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "react-native": "./index.ts",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "codegenConfig": {
+    "name": "MinesSourceTextSpec",
+    "type": "components",
+    "jsSrcsDir": "src",
+    "ios": {
+      "componentProvider": {
+        "MinesSourceText": "MinesSourceText",
+        "MinesSourceTextRun": "MinesSourceTextRun"
+      }
+    },
+    "outputDir": {
+      "ios": "ios/generated"
+    }
+  }
+}

@@ -119,7 +119,7 @@ const layerTest = ProviderHostLive.layer.pipe(
   Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provide(
-    ServerConfig.layerTest(process.cwd(), { prefix: "t3-antigravity-provider-test-" }).pipe(
+    ServerConfig.layerTest(process.cwd(), { prefix: "mines-antigravity-provider-test-" }).pipe(
       Layer.provideMerge(NodeServices.layer),
     ),
   ),
@@ -217,14 +217,15 @@ describe("Antigravity model catalog", () => {
 });
 
 it.layer(layerTest)("Antigravity provider snapshots", (it) => {
-  it.effect("does not probe or run helper safety checks while disabled", () =>
+  it.effect("detects a disabled installation without account, model or helper discovery", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeHarness({ enabled: false });
+        yield* Deferred.succeed(harness.initialProbe, initializeResult);
         const snapshot = yield* harness.provider.snapshot.refresh;
         expect(snapshot).toMatchObject({
           enabled: false,
-          installed: false,
+          installed: true,
           status: "disabled",
           auth: { status: "unknown" },
           models: [],
@@ -233,7 +234,7 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
           supportsConversationRollback: false,
           supportsTextGeneration: false,
         });
-        expect(yield* Ref.get(harness.probeCalls)).toBe(0);
+        expect(yield* Ref.get(harness.probeCalls)).toBeGreaterThan(0);
         expect(yield* Ref.get(harness.safetyCalls)).toBe(0);
       }),
     ),

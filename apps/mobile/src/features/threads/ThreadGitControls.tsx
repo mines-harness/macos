@@ -96,6 +96,9 @@ export type ThreadGitMenuProps = {
   readonly onOpenFilesInspector?: () => void;
   readonly onOpenGitInspector?: () => void;
   readonly onMergeBack?: () => void;
+  readonly onTransferMine?: () => void;
+  readonly canTransferMine?: boolean;
+  readonly mineTransferNeedsUpdate?: boolean;
   readonly onPull: () => Promise<void>;
   readonly onRunAction: (input: GitActionRequestInput) => Promise<GitRunStackedActionResult | null>;
 };
@@ -323,7 +326,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
             type: "action" as const,
           })),
           {
-            description: "Start another shell for this thread",
+            description: "Start another shell for this mine",
             disabled: !props.canOperateTerminal,
             icon: { name: "plus", type: "sfSymbol" },
             label: "Open new terminal",
@@ -388,10 +391,24 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
           ...(props.onMergeBack
             ? [
                 {
-                  description: "Bring this thread's latest turn into its source",
+                  description: "Bring this mine's latest turn into its source",
                   icon: { name: PullRequestGlyph.merged, type: "sfSymbol" as const },
                   label: "Merge back to source",
                   onPress: props.onMergeBack,
+                  type: "action" as const,
+                },
+              ]
+            : []),
+          ...(props.onTransferMine
+            ? [
+                {
+                  description: props.mineTransferNeedsUpdate
+                    ? "Update this device to transfer mines"
+                    : "Continue this mine on another device",
+                  disabled: props.canTransferMine === false,
+                  icon: { name: "arrow.left.arrow.right", type: "sfSymbol" as const },
+                  label: "Transfer mine",
+                  onPress: props.onTransferMine,
                   type: "action" as const,
                 },
               ]
@@ -496,7 +513,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
             icon="plus"
             disabled={!props.canOperateTerminal}
             onPress={props.onOpenNewTerminal}
-            subtitle="Start another shell for this thread"
+            subtitle="Start another shell for this mine"
           >
             <Toolbar.Label>Open new terminal</Toolbar.Label>
           </Toolbar.MenuAction>
@@ -575,6 +592,20 @@ function threadGitMenuDefinition(
             : "Commit, files, branches",
         onPress: model.openGitInspector,
       },
+      ...(props.onTransferMine
+        ? [
+            {
+              id: "mine-transfer",
+              title: "Transfer mine",
+              icon: "arrow.left.arrow.right" as const,
+              disabled: props.canTransferMine === false,
+              subtitle: props.mineTransferNeedsUpdate
+                ? "Update this device to transfer mines"
+                : "Continue this mine on another device",
+              onPress: props.onTransferMine,
+            },
+          ]
+        : []),
     ],
   };
 }

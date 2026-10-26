@@ -49,7 +49,7 @@ describe("claimPreviewRecording", () => {
       expect(wrongPath._tag).toBe("Failure");
     }).pipe(
       Effect.provide(
-        ServerConfig.layerTest(process.cwd(), { prefix: "t3-preview-recording-" }).pipe(
+        ServerConfig.layerTest(process.cwd(), { prefix: "mines-preview-recording-" }).pipe(
           Layer.provideMerge(NodeServices.layer),
         ),
       ),
@@ -94,7 +94,7 @@ describe("claimPreviewRecording", () => {
         }
       }).pipe(
         Effect.provide(
-          ServerConfig.layerTest(process.cwd(), { prefix: "t3-preview-recording-" }).pipe(
+          ServerConfig.layerTest(process.cwd(), { prefix: "mines-preview-recording-" }).pipe(
             Layer.provideMerge(NodeServices.layer),
           ),
         ),

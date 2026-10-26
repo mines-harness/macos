@@ -37,6 +37,10 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 import {
   buildServerProvider,
+  DEFAULT_TIMEOUT_MS,
+  isCommandMissingCause,
+  parseGenericCliVersion,
+  spawnAndCollect,
   COMPACT_SLASH_COMMAND,
   providerModelsFromSettings,
   type ServerProviderDraft,
@@ -70,7 +74,7 @@ const CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER = "2 seconds" as const;
 const CODEX_CATALOG_REFRESH_TIMEOUT_MS = 3_000;
 const CODEX_CONFIG_PROBE_TIMEOUT_MS = 3_000;
 const CODEX_CATALOG_REFRESH_POLL = "100 millis" as const;
-const CODEX_CLIENT_NAME = "T3 Code";
+const CODEX_CLIENT_NAME = "mines";
 // Handshake plus account/models/skills requests can exceed the shared 10s probe budget.
 const CODEX_AUTH_PROBE_TIMEOUT_MS = 20_000;
 const CODEX_DISCOVERY_MARGIN_MS = 250;
@@ -625,7 +629,7 @@ const makePendingCodexProvider = Effect.fn("CodexProvider.makePendingCodexProvid
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Codex is disabled in T3 Code settings.",
+        message: "Codex is disabled in mines settings.",
       },
     });
   }
@@ -678,6 +682,22 @@ function accountProbeStatus({ account, rateLimits }: CodexAppServerProviderSnaps
   return { status: "ready", auth };
 }
 
+const runCodexCredentialCommand = Effect.fn("CodexProvider.runCredentialCommand")(function* (
+  settings: CodexSettings,
+  args: ReadonlyArray<string>,
+  environment: NodeJS.ProcessEnv,
+) {
+  const homePath = settings.homePath.trim();
+  const resolvedEnvironment = homePath
+    ? { ...environment, CODEX_HOME: expandHomePath(homePath, yield* HostProcess.HomeDirectory) }
+    : environment;
+  const spawn = yield* resolveSpawnCommand(settings.binaryPath, args, { env: resolvedEnvironment });
+  return yield* spawnAndCollect(
+    settings.binaryPath,
+    ChildProcess.make(spawn.command, spawn.args, { env: resolvedEnvironment, shell: spawn.shell }),
+  );
+});
+
 export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(function* (
   codexSettings: CodexSettings,
   probe: (input: {
@@ -704,6 +724,29 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   const emptyModels = emptyCodexModelsFromSettings(codexSettings);
 
   if (!codexSettings.enabled) {
+    const version = yield* runCodexCredentialCommand(
+      codexSettings,
+      ["--version"],
+      resolvedEnvironment,
+    ).pipe(Effect.timeoutOption(DEFAULT_TIMEOUT_MS), Effect.result);
+    const versionResult = Result.isSuccess(version)
+      ? Option.getOrUndefined(version.success)
+      : undefined;
+    const installed = Result.isSuccess(version) || !isCommandMissingCause(version.failure);
+    const auth =
+      versionResult?.code === 0
+        ? yield* runCodexCredentialCommand(
+            codexSettings,
+            ["login", "status"],
+            resolvedEnvironment,
+          ).pipe(
+            Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+            Effect.option,
+            Effect.map(Option.flatMap((result) => result)),
+            Effect.map(Option.getOrUndefined),
+          )
+        : undefined;
+    const authenticated = auth?.code === 0;
     return buildServerProvider({
       presentation: CODEX_PRESENTATION,
       enabled: false,
@@ -711,11 +754,24 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       models: emptyModels,
       skills: [],
       probe: {
-        installed: false,
-        version: null,
+        installed,
+        version: versionResult
+          ? parseGenericCliVersion(`${versionResult.stdout}\n${versionResult.stderr}`)
+          : null,
         status: "warning",
-        auth: { status: "unknown" },
-        message: "Codex is disabled in T3 Code settings.",
+        auth: authenticated
+          ? {
+              status: "authenticated",
+              label: /chatgpt/i.test(`${auth.stdout}\n${auth.stderr}`)
+                ? "ChatGPT"
+                : "Saved Codex account",
+            }
+          : auth && /not logged in|not authenticated/i.test(`${auth.stdout}\n${auth.stderr}`)
+            ? { status: "unauthenticated" }
+            : { status: "unknown" },
+        message: authenticated
+          ? "Existing Codex account found."
+          : "Codex is disabled in mines settings.",
       },
     });
   }
@@ -816,7 +872,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       },
       {
         name: "feedback",
-        description: "Send this thread and Codex logs to OpenAI",
+        description: "Send this mine and Codex logs to OpenAI",
         input: { hint: "Describe the issue (optional)" },
       },
     ],

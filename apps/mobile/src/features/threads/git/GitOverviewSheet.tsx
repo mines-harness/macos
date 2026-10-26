@@ -458,10 +458,10 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
               />
             </Pressable>
           )}
-          <Text className="text-xs font-t3-bold tracking-[1px] uppercase text-foreground-muted">
+          <Text className="text-xs font-mines-bold tracking-[1px] uppercase text-foreground-muted">
             Repository
           </Text>
-          <Text className="pr-10 text-xl font-t3-bold">{currentBranchLabel}</Text>
+          <Text className="pr-10 text-xl font-mines-bold">{currentBranchLabel}</Text>
           <Text className="text-foreground-secondary text-sm font-medium leading-normal">
             {currentStatusSummary}
           </Text>

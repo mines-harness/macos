@@ -11,6 +11,8 @@ import { draftThreadShell } from "./draft-thread-shell";
 import { connectionTone } from "../connection/connectionTone";
 import { AppBar } from "../../components/ui/AppBar";
 import { ThreadId } from "@t3tools/contracts";
+import { catalogHostId, resolveCatalogContext } from "@t3tools/client-runtime/catalog";
+import { useMinesCatalog } from "../../catalog/useMinesCatalog";
 
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
@@ -23,7 +25,7 @@ import {
   useNavigation,
   usePreventRemove,
 } from "@react-navigation/native";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { KeyboardController } from "react-native-keyboard-controller";
@@ -156,6 +158,7 @@ export function NewTaskDraftScreen(props: {
   const [creationMetadata] = useState(makeTurnCommandMetadata);
   const projects = useProjects();
   const flow = useNewTaskFlow();
+  const { snapshot: catalogSnapshot } = useMinesCatalog();
   const navigation = useNavigation();
   const goBack = useWorkspaceBackNavigation("threads");
   const {
@@ -166,8 +169,17 @@ export function NewTaskDraftScreen(props: {
     reserveShare,
   } = useIncomingShare();
   const { projectScopes, selectedProject, selectedProjectKey, setProject } = flow;
-  const selectedProjectLabel = (() => {
+  const selectedProjectLabel = useMemo(() => {
     if (!selectedProject) return null;
+    if (!flow.isScratchDraft) {
+      const path = resolveCatalogContext(catalogSnapshot, {
+        entityId: catalogHostId("project", selectedProject.environmentId, selectedProject.id),
+        environmentId: selectedProject.environmentId,
+      })
+        .layers.map((layer) => layer.title)
+        .join("/");
+      if (path) return path;
+    }
     const scope = projectScopes.find((candidate) =>
       candidate.projectRefs.some(
         (ref) =>
@@ -176,7 +188,7 @@ export function NewTaskDraftScreen(props: {
       ),
     );
     return scope?.title ?? selectedProject.title;
-  })();
+  }, [catalogSnapshot, flow.isScratchDraft, projectScopes, selectedProject]);
   const { onReconnectEnvironment } = useRemoteConnections();
   const environmentRuntime = useRemoteEnvironmentRuntime(selectedProject?.environmentId ?? null);
   const connectionState = environmentRuntime?.connectionState ?? "offline";
@@ -888,7 +900,7 @@ export function NewTaskDraftScreen(props: {
           (environment) => environment.environmentId === strandedThread.environmentId,
         )?.environmentLabel ?? "its machine";
       Dialog.alert(
-        "Attached thread unavailable",
+        "Attached mine unavailable",
         `"${strandedThread.title}" is on another machine. Switch back to ${owner} or remove it from the draft.`,
       );
       return null;
@@ -953,7 +965,7 @@ export function NewTaskDraftScreen(props: {
       ? cloneBlocksStart
         ? "Wait for the project clone to finish."
         : flow.submitting
-          ? "Starting the thread…"
+          ? "Starting the mine…"
           : flow.workspaceMode === "worktree" && (!flow.selectedBranchName || !flow.isGitRepoKnown)
             ? "Choose a base branch before creating a worktree."
             : null
@@ -986,7 +998,7 @@ export function NewTaskDraftScreen(props: {
   );
   const hero = flow.isScratchDraft ? (
     <View className="items-center gap-2 px-6" testID="new-task-hero">
-      <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
+      <Text className="text-center text-2xl font-mines-medium tracking-tight text-foreground">
         What should we work on?
       </Text>
       <View className="flex-row flex-wrap items-center justify-center gap-x-1">
@@ -1005,11 +1017,11 @@ export function NewTaskDraftScreen(props: {
   ) : (
     <View className="items-center gap-6 px-6" testID="new-task-hero">
       <View className="w-full items-center gap-1.5">
-        <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
+        <Text className="text-center text-2xl font-mines-medium tracking-tight text-foreground">
           What should we build
         </Text>
         <View className="max-w-full flex-row items-center justify-center">
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">in </Text>
+          <Text className="text-2xl font-mines-medium tracking-tight text-foreground">in </Text>
           <Pressable
             accessibilityHint="Opens the project picker"
             accessibilityLabel={selectedProjectLabel ?? selectedProject.title}
@@ -1019,13 +1031,13 @@ export function NewTaskDraftScreen(props: {
             className="min-w-0 max-w-[250px] border-b border-foreground-muted active:opacity-65"
           >
             <Text
-              className="text-2xl font-t3-medium tracking-tight text-foreground"
+              className="text-2xl font-mines-medium tracking-tight text-foreground"
               numberOfLines={1}
             >
               {selectedProjectLabel ?? selectedProject.title}
             </Text>
           </Pressable>
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
+          <Text className="text-2xl font-mines-medium tracking-tight text-foreground">?</Text>
         </View>
       </View>
 
@@ -1106,7 +1118,7 @@ export function NewTaskDraftScreen(props: {
     return (
       <ThreadScreenFallback>
         <AppBar
-          title="New thread"
+          title="New mine"
           sidebar={false}
           onBack={goBack}
           options={{

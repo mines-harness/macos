@@ -283,6 +283,37 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
+  it("keeps empty voice placeholders hidden and restores their first transcript", () => {
+    const placeholder = { ...userMessage(), text: "", attachments: [] };
+    const ordinary = { ...placeholder, messageId: MessageId.make("ordinary-empty") };
+    const attachment = {
+      ...placeholder,
+      messageId: MessageId.make("voice-file"),
+      attachments: [
+        {
+          id: "file",
+          type: "file" as const,
+          name: "notes.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+        },
+      ],
+    };
+    const rows = [projected(placeholder, 0), projected(ordinary, 1), projected(attachment, 2)];
+    const cache = createThreadFeedCache();
+    expect(buildThreadFeed(rows, { cache }).map((entry) => entry.id)).toEqual([
+      attachment.messageId,
+    ]);
+    const spoken = buildThreadFeed(
+      [projected({ ...placeholder, text: "Please check the build." }, 0), ...rows.slice(1)],
+      { cache },
+    );
+    expect(spoken[0]).toMatchObject({
+      id: placeholder.messageId,
+      message: { text: "Please check the build." },
+    });
+  });
+
   it("keeps async answers in question history instead of user bubbles", () => {
     const requestId = RuntimeRequestId.make("question");
     const question: OrchestrationV2TurnItem = {
@@ -1183,7 +1214,7 @@ describe("retained v2 feed presentation", () => {
           {
             ...base(id, "2026-06-20T00:00:02.000Z", index),
             type: "dynamic_tool",
-            toolName: "t3-code.delegate_task",
+            toolName: "mines.delegate_task",
             input: { task: "Identical task" },
             output,
             ...overrides,
@@ -1627,7 +1658,7 @@ describe("streamed feed updates", () => {
   const delegation: OrchestrationV2TurnItem = {
     ...item("delegation", 3, runs[0]),
     type: "dynamic_tool",
-    toolName: "t3-code.delegate_task",
+    toolName: "mines.delegate_task",
     input: { task: "Check" },
     output: { taskId: "child" },
   };

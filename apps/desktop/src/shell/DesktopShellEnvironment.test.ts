@@ -21,11 +21,7 @@ const textEncoder = new TextEncoder();
 
 function envOutput(values: Readonly<Record<string, string>>): string {
   return Object.entries(values)
-    .flatMap(([name, value]) => [
-      `__T3CODE_ENV_${name}_START__`,
-      value,
-      `__T3CODE_ENV_${name}_END__`,
-    ])
+    .flatMap(([name, value]) => [`__MINES_ENV_${name}_START__`, value, `__MINES_ENV_${name}_END__`])
     .join("\n");
 }
 

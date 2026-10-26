@@ -1,4 +1,5 @@
 import { readHashParams } from "./remote.ts";
+import { isLoopbackHost } from "./preview.ts";
 
 const CONNECT_AUTH_STATE_PARAM = "state";
 const CONNECT_AUTH_CHALLENGE_PARAM = "challenge";
@@ -7,7 +8,24 @@ const CONNECT_LOOPBACK_CALLBACK_PATH = "/callback";
 
 const CONNECT_AUTHORIZE_PATH = "/connect";
 
-export const DEFAULT_HOSTED_APP_URL = "https://app.t3.codes";
+export function hostedAppOrigin(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    if (
+      (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHost(url.hostname))) ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    )
+      return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export const CONNECT_OAUTH_SCOPES = ["openid", "profile", "email", "offline_access"] as const;
 
@@ -17,7 +35,7 @@ export interface ConnectAuthorizeRequest {
   readonly loopbackPort: number;
 }
 
-/** Route through /connect because Clerk's signed-out redirect can lose OAuth query parameters. */
+/** Route through hosted sign-in before continuing the authorization request. */
 export function buildConnectAuthorizeRequestUrl(input: {
   readonly hostedAppUrl: string;
   readonly state: string;
@@ -52,7 +70,7 @@ function parseLoopbackPort(value: string): number | null {
   return port >= 1 && port <= 65535 ? port : null;
 }
 
-/** Must match the loopback redirect URI registered on the Clerk CLI OAuth app. */
+/** Must match the loopback redirect URI registered on the CLI OAuth application. */
 export function connectLoopbackRedirectUri(port: number): string {
   return `http://127.0.0.1:${port}${CONNECT_LOOPBACK_CALLBACK_PATH}`;
 }

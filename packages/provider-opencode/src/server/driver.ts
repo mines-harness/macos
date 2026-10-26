@@ -125,7 +125,20 @@ function selectOpenCodeRuntimeTextGeneration(
   v1: ProviderTextGeneration,
   v2: ProviderTextGeneration,
 ): ProviderTextGeneration {
+  const assessV1 = v1.assessGroupRelevance;
+  const assessV2 = v2.assessGroupRelevance;
   return {
+    ...(assessV1 && assessV2
+      ? {
+          assessGroupRelevance: (
+            input: Parameters<NonNullable<ProviderTextGeneration["assessGroupRelevance"]>>[0],
+          ) =>
+            byOpenCodeRuntime(probe.get, {
+              v1: assessV1(input),
+              v2: assessV2(input),
+            }),
+        }
+      : {}),
     generateCommitMessage: (input) =>
       byOpenCodeRuntime(probe.get, {
         v1: v1.generateCommitMessage(input),
@@ -342,6 +355,7 @@ export const OpenCodeDriver: ProviderDriver<
           host.paths.cwd,
           runtimeProbe.refresh,
           loadOpenCode2Models,
+          processEnv,
         ).pipe(
           Effect.annotateLogs({ providerInstanceId: instanceId }),
           Effect.annotateSpans({ providerInstanceId: instanceId }),

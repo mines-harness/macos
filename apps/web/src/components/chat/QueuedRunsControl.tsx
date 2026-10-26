@@ -41,7 +41,7 @@ interface QueuedRowThumbnail {
   readonly url: string | null;
 }
 
-const QUEUED_RUN_DRAG_TYPE = "application/x-t3code-queued-run";
+const QUEUED_RUN_DRAG_TYPE = "application/x-mines-queued-run";
 
 export interface QueuedRunsControlHandle {
   steerNext: (repeat: boolean) => boolean;

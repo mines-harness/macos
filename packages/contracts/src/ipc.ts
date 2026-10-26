@@ -998,11 +998,61 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopMenuBarState = Schema.Struct({
+  running: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100_000 })),
+  attention: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100_000 })),
+  connectedDevices: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 10_000 })),
+  totalDevices: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 10_000 })),
+  devices: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String.check(Schema.isMaxLength(256)),
+        name: Schema.String.check(Schema.isMaxLength(100)),
+        connected: Schema.Boolean,
+        local: Schema.Boolean,
+      }),
+    ).check(Schema.isMaxLength(100)),
+  ),
+  threads: Schema.Array(
+    Schema.Struct({
+      environmentId: Schema.String.check(Schema.isMaxLength(256)),
+      threadId: Schema.String.check(Schema.isMaxLength(256)),
+      title: Schema.String.check(Schema.isMaxLength(160)),
+      status: Schema.Literals(["working", "attention"]),
+    }),
+  ).check(Schema.isMaxLength(12)),
+  limits: Schema.Array(
+    Schema.Struct({
+      label: Schema.String.check(Schema.isMaxLength(100)),
+      driver: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(100))),
+      accountLabel: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
+      remainingPercent: Schema.NullOr(
+        Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
+      ),
+      checkedAt: Schema.String.check(Schema.isMaxLength(40)),
+      windows: Schema.optionalKey(
+        Schema.Array(
+          Schema.Struct({
+            id: Schema.String.check(Schema.isMaxLength(100)),
+            label: Schema.String.check(Schema.isMaxLength(100)),
+            remainingPercent: Schema.NullOr(
+              Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
+            ),
+            resetsAt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+          }),
+        ).check(Schema.isMaxLength(12)),
+      ),
+    }),
+  ).check(Schema.isMaxLength(12)),
+});
+export type DesktopMenuBarState = typeof DesktopMenuBarState.Type;
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled?: () => boolean;
   getPathForFile?: (file: File) => string;
   getClientPlatform?: () => string;
+  setMenuBarState?: (state: DesktopMenuBarState) => Promise<void>;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
   onTrackpadScrollEnd?: (listener: () => void) => () => void;
@@ -1025,6 +1075,15 @@ export interface DesktopBridge {
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog?: () => Promise<string | null>;
+  getMinesAccountToken?: () => Promise<string | null>;
+  setMinesAccountToken?: (token: string | null) => Promise<void>;
+  getMinesCatalog?: (accountId: string) => Promise<string | null>;
+  setMinesCatalog?: (
+    accountId: string,
+    snapshot: string,
+    mergeCatalog?: boolean,
+  ) => Promise<void | string>;
+  clearMinesCatalog?: (accountId: string) => Promise<void>;
   setConnectionCatalog?: (catalog: string) => Promise<boolean>;
   clearConnectionCatalog?: () => Promise<void>;
   discoverSshHosts: () => Promise<readonly DesktopDiscoveredSshHost[]>;

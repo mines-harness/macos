@@ -34,7 +34,7 @@ export class ContextHandoffPrepareError extends Schema.TaggedError<ContextHandof
   },
 ) {
   override get message(): string {
-    return `Failed to prepare context handoff for run ${this.targetRunId} in thread ${this.threadId}.`;
+    return `Failed to prepare context handoff for run ${this.targetRunId} in mine ${this.threadId}.`;
   }
 }
 
@@ -91,7 +91,7 @@ export interface ContextHandoffServiceV2Shape {
 export class ContextHandoffServiceV2 extends Context.Service<
   ContextHandoffServiceV2,
   ContextHandoffServiceV2Shape
->()("t3/orchestration-v2/ContextHandoffService/ContextHandoffServiceV2") {}
+>()("mines/orchestration-v2/ContextHandoffService/ContextHandoffServiceV2") {}
 
 function compactText(text: string, maxLength = 240): string {
   const compacted = text.replace(/\s+/g, " ").trim();
@@ -132,8 +132,8 @@ function makeForkDeltaSummary(input: {
   });
   return [
     "Merge-back context from forked conversation.",
-    `Source thread: ${input.sourceThreadId}`,
-    `Target thread: ${input.targetThreadId}`,
+    `Source mine: ${input.sourceThreadId}`,
+    `Target mine: ${input.targetThreadId}`,
     `Covered fork runs: ${input.coveredRunOrdinals.from}-${input.coveredRunOrdinals.to}`,
     "",
     "Fork delta:",
@@ -153,7 +153,7 @@ function makeLegacyImportSummary(items: ReadonlyArray<OrchestrationV2TurnItem>):
     }
   });
   const header =
-    "Imported conversation history from the previous T3 Code orchestrator. Use it as context; do not repeat it unless the user asks.";
+    "Imported conversation history from the previous mines orchestrator. Use it as context; do not repeat it unless the user asks.";
   const maxChars = 32_000;
   const selected: Array<string> = [];
   let remaining = maxChars - header.length - 2;

@@ -9,6 +9,7 @@ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 import * as CheckpointCapture from "./CheckpointCaptureService.ts";
 import * as CheckpointRollback from "./CheckpointRollbackService.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
@@ -68,6 +69,7 @@ it.effect.each([
   const finalization = RunFinalization.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(WorkspaceRunLease.WorkspaceRunLease)({ completeCheckpoint: () => Effect.void }),
         projections,
         observer,
         Layer.mock(CheckpointCapture.CheckpointCaptureServiceV2)({

@@ -20,6 +20,9 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GroupParticipantsButton } from "../../catalog/GroupParticipantsButton";
+import { MobileGroupParticipantsModal } from "../../catalog/MobileGroupParticipantsModal";
+import { MobileGroupModal } from "../../catalog/MobileGroupModal";
 import { cn } from "../../lib/cn";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { Button } from "../../components/ui/Button";
@@ -152,6 +155,8 @@ function NewTaskHeader(props: {
 export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRouteParams | undefined>) {
   const projects = useProjects();
   const [searchText, setSearchText] = useState("");
+  const [addingParticipants, setAddingParticipants] = useState(false);
+  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
   const { projectScopes, selectedEnvironmentId, setProject } = useNewTaskFlow();
   const { state: catalogState } = useWorkspaceState();
   const navigation = useNavigation();
@@ -258,7 +263,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           "Could not start without a project",
           error instanceof Error
             ? error.message
-            : "The folder for threads without a project could not be created.",
+            : "The folder for mines without a project could not be created.",
         );
       }
       return;
@@ -327,6 +332,9 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               : {}),
           }}
         >
+          {catalogState.hasReadyEnvironment && selectedEnvironmentId ? (
+            <GroupParticipantsButton onPress={() => setAddingParticipants(true)} />
+          ) : null}
           {canStartScratch && listScopes.length > 0 ? (
             Platform.OS === "android" ? (
               <View collapsable={false} className="overflow-hidden rounded-[28px] bg-grouped-card">
@@ -362,7 +370,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     />
                   </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-base font-t3-bold leading-snug">No project</Text>
+                    <Text className="text-base font-mines-bold leading-snug">No project</Text>
                     <Text className="text-xs leading-snug text-foreground-muted" numberOfLines={1}>
                       Start a task without a project
                     </Text>
@@ -388,7 +396,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               {projectEmptyState.loading ? (
                 <AppActivityIndicator colorClassName="accent-icon-muted" />
               ) : null}
-              <Text className="text-center text-lg font-t3-bold text-foreground">
+              <Text className="text-center text-lg font-mines-bold text-foreground">
                 {projectEmptyState.title}
               </Text>
               <Text className="text-center text-sm leading-normal text-foreground-muted">
@@ -442,7 +450,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
             </View>
           ) : visibleScopes.length === 0 ? (
             <View className="items-center gap-2 px-6 py-8">
-              <Text className="text-center text-lg font-t3-bold text-foreground">
+              <Text className="text-center text-lg font-mines-bold text-foreground">
                 No matching projects
               </Text>
               <Text className="text-center text-sm leading-normal text-foreground-muted">
@@ -515,7 +523,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                         />
                       </View>
                       <View className="min-w-0 flex-1">
-                        <Text className={cn("text-base leading-snug", "font-t3-bold")}>
+                        <Text className={cn("text-base leading-snug", "font-mines-bold")}>
                           {scope.title}
                         </Text>
                         <Text
@@ -542,6 +550,23 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           )}
         </ScrollView>
       </ScreenContent>
+      {addingParticipants && selectedEnvironmentId ? (
+        <MobileGroupParticipantsModal
+          environmentId={selectedEnvironmentId}
+          onClose={() => setAddingParticipants(false)}
+          onSaved={(snapshot) => {
+            setAddingParticipants(false);
+            setCreatedGroupId(snapshot.group.id);
+          }}
+        />
+      ) : null}
+      {createdGroupId && selectedEnvironmentId ? (
+        <MobileGroupModal
+          environmentId={selectedEnvironmentId}
+          groupId={createdGroupId}
+          onClose={() => setCreatedGroupId(null)}
+        />
+      ) : null}
     </View>
   );
 }

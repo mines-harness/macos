@@ -87,7 +87,7 @@ export async function startFanoutThread(input: {
   try {
     if (uncertainThreadId) {
       throw new Error(
-        "The previous request may have started. Open its thread to check before sending again.",
+        "The previous request may have started. Open its mine to check before sending again.",
       );
     }
     requestMayHaveStarted = true;
@@ -119,7 +119,7 @@ export async function startFanoutThread(input: {
                   onClick: () => {
                     void readLocalApi()
                       ?.dialogs.confirm(
-                        "The previous request may already be running. Check its thread first. Allow another send that could create a duplicate thread?",
+                        "The previous request may already be running. Check its mine first. Allow another send that could create a duplicate mine?",
                       )
                       .then(
                         (confirmed) => {
@@ -137,7 +137,7 @@ export async function startFanoutThread(input: {
                 },
               },
               actionProps: {
-                children: "Open thread",
+                children: "Open mine",
                 onClick: () => input.openThread(retainedThreadId),
               },
             }
@@ -247,7 +247,7 @@ export async function rewindToMessage(input: {
     store.addFiles(draftTarget, restoredFiles, { allowDuplicates: true });
     return { error: null, prompt: nextPrompt };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Failed to revert thread state." };
+    return { error: error instanceof Error ? error.message : "Failed to revert mine state." };
   }
 }
 

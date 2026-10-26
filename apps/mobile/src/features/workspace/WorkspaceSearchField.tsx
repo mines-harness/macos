@@ -20,7 +20,7 @@ export function WorkspaceSearchField({
 }) {
   const inputStyle = useResolveClassNames("text-foreground font-sans text-base");
   const placeholderStyle = useResolveClassNames("text-foreground-muted");
-  const label = props.tab === "pullRequests" ? "Search pull requests" : "Search threads";
+  const label = props.tab === "pullRequests" ? "Search pull requests" : "Search mines";
   return (
     <GlassSurface
       className="min-w-0 flex-1"

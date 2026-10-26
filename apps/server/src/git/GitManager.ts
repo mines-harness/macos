@@ -157,7 +157,7 @@ export class GitManager extends Context.Service<
       Scope.Scope
     >;
   }
->()("t3/git/GitManager") {}
+>()("mines/git/GitManager") {}
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -263,7 +263,7 @@ function resolvePullRequestWorktreeLocalBranchName(
 
   const sanitizedHeadBranch = sanitizeBranchFragment(pullRequest.headBranch).trim();
   const suffix = sanitizedHeadBranch.length > 0 ? sanitizedHeadBranch : "head";
-  return `t3code/pr-${pullRequest.number}/${suffix}`;
+  return `mines/pr-${pullRequest.number}/${suffix}`;
 }
 
 export function parseRepositoryNameWithOwnerFromRemoteUrl(
@@ -695,7 +695,7 @@ export const make = Effect.gen(function* () {
         messages: visibleTurnItems.flatMap(
           ({ item }) => historicalMessage(limitCommandOutput(item)) ?? [],
         ),
-        coverage: "Digest of the thread that made this change, oldest first.",
+        coverage: "Digest of the mine that made this change, oldest first.",
         budget: PR_THREAD_CONTEXT_BYTES,
       });
       return selected.messages.length === 0
@@ -712,8 +712,8 @@ export const make = Effect.gen(function* () {
         ),
       ),
   );
-  // Hands the base T3 recorded for a branch to the host, whose own tools may keep it elsewhere.
-  // Best-effort: nothing T3 does reads it back from there.
+  // Hands the base mines recorded for a branch to the host, whose own tools may keep it elsewhere.
+  // Best-effort: nothing mines does reads it back from there.
   const shareBranchBase = Effect.fn("GitManager.shareBranchBase")(function* (
     cwd: string,
     branch: string,
@@ -1974,7 +1974,10 @@ export const make = Effect.gen(function* () {
     upstreamRef: string | null,
     headContext: Pick<BranchHeadContext, "isCrossRepository" | "remoteName">,
   ) {
-    const configuredRef = yield* gitCore.readConfigValue(cwd, `branch.${branch}.t3-merge-base-ref`);
+    const configuredRef = yield* gitCore.readConfigValue(
+      cwd,
+      `branch.${branch}.mines-merge-base-ref`,
+    );
     if (configuredRef?.startsWith("refs/heads/") || configuredRef?.startsWith("refs/remotes/")) {
       const configuredBranch = yield* gitCore.resolveBranchName(cwd, configuredRef);
       if (configuredBranch) return { baseBranch: configuredBranch, baseRef: configuredRef };
@@ -2298,7 +2301,7 @@ export const make = Effect.gen(function* () {
 
     const bodyFile = path.join(
       tempDir,
-      `t3code-pr-body-${process.pid}-${yield* randomUUIDv4(cwd)}.md`,
+      `mines-pr-body-${process.pid}-${yield* randomUUIDv4(cwd)}.md`,
     );
     yield* fileSystem.writeFileString(bodyFile, generated.body).pipe(
       Effect.mapError(
@@ -2388,7 +2391,7 @@ export const make = Effect.gen(function* () {
     ) {
       return remembered.value;
     }
-    // invalidateStatus bumps the epoch. A read that started before a T3 git
+    // invalidateStatus bumps the epoch. A read that started before a mines git
     // action, or before a newer read finished, must not replace their state.
     const epoch = prLookupEpoch(cwd);
     const value = yield* read;
@@ -2920,7 +2923,7 @@ export const make = Effect.gen(function* () {
           operation: "preparePullRequestThread",
           cwd: input.cwd,
           detail:
-            "This PR branch is already checked out in the main repo. Use Local, or switch the main repo off that branch before creating a worktree thread.",
+            "This PR branch is already checked out in the main repo. Use Local, or switch the main repo off that branch before creating a worktree mine.",
         });
       }
 
@@ -2948,7 +2951,7 @@ export const make = Effect.gen(function* () {
           operation: "preparePullRequestThread",
           cwd: input.cwd,
           detail:
-            "This PR branch is already checked out in the main repo. Use Local, or switch the main repo off that branch before creating a worktree thread.",
+            "This PR branch is already checked out in the main repo. Use Local, or switch the main repo off that branch before creating a worktree mine.",
         });
       }
 

@@ -62,7 +62,7 @@ export function fullAccessOverrideExplanation(
 ): string {
   return override === "ask_rule"
     ? "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts."
-    : "Full access skips approvals, but the agent still stops for a few safety checks of its own that no setting can skip, such as a delete whose path it can't verify. T3 Code can't turn these off, so check the request and approve it if it's what you expect.";
+    : "Full access skips approvals, but the agent still stops for a few safety checks of its own that no setting can skip, such as a delete whose path it can't verify. mines can't turn these off, so check the request and approve it if it's what you expect.";
 }
 
 export interface ThreadUserInputQuestion extends Omit<
@@ -174,6 +174,8 @@ export function createQuestionHistoryProjector<
   let previousRequests: Requests | undefined;
   let previousResult: Rows | undefined;
   const cache = new WeakMap<Row, { request: Requests[number]; row: Row }>();
+  const archiveNote =
+    "mines import archive: original transcript, tool records, and attachment references. Download the manifest and numbered parts to inspect the complete source. Referenced files have not been fetched or executed.";
   return (projection: {
     readonly visibleTurnItems: Rows;
     readonly runtimeRequests: Requests;
@@ -185,6 +187,24 @@ export function createQuestionHistoryProjector<
     let result: Row[] | undefined;
     for (const [index, row] of rows.entries()) {
       const item = row.item;
+      if (
+        item.type === "user_message" &&
+        item.createdBy === "system" &&
+        item.creationSource === "server" &&
+        item.runId === null &&
+        item.threadId.startsWith("import:") &&
+        item.messageId.startsWith(`${item.threadId}:`) &&
+        /^\d{6,}$/.test(item.messageId.slice(item.threadId.length + 1)) &&
+        item.id === `agent-session-import:v2:turn-item:${item.messageId}` &&
+        item.text === archiveNote &&
+        item.attachments.some(
+          (attachment) =>
+            attachment.type === "file" && attachment.name === "source-history-manifest.json",
+        )
+      ) {
+        result ??= rows.slice(0, index);
+        continue;
+      }
       const request =
         item.type === "user_input_request" && !item.questionAnswer
           ? byId.get(item.requestId)

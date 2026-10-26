@@ -221,7 +221,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     if (environmentId === null) {
       Dialog.alert(
         "Could not start without a project",
-        "No connected environment offers threads without a project.",
+        "No connected environment offers mines without a project.",
       );
       return;
     }
@@ -233,7 +233,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
           "Could not start without a project",
           error instanceof Error
             ? error.message
-            : "The folder for threads without a project could not be created.",
+            : "The folder for mines without a project could not be created.",
         );
       }
       return;

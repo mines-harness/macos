@@ -1,3 +1,4 @@
+import { BodyRangeNotice } from "./BodyRangeNotice";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -11,7 +12,7 @@ import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { McpAppFrame } from "./McpAppFrame";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
-import { useProject, useThreadShell } from "../../state/entities";
+import { useProject, useThreadShell, useThreadVisibleTurnItems } from "../../state/entities";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
@@ -30,7 +31,8 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
+        <MessageAuthorHeading>mines</MessageAuthorHeading>
+        <BodyRangeNotice row={row.projectedItem} threadRef={ctx.threadRef} />
         <div data-thread-find-text="true">
           <AssistantCitationSource
             messageId={row.message.id}
@@ -223,11 +225,20 @@ export function ProposedPlanTimelineRow({
   row: Extract<TimelineRow, { kind: "proposed-plan" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  const items = useThreadVisibleTurnItems(ctx.threadRef);
+  const projected = items.find(
+    (entry) => entry.item.type === "proposed_plan" && entry.item.planId === row.proposedPlan.id,
+  );
 
   return (
     <div className="min-w-0 px-1 py-0.5">
+      <BodyRangeNotice row={projected} threadRef={ctx.threadRef} />
       <ProposedPlanCard
-        planMarkdown={row.proposedPlan.planMarkdown}
+        planMarkdown={
+          projected?.item.type === "proposed_plan"
+            ? projected.item.markdown
+            : row.proposedPlan.planMarkdown
+        }
         environmentId={ctx.activeThreadEnvironmentId}
         threadRef={ctx.threadRef ?? undefined}
         cwd={ctx.markdownCwd}

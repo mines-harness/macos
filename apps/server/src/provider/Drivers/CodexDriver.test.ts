@@ -16,6 +16,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -43,7 +44,7 @@ import * as ProviderCredentialStore from "../ProviderCredentialStore.ts";
 import * as ProviderHostLive from "../ProviderHostLive.ts";
 
 const layerDeps = ServerConfig.layerTest(process.cwd(), {
-  prefix: "t3-codex-driver-maintenance-",
+  prefix: "minesx-driver-maintenance-",
 }).pipe(
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(IdAllocator.layer),
@@ -101,9 +102,16 @@ const noSpawn = ChildProcessSpawner.make(() =>
   Effect.die("Disabled Codex must not spawn a process"),
 );
 const encodeCredentials = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeProbeRequest = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({ id: Schema.optionalKey(Schema.Number), method: Schema.String }),
+  ),
+);
 
 it.layer(layerTest)("CodexDriver", (it) => {
-  const checkManagedAccount = (replacementTiming: "unchanged" | "during-probe") =>
+  const checkManagedAccount = (
+    scenario: "unchanged" | "during-probe" | "empty-catalog" | "available-catalog",
+  ) =>
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("restored-managed-account");
       const credentials = new Map<string, Uint8Array>();
@@ -209,9 +217,60 @@ it.layer(layerTest)("CodexDriver", (it) => {
             ChildProcessSpawner.ChildProcessSpawner,
             ChildProcessSpawner.make(() =>
               Effect.gen(function* () {
-                if (replacementTiming === "during-probe") {
+                if (scenario === "during-probe") {
                   yield* Deferred.succeed(probeEntered, undefined);
                   yield* Deferred.await(resumeProbe);
+                }
+                if (scenario === "empty-catalog" || scenario === "available-catalog") {
+                  const responses = yield* Queue.unbounded<Uint8Array>();
+                  return ChildProcessSpawner.makeHandle({
+                    pid: ChildProcessSpawner.ProcessId(1),
+                    exitCode: Effect.never,
+                    isRunning: Effect.succeed(true),
+                    kill: () => Effect.void,
+                    unref: Effect.succeed(Effect.void),
+                    stdin: Sink.forEach((chunk: Uint8Array) =>
+                      Effect.forEach(
+                        new TextDecoder().decode(chunk).trim().split("\n"),
+                        (line) => {
+                          const request = decodeProbeRequest(line);
+                          if (request.id === undefined) return Effect.void;
+                          const result =
+                            request.method === "initialize"
+                              ? {
+                                  userAgent: "codex/0.156.1",
+                                  codexHome: sharedHome,
+                                  platformFamily: "unix",
+                                  platformOs: "macos",
+                                }
+                              : request.method === "account/read"
+                                ? { account: null, requiresOpenaiAuth: false }
+                                : request.method === "model/list"
+                                  ? { data: [], nextCursor: null }
+                                  : request.method === "skills/list"
+                                    ? { data: [] }
+                                    : undefined;
+                          return Queue.offer(
+                            responses,
+                            new TextEncoder().encode(
+                              JSON.stringify({
+                                id: request.id,
+                                ...(result
+                                  ? { result }
+                                  : { error: { code: -32601, message: "Unknown method" } }),
+                              }) + "\n",
+                            ),
+                          );
+                        },
+                        { discard: true },
+                      ),
+                    ),
+                    stdout: Stream.fromQueue(responses),
+                    stderr: Stream.empty,
+                    all: Stream.empty,
+                    getInputFd: () => Sink.drain,
+                    getOutputFd: () => Stream.empty,
+                  });
                 }
                 return yield* PlatformError.badArgument({
                   module: "ChildProcessSpawner",
@@ -235,13 +294,13 @@ it.layer(layerTest)("CodexDriver", (it) => {
         );
         yield* Deferred.await(startupChecksInterrupted);
         const refresh = yield* instance.snapshot.refresh.pipe(Effect.forkChild);
-        if (replacementTiming === "during-probe") {
+        if (scenario === "during-probe") {
           yield* Deferred.await(probeEntered);
           yield* replaceAccount;
           yield* Deferred.succeed(resumeProbe, undefined);
         }
         const restored = yield* Fiber.join(refresh);
-        if (replacementTiming === "during-probe") {
+        if (scenario === "during-probe") {
           expect(catalogTokens).toEqual([]);
           expect(restored.models).toEqual([]);
           expect(restored.auth.email).toBe("replacement@example.test");
@@ -250,6 +309,23 @@ it.layer(layerTest)("CodexDriver", (it) => {
         }
         expect(catalogTokens).toEqual(["Bearer dummy-owned-access"]);
         expect(restored.auth.email).toBe("account@example.test");
+        if (scenario === "empty-catalog") {
+          expect(restored.models).toEqual([]);
+          expect(restored.status).toBe("warning");
+          expect(restored.message).toBe(
+            "No models are available for this ChatGPT account. Try another account in provider settings.",
+          );
+          expect(restored.auth.subscriptionSharing).toBe(true);
+          return;
+        }
+        if (scenario === "available-catalog") {
+          expect(restored.models.map((model) => model.slug)).toEqual(["gpt-test"]);
+          expect(restored.status).toBe("ready");
+          expect(restored.message).toBeUndefined();
+          expect(restored.auth.subscriptionSharing).toBe(true);
+          return;
+        }
+        expect(restored.status).toBe("error");
         expect(restored.runtimePaths?.homePath).toBe(sharedHome);
         expect(restored.runtimePaths?.shadowHomePath).toContain(
           `providers/codex/${instanceId}/shadow`,
@@ -310,7 +386,15 @@ it.layer(layerTest)("CodexDriver", (it) => {
               ]).toContain(request.url);
               if (request.url.endsWith("/models")) {
                 catalogTokens.push(request.headers.authorization);
-                return HttpClientResponse.fromWeb(request, Response.json({ models: [] }));
+                return HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    models:
+                      scenario === "available-catalog"
+                        ? [{ slug: "gpt-test", display_name: "GPT Test", visibility: "list" }]
+                        : [],
+                  }),
+                );
               }
               return HttpClientResponse.fromWeb(
                 request,
@@ -331,7 +415,7 @@ it.layer(layerTest)("CodexDriver", (it) => {
     }).pipe(Effect.scoped);
   // regression: a sign-in that replaces the account mid-probe must not label the old
   // account's catalog with the new identity.
-  it.effect.each(["unchanged", "during-probe"] as const)(
+  it.effect.each(["unchanged", "during-probe", "empty-catalog", "available-catalog"] as const)(
     "managed catalog keeps its account label and token together: %s",
     checkManagedAccount,
   );
@@ -342,7 +426,7 @@ it.layer(layerTest)("CodexDriver", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const tempDir = yield* fs
-          .makeTempDirectoryScoped({ prefix: "t3-codex-driver-" })
+          .makeTempDirectoryScoped({ prefix: "minesx-driver-" })
           .pipe(Effect.flatMap((directory) => fs.realPath(directory)));
         const sharedHome = NodePath.join(tempDir, "codex-home");
         const shadowHome = NodePath.join(tempDir, "codex-shadow");
@@ -403,7 +487,7 @@ it.layer(layerTest)("CodexDriver", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const tempDir = yield* fs
-          .makeTempDirectoryScoped({ prefix: "t3-codex-installer-" })
+          .makeTempDirectoryScoped({ prefix: "minesx-installer-" })
           .pipe(Effect.flatMap((directory) => fs.realPath(directory)));
         const installPath = NodePath.join(tempDir, ...fixture.installSegments);
         const realBinaryPath = NodePath.join(
@@ -502,7 +586,7 @@ it.layer(layerTest)("CodexDriver", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const tempDir = yield* fs
-          .makeTempDirectoryScoped({ prefix: "t3-codex-mise-shim-" })
+          .makeTempDirectoryScoped({ prefix: "minesx-mise-shim-" })
           .pipe(Effect.flatMap((directory) => fs.realPath(directory)));
         const brewPrefix = NodePath.join(tempDir, "homebrew");
         const brewPath = NodePath.join(brewPrefix, "bin", "brew");

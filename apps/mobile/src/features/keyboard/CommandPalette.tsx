@@ -40,7 +40,7 @@ import { cn } from "../../lib/cn";
 import { deriveBottomControlInsets } from "../../lib/reserved-regions";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
-import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
+import { MinesKeyboardCommands } from "../../native/MinesKeyboardCommands";
 import { useProjects, useThreadShell, useThreadShells } from "../../state/entities";
 import { useThreadSearch } from "../../state/queries";
 import { requestThreadMessageJump } from "../threads/threadMessageJump";
@@ -82,6 +82,7 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   appearance: "paintbrush",
   environments: "desktopcomputer",
   usage: "chart.bar.xaxis",
+  contacts: "person.crop.circle",
   archive: "archivebox",
   files: "doc.text",
   terminal: "terminal",
@@ -148,7 +149,7 @@ function PaletteRow(props: {
               ? splitSearchText(props.item.title, props.item.titleRanges).map((part) => (
                   <Text
                     key={part.start}
-                    className={cn("text-base", part.highlighted && "font-t3-bold")}
+                    className={cn("text-base", part.highlighted && "font-mines-bold")}
                   >
                     {part.text}
                   </Text>
@@ -181,7 +182,10 @@ function PaletteRow(props: {
           <Text numberOfLines={1} className={cn("text-sm", mutedForegroundClassName)}>
             {props.item.matchHint.label}:{" "}
             {splitSearchText(props.item.matchHint.text, props.item.matchHint.ranges).map((part) => (
-              <Text key={part.start} className={cn("text-sm", part.highlighted && "font-t3-bold")}>
+              <Text
+                key={part.start}
+                className={cn("text-sm", part.highlighted && "font-mines-bold")}
+              >
                 {part.text}
               </Text>
             ))}
@@ -270,8 +274,8 @@ export function CommandPalette(props: {
       {
         key: "newTask",
         kind: "action",
-        title: "New thread in…",
-        searchTerms: ["new task", "chat", "create", "project"],
+        title: "New mine in…",
+        searchTerms: ["new task", "mine", "chat", "create", "project"],
         run: () => runCommand("newTask"),
       },
       {
@@ -317,9 +321,16 @@ export function CommandPalette(props: {
         run: () => openSettings(navigation, "SettingsUsage"),
       },
       {
+        key: "contacts",
+        kind: "action",
+        title: "Contacts",
+        searchTerms: ["friends", "invitations", "friend id"],
+        run: () => selectTab("contacts"),
+      },
+      {
         key: "archive",
         kind: "action",
-        title: "Archived threads",
+        title: "Archived mines",
         searchTerms: ["restore", "history"],
         run: () => openSettings(navigation, "SettingsArchive"),
       },
@@ -334,8 +345,8 @@ export function CommandPalette(props: {
       actions.unshift({
         key: "newThread",
         kind: "action",
-        title: `New thread in ${activeProject.title}`,
-        searchTerms: ["new task", "chat", "create"],
+        title: `New mine in ${activeProject.title}`,
+        searchTerms: ["new task", "mine", "chat", "create"],
         run: () =>
           selectDetail({
             name: "Thread",
@@ -355,7 +366,7 @@ export function CommandPalette(props: {
         ["files", "Go to file", ["open", "files", "browse", "search"]],
         ["terminal", "Open terminal", ["shell", "console"]],
         ["review", "Review changes", ["diff", "git", "pull request"]],
-        ["copyThreadReference", "Copy PR link or thread ID", ["reference", "clipboard"]],
+        ["copyThreadReference", "Copy PR link or mine ID", ["reference", "clipboard"]],
       ] as const;
       actions.push(
         ...threadActions.map(([command, title, searchTerms]) => ({
@@ -372,8 +383,8 @@ export function CommandPalette(props: {
       kind: "project",
       project,
       title: project.title,
-      detail: `New thread · ${savedConnectionsById[project.environmentId]?.environmentLabel ?? project.environmentId}`,
-      searchTerms: [project.workspaceRoot, "new thread", "project"],
+      detail: `New mine · ${savedConnectionsById[project.environmentId]?.environmentLabel ?? project.environmentId}`,
+      searchTerms: [project.workspaceRoot, "new mine", "project"],
       run: () =>
         selectDetail({
           name: "Thread",
@@ -399,7 +410,7 @@ export function CommandPalette(props: {
         return {
           key: scopedThreadKey(thread.environmentId, thread.id),
           kind: "thread",
-          title: thread.title || "Untitled thread",
+          title: thread.title || "Untitled mine",
           detail: [project?.title, environment].filter(Boolean).join(" · "),
           searchTerms: [],
           threadSearch: threadSearchSubject(
@@ -560,7 +571,7 @@ export function CommandPalette(props: {
       onDismiss={handleDismissed}
     >
       <GestureHandlerRootView className="flex-1">
-        <T3KeyboardCommands enabledCommands={PALETTE_COMMANDS} onCommand={onCommand}>
+        <MinesKeyboardCommands enabledCommands={PALETTE_COMMANDS} onCommand={onCommand}>
           <KeyboardAvoidingView
             behavior="padding"
             className="flex-1 items-center justify-center py-4"
@@ -592,8 +603,8 @@ export function CommandPalette(props: {
                   />
                   <TextInput
                     ref={inputRef}
-                    accessibilityLabel="Search commands, projects, and threads"
-                    placeholder="Search commands, projects, and threads…"
+                    accessibilityLabel="Search commands, projects, and mines"
+                    placeholder="Search commands, projects, and mines…"
                     placeholderTextColorClassName="accent-placeholder"
                     autoCorrect={false}
                     autoCapitalize="none"
@@ -666,7 +677,7 @@ export function CommandPalette(props: {
               />
             </GlassSurface>
           </KeyboardAvoidingView>
-        </T3KeyboardCommands>
+        </MinesKeyboardCommands>
       </GestureHandlerRootView>
     </Modal>
   );

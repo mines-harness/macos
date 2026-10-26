@@ -73,11 +73,11 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=t3code-relay...
+              - --filter=mines-relay...
 
       # Destroy also runs the preview tunnel sweep, which is part of the stack.
       - name: Destroy preview stage
-        run: vp run --filter t3code-relay destroy --stage "$STAGE" --yes --no-input
+        run: vp run --filter mines-relay destroy --stage "$STAGE" --yes --no-input
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           PLANETSCALE_API_TOKEN_ID: ${{ secrets.PLANETSCALE_API_TOKEN_ID }}
@@ -186,11 +186,11 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=t3code-relay...
+              - --filter=mines-relay...
 
       - name: Destroy preview stage
         if: steps.eligible.outputs.eligible == 'yes'
-        run: vp run --filter t3code-relay destroy --stage "$STAGE" --yes --no-input
+        run: vp run --filter mines-relay destroy --stage "$STAGE" --yes --no-input
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           PLANETSCALE_API_TOKEN_ID: ${{ secrets.PLANETSCALE_API_TOKEN_ID }}

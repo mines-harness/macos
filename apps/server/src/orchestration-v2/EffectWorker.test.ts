@@ -21,6 +21,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -34,6 +35,8 @@ import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 
 const threadId = ThreadId.make("thread:effect-worker-restart");
 const oldSessionId = ProviderSessionId.make("provider-session:effect-worker-restart:old");
@@ -626,3 +629,66 @@ it.effect.each(["confirmed", "unconfirmed", "failed"] as const)(
       );
     }),
 );
+
+it.effect("defers busy checkouts without spending attempts or starving checkpoint work", () => {
+  const calls: string[] = [];
+  let busy = true;
+  const startEffectId = "effect:workspace-lease:a-start";
+  const captureEffectId = "effect:workspace-lease:b-capture";
+  const outboxLayer = EffectOutbox.layer.pipe(Layer.provide(SqlitePersistence.layerMemory));
+  const executorLayer = Layer.mock(EffectWorker.OrchestrationEffectExecutorV2)({
+    execute: (effect) =>
+      Effect.gen(function* () {
+        calls.push(effect.request.type);
+        if (effect.request.type === "provider-turn.start" && busy) {
+          return yield* new EffectWorker.OrchestrationEffectExecutionError({
+            effectId: effect.id,
+            effectType: effect.request.type,
+            cause: new ProviderTurnStartService.ProviderTurnStartError({
+              runId: effect.request.runId,
+              cause: new WorkspaceRunLease.WorkspaceRunLeaseBusy({ cwd: "/checkout" }),
+            }),
+          });
+        }
+      }),
+  });
+  const layer = EffectWorker.layerWithOptions({ maxAttempts: 1 }).pipe(
+    Layer.provideMerge(Layer.merge(outboxLayer, executorLayer)),
+  );
+  return Effect.gen(function* () {
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
+    const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+    yield* outbox.enqueue([
+      {
+        id: startEffectId,
+        commandId: CommandId.make("command:lease:start"),
+        threadId: ThreadId.make("thread:next-writer"),
+        request: { type: "provider-turn.start", runId: RunId.make("run:next-writer") },
+      },
+      {
+        id: captureEffectId,
+        commandId: CommandId.make("command:lease:capture"),
+        threadId: ThreadId.make("thread:current-writer"),
+        request: {
+          type: "checkpoint.capture",
+          runId: RunId.make("run:current-writer"),
+          scopeId: CheckpointScopeId.make("scope:current-writer"),
+        },
+      },
+    ]);
+    assert.isTrue(yield* worker.runOnce);
+    const waiting = Option.getOrThrow(yield* outbox.get(startEffectId));
+    assert.equal(waiting.status, "pending");
+    assert.equal(waiting.attemptCount, 0);
+    assert.equal(waiting.lastError, null);
+    assert.isTrue(yield* worker.runOnce);
+    assert.equal(Option.getOrThrow(yield* outbox.get(captureEffectId)).status, "succeeded");
+    busy = false;
+    yield* TestClock.adjust("1 second");
+    assert.isTrue(yield* worker.runOnce);
+    const started = Option.getOrThrow(yield* outbox.get(startEffectId));
+    assert.equal(started.status, "succeeded");
+    assert.equal(started.attemptCount, 1);
+    assert.deepEqual(calls, ["provider-turn.start", "checkpoint.capture", "provider-turn.start"]);
+  }).pipe(Effect.provide(layer));
+});

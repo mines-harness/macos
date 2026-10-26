@@ -9,7 +9,7 @@ export function warnAboutHiddenCharacters(prompt: LinkedPrompt): void {
   toastManager.add({
     type: "warning",
     title: "This prompt had hidden characters, it may be malicious",
-    description: `T3 Code removed ${prompt.hiddenCharacters} hidden character${prompt.hiddenCharacters === 1 ? "" : "s"}. Read the prompt before you send it.`,
+    description: `mines removed ${prompt.hiddenCharacters} hidden character${prompt.hiddenCharacters === 1 ? "" : "s"}. Read the prompt before you send it.`,
     timeout: 0,
   });
 }
@@ -36,7 +36,7 @@ export function placeLinkedPrompt(
   const id = toastManager.add({
     type: "info",
     title: "Linked prompt ready",
-    description: "This thread already has a draft. Replace it with the linked prompt?",
+    description: "This mine already has a draft. Replace it with the linked prompt?",
     timeout: 0,
     actionProps: {
       children: "Replace draft",

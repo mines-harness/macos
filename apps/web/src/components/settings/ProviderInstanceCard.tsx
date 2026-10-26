@@ -8,6 +8,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   LayersIcon,
+  MoreHorizontalIcon,
   PlusIcon,
   Trash2Icon,
   XIcon,
@@ -41,6 +42,8 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { CatalogRowMenu } from "../sidebar/CatalogRowMenu";
 import { MorphIcon } from "~/components/MorphIcon";
 import { DraftInput } from "../ui/draft-input";
 import { SecretInput } from "./SecretInput";
@@ -59,6 +62,7 @@ import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { AcpSessionManagementSection } from "./AcpSessionManagementSection";
+import { AccountFailoverSettings } from "./AccountFailoverSettings";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import {
@@ -568,6 +572,7 @@ interface ProviderInstanceCardProps {
   readonly canWriteSettings?: boolean;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   readonly onDelete?: (() => void) | undefined;
+  readonly onDuplicate?: (() => void) | undefined;
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
   readonly runtime?: ReactNode;
@@ -613,6 +618,7 @@ export function ProviderInstanceCard({
   canWriteSettings = true,
   onUpdate,
   onDelete,
+  onDuplicate,
   headerAction,
   setup,
   runtime,
@@ -962,85 +968,116 @@ export function ProviderInstanceCard({
     </Popover>
   ) : null;
 
+  const actionItems = (
+    <>
+      <MenuItem disabled={readOnly || !onDuplicate} onClick={onDuplicate}>
+        <CopyIcon />
+        Duplicate
+      </MenuItem>
+      <MenuItem variant="destructive" disabled={readOnly || !onDelete} onClick={onDelete}>
+        <Trash2Icon />
+        Remove
+      </MenuItem>
+    </>
+  );
+  const actionTrigger = (
+    <MenuTrigger
+      render={
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost-muted"
+          disabled={readOnly}
+          aria-label={`Actions for ${displayName}`}
+        />
+      }
+    >
+      <MoreHorizontalIcon />
+    </MenuTrigger>
+  );
+
   if (mode === "list") {
     return (
-      <div
-        data-slot="settings-row"
-        className={cn(
-          "group flex min-h-18 items-center gap-3 px-3 py-3 transition-colors sm:px-4",
-          selected ? "bg-muted/45" : "hover:bg-muted/25",
-        )}
-      >
+      <CatalogRowMenu title={displayName} menu={actionItems}>
         <div
+          data-slot="settings-row"
           className={cn(
-            "pointer-events-none relative flex min-w-0 flex-1 items-start gap-3 rounded-md text-left transition-opacity",
-            !enabled && !selected && "opacity-60 group-hover:opacity-100",
+            "group flex min-h-18 items-center gap-3 px-3 py-3 transition-colors sm:px-4",
+            selected ? "bg-muted/45" : "hover:bg-muted/25",
           )}
         >
-          <button
-            type="button"
-            className="pointer-events-auto absolute inset-0 cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            onClick={onSelect}
-            aria-label={`Select ${displayName}`}
-            aria-pressed={selected}
-          />
-          {titleIconNode}
-          <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
-              {versionLabel ? (
-                <code className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">
-                  {versionLabel}
-                </code>
-              ) : null}
-              {versionAdvisoryNode}
+          <div
+            className={cn(
+              "pointer-events-none relative flex min-w-0 flex-1 items-start gap-3 rounded-md text-left transition-opacity",
+              !enabled && !selected && "opacity-60 group-hover:opacity-100",
+            )}
+          >
+            <button
+              type="button"
+              className="pointer-events-auto absolute inset-0 cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              onClick={onSelect}
+              aria-label={`Select ${displayName}`}
+              aria-pressed={selected}
+            />
+            {titleIconNode}
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
+                {versionLabel ? (
+                  <code className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">
+                    {versionLabel}
+                  </code>
+                ) : null}
+                {versionAdvisoryNode}
+              </span>
+              <span className="mt-0.5 flex items-start gap-1.5 text-xs leading-normal text-muted-foreground/80">
+                {statusDotNode && !updateProgress ? (
+                  <span className="flex h-[1.45em] shrink-0 items-center">{statusDotNode}</span>
+                ) : null}
+                <ProviderStatusDiagnostic detail={statusDiagnostic}>
+                  <span
+                    tabIndex={statusDiagnostic ? 0 : undefined}
+                    aria-live="polite"
+                    className="pointer-events-auto line-clamp-2 [overflow-wrap:anywhere]"
+                  >
+                    {updateProgress ? (
+                      `Updating · ${updateProgress}`
+                    ) : (
+                      <>
+                        {summary.headline}
+                        {needsAttention && inlineStatusDetail ? ` · ${inlineStatusDetail}` : null}
+                      </>
+                    )}
+                  </span>
+                </ProviderStatusDiagnostic>
+              </span>
             </span>
-            <span className="mt-0.5 flex items-start gap-1.5 text-xs leading-normal text-muted-foreground/80">
-              {statusDotNode && !updateProgress ? (
-                <span className="flex h-[1.45em] shrink-0 items-center">{statusDotNode}</span>
-              ) : null}
-              <ProviderStatusDiagnostic detail={statusDiagnostic}>
-                <span
-                  tabIndex={statusDiagnostic ? 0 : undefined}
-                  aria-live="polite"
-                  className="pointer-events-auto line-clamp-2 [overflow-wrap:anywhere]"
-                >
-                  {updateProgress ? (
-                    `Updating · ${updateProgress}`
-                  ) : (
-                    <>
-                      {summary.headline}
-                      {needsAttention && inlineStatusDetail ? ` · ${inlineStatusDetail}` : null}
-                    </>
-                  )}
-                </span>
-              </ProviderStatusDiagnostic>
-            </span>
+          </div>
+          <span className="flex h-5 shrink-0 items-center gap-1">
+            {projectOverride?.value !== undefined ? (
+              <span className="flex items-center">
+                <ProjectOverrideInheritance
+                  projectEnabled={projectOverride.value}
+                  deviceEnabled={resolveProviderInstanceEnabled(instance)}
+                />
+                <SettingResetButton
+                  label={`${displayName} enablement`}
+                  tooltip="Reset to the device setting"
+                  disabled={readOnly || !canWriteSettings}
+                  onClick={projectOverride.onReset}
+                />
+              </span>
+            ) : null}
+            <Switch
+              checked={enabled}
+              disabled={readOnly || (projectOverride !== undefined && !canWriteSettings)}
+              onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
+              aria-label={`Enable ${displayName}`}
+            />
+            {actionTrigger}
           </span>
         </div>
-        <span className="flex h-5 shrink-0 items-center gap-1">
-          {projectOverride?.value !== undefined ? (
-            <span className="flex items-center">
-              <ProjectOverrideInheritance
-                projectEnabled={projectOverride.value}
-                deviceEnabled={resolveProviderInstanceEnabled(instance)}
-              />
-              <SettingResetButton
-                label={`${displayName} enablement`}
-                tooltip="Reset to the device setting"
-                disabled={readOnly || !canWriteSettings}
-                onClick={projectOverride.onReset}
-              />
-            </span>
-          ) : null}
-          <Switch
-            checked={enabled}
-            disabled={readOnly || (projectOverride !== undefined && !canWriteSettings)}
-            onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
-            aria-label={`Enable ${displayName}`}
-          />
-        </span>
-      </div>
+      </CatalogRowMenu>
     );
   }
 
@@ -1059,17 +1096,13 @@ export function ProviderInstanceCard({
         className={cn("inline-flex items-center gap-1", readOnly && "opacity-50")}
       >
         {titleTailNode}
-        {onDelete ? (
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost-destructive"
-            disabled={readOnly}
-            onClick={onDelete}
-            aria-label={`Delete instance ${instanceId}`}
-          >
-            <Trash2Icon />
-          </Button>
+        {onDelete || onDuplicate ? (
+          <Menu>
+            {actionTrigger}
+            <MenuPopup align="end" aria-label={`Actions for ${displayName}`}>
+              {actionItems}
+            </MenuPopup>
+          </Menu>
         ) : null}
       </span>
     </div>
@@ -1188,6 +1221,13 @@ export function ProviderInstanceCard({
           ) : null}
         </SettingsSection>
       ) : null}
+
+      <AccountFailoverSettings
+        instance={instance}
+        provider={liveProvider}
+        readOnly={readOnly || !canWriteSettings}
+        onUpdate={onUpdate}
+      />
 
       {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
         <div

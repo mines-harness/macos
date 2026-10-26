@@ -18,7 +18,7 @@
   },
   "darkColors": {
     "primary": "#346bf1",
-    "background": "#0a0a0a",
+    "background": "#000000",
     "input": "#111111",
     "danger": "#ff6467",
     "success": "#34d399",

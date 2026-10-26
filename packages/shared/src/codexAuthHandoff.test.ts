@@ -21,9 +21,10 @@ const authorizationUrl = () => {
   }).toString();
   return url.toString();
 };
+const hostedAppUrl = "https://mines.example";
 const input = {
   authorizationUrl: authorizationUrl(),
-  returnUrl: "https://app.t3.codes/welcome#agents:remote-environment",
+  returnUrl: `${hostedAppUrl}/welcome#agents:remote-environment`,
   environmentId: EnvironmentId.make("remote-environment"),
   instanceId: ProviderInstanceId.make("work-codex"),
   flowId: "flow-one",
@@ -32,10 +33,14 @@ const callbackUrl = `http://127.0.0.1:54213/auth/callback?state=${"a".repeat(43)
 
 describe("Codex desktop handoff", () => {
   it("keeps the hosted return route, account, and environment with the code in a fragment", () => {
-    expect(readCodexAuthHandoff(codexAuthHandoffUrl(input), false)).toEqual(input);
-    const delivery = codexAuthDeliveryUrl(input, callbackUrl);
+    const handoff = codexAuthHandoffUrl(input);
+    expect(readCodexAuthHandoff(handoff, false)).toBeUndefined();
+    expect(readCodexAuthHandoff(handoff, false, hostedAppUrl)).toEqual(input);
+    expect(() => codexAuthDeliveryUrl(input, callbackUrl)).toThrow();
+    const delivery = codexAuthDeliveryUrl(input, callbackUrl, hostedAppUrl);
     expect(new URL(delivery).search).toBe("");
-    expect(readCodexAuthDelivery(delivery)).toEqual({
+    expect(readCodexAuthDelivery(delivery)).toBeUndefined();
+    expect(readCodexAuthDelivery(delivery, hostedAppUrl)).toEqual({
       callbackUrl,
       environmentId: input.environmentId,
       instanceId: input.instanceId,
@@ -46,12 +51,15 @@ describe("Codex desktop handoff", () => {
   });
   it("rejects other handlers, schemes, arbitrary return sites, and non-OpenAI authorization", () => {
     const link = codexAuthHandoffUrl(input);
-    expect(readCodexAuthHandoff(link, true)).toBeUndefined();
-    expect(readCodexAuthHandoff(link.replace("auth/codex", "auth/other"), false)).toBeUndefined();
+    expect(readCodexAuthHandoff(link, true, hostedAppUrl)).toBeUndefined();
+    expect(
+      readCodexAuthHandoff(link.replace("auth/codex", "auth/other"), false, hostedAppUrl),
+    ).toBeUndefined();
     expect(
       readCodexAuthHandoff(
         codexAuthHandoffUrl({ ...input, returnUrl: "https://attacker.example/welcome" }),
         false,
+        hostedAppUrl,
       ),
     ).toBeUndefined();
     expect(
@@ -61,6 +69,7 @@ describe("Codex desktop handoff", () => {
           authorizationUrl: input.authorizationUrl.replace("auth.openai.com", "attacker.example"),
         }),
         false,
+        hostedAppUrl,
       ),
     ).toBeUndefined();
   });
@@ -75,7 +84,9 @@ describe("Codex desktop handoff", () => {
     expect(() => codexAuthorizationRequest(url.toString())).toThrow();
     url.searchParams.set("redirect_uri", "https://attacker.example/auth/callback");
     expect(() => codexAuthorizationRequest(url.toString())).toThrow();
-    expect(() => codexAuthDeliveryUrl(input, callbackUrl + "&state=another")).toThrow();
+    expect(() =>
+      codexAuthDeliveryUrl(input, callbackUrl + "&state=another", hostedAppUrl),
+    ).toThrow();
   });
 });
 

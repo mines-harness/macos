@@ -112,7 +112,7 @@ export function decideGuestShareCommand(input: {
 
   switch (command.type) {
     case "thread.guest-share.open": {
-      if (thread.archivedAt !== null) return Result.fail("Archived threads cannot be shared.");
+      if (thread.archivedAt !== null) return Result.fail("Archived mines cannot be shared.");
       return withShare({
         id: command.shareId,
         host: command.host,
@@ -180,7 +180,7 @@ export function decideGuestShareCommand(input: {
         : withShare(guestShare);
     }
     case "thread.guest-message.dismiss": {
-      if (share === null) return Result.fail("This thread has no guest link.");
+      if (share === null) return Result.fail("This mine has no guest link.");
       return Result.map(resolveMessage(share, command.guestMessageId, "dismissed"), (next) => ({
         ...thread,
         guestShare: next,
@@ -208,7 +208,7 @@ export function decideGuestMessageSend(input: {
   string
 > {
   const share = input.thread.guestShare ?? null;
-  if (share === null) return Result.fail("This thread has no guest link.");
+  if (share === null) return Result.fail("This mine has no guest link.");
   const message = share.messages.find((candidate) => candidate.id === input.guestMessageId);
   const name = share.guestName ?? "Guest";
   const guestText = message?.text ?? "";

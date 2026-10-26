@@ -156,7 +156,7 @@ describe("threadHtmlRenderAttachmentIds", () => {
     const own = createAttachmentId("thread-a", "html")!;
     const other = createAttachmentId("thread-b", "html")!;
     const render = (attachmentId: string, extra = {}) => ({
-      toolName: "mcp__t3-code__html_render",
+      toolName: "mcp__mines__html_render",
       output: [
         {
           type: "text",
@@ -169,7 +169,7 @@ describe("threadHtmlRenderAttachmentIds", () => {
         render(own),
         render(other),
         render(createAttachmentId("thread-a", "html")!, { isError: true }),
-        { toolName: "mcp__t3-code__html_preview", output: render(own).output },
+        { toolName: "mcp__mines__html_preview", output: render(own).output },
       ]),
     ).toEqual([own]);
   });
@@ -181,7 +181,7 @@ describe("threadHtmlRenderAttachmentIds", () => {
         {
           toolName: "weather.get_weather",
           output: {
-            t3McpApp: {
+            minesMcpApp: {
               attachmentId: app,
               server: "weather",
               tool: "get_weather",

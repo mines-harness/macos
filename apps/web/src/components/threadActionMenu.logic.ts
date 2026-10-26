@@ -19,6 +19,7 @@ export type ThreadActionMenuId =
   | "regenerate-title"
   | "mark-unread"
   | "share-guest"
+  | "transfer-mine"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -89,6 +90,7 @@ export interface ThreadActionMenuState {
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
+  readonly canTransferMine?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -97,6 +99,8 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "new-thread-on-branch",
     "project-settings",
     "mark-unread",
+    "pin",
+    "unpin",
     "share-guest",
     "copy",
     "copy-path",
@@ -113,7 +117,7 @@ export function buildThreadActionMenuItems(
       ? [
           {
             id: "new-thread-on-branch" as const,
-            label: `New thread on ${state.branch}`,
+            label: `New mine on ${state.branch}`,
             icon: "message-square-plus",
           },
         ]
@@ -121,21 +125,21 @@ export function buildThreadActionMenuItems(
     ...(state.supports.pinning
       ? [
           state.isPinned
-            ? { id: "unpin" as const, label: "Unpin thread", icon: "pin-off" }
-            : { id: "pin" as const, label: "Pin thread", icon: "pin" },
+            ? { id: "unpin" as const, label: "Unpin mine", icon: "pin-off" }
+            : { id: "pin" as const, label: "Pin mine", icon: "pin" },
         ]
       : []),
     ...(state.supports.settlement
       ? [
           state.isSettled
-            ? { id: "unsettle" as const, label: "Un-settle thread", icon: "circle-check" }
-            : { id: "settle" as const, label: "Settle thread", icon: "circle-check" },
+            ? { id: "unsettle" as const, label: "Un-settle mine", icon: "circle-check" }
+            : { id: "settle" as const, label: "Settle mine", icon: "circle-check" },
         ]
       : []),
     ...(state.supports.snooze
       ? [
           state.isSnoozed
-            ? { id: "unsnooze" as const, label: "Wake thread", icon: "clock" }
+            ? { id: "unsnooze" as const, label: "Wake mine", icon: "clock" }
             : {
                 id: "snooze" as const,
                 label: "Snooze",
@@ -145,13 +149,19 @@ export function buildThreadActionMenuItems(
                   ...state.snoozePresets.map((preset) => ({
                     id: `snooze:${preset.id}` as const,
                     label: `${preset.label} (${preset.whenLabel})`,
+                    icon: "clock",
                   })),
-                  { id: "snooze:custom" as const, label: "Custom…", separatorBefore: true },
+                  {
+                    id: "snooze:custom" as const,
+                    label: "Custom…",
+                    icon: "clock",
+                    separatorBefore: true,
+                  },
                 ],
               },
         ]
       : []),
-    { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
+    { id: "rename", label: "Rename mine", icon: "pencil", separatorBefore: true },
     ...(state.supports.titleRegeneration
       ? [
           {
@@ -163,6 +173,9 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.canTransferMine
+      ? [{ id: "transfer-mine" as const, label: "Transfer mine…", icon: "arrow-right-left" }]
+      : []),
     ...(state.canShareWithGuest
       ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
       : []),
@@ -187,11 +200,13 @@ export function buildThreadActionMenuItems(
               {
                 id: "auto-settle:enabled" as const,
                 label: "Enabled",
+                icon: "timer",
                 checked: state.autoSettleEnabled,
               },
               {
                 id: "auto-settle:disabled" as const,
                 label: "Disabled",
+                icon: "timer",
                 checked: !state.autoSettleEnabled,
               },
             ],
@@ -208,13 +223,13 @@ export function buildThreadActionMenuItems(
         ...(state.branch
           ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
           : []),
-        { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+        { id: "copy-thread-id", label: "Mine ID", icon: "hash" },
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },
     {
       id: "archive",
-      label: "Archive thread",
+      label: "Archive mine",
       icon: "archive",
       disabled: state.isRunning,
       separatorBefore: true,

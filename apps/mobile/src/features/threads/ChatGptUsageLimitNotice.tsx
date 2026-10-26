@@ -25,7 +25,9 @@ export function ChatGptUsageLimitNotice({ thread }: { thread: EnvironmentThreadS
     >
       <View className="flex-row items-center gap-2">
         <ProviderIcon provider="codex" size={16} />
-        <Text className="text-sm font-t3-medium text-foreground">ChatGPT usage limit reached</Text>
+        <Text className="text-sm font-mines-medium text-foreground">
+          ChatGPT usage limit reached
+        </Text>
       </View>
       <Text className="text-xs text-foreground-muted">
         {workspaceLimit

@@ -1,3 +1,4 @@
+export * from "./catalogRpc.ts";
 export * from "./baseSchemas.ts";
 export * from "./assistantCitations.ts";
 export * from "./composerContext.ts";
@@ -45,7 +46,7 @@ export * from "./threadMetadataMcp.ts";
 export * from "./threadPullRequest.ts";
 export * from "./threadSearch.ts";
 export * from "./threadTitle.ts";
-export * from "./t3ProjectFile.ts";
+export * from "./minesProjectFile.ts";
 export * from "./editor.ts";
 export * from "./project.ts";
 export * from "./filesystem.ts";
@@ -68,3 +69,12 @@ export * from "./rpc.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+
+export * from "./groupChat.ts";
+
+export * from "./executionTargets.ts";
+
+export * from "./peerManagement.ts";
+
+export * from "./mineTransfer.ts";
+export * from "./providerVoice.ts";

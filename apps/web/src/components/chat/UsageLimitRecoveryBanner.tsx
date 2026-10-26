@@ -62,8 +62,8 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
     if (action === "snooze" && !snoozed && Date.parse(resetAt) <= Date.now()) {
       toastManager.add({
         type: "error",
-        title: "Could not snooze thread",
-        description: "The reset time has passed. Retry the thread manually.",
+        title: "Could not snooze mine",
+        description: "The reset time has passed. Retry the mine manually.",
       });
       setNowMs(Date.now());
       return;
@@ -78,7 +78,7 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
     } catch (cause) {
       toastManager.add({
         type: "error",
-        title: action === "resume" ? "Could not change auto-resume" : "Could not snooze thread",
+        title: action === "resume" ? "Could not change auto-resume" : "Could not snooze mine",
         description: cause instanceof Error ? cause.message : "An error occurred.",
       });
     }

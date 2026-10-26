@@ -2,9 +2,9 @@ import { PullRequestContextMetadata } from "@t3tools/contracts";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { Option, Schema } from "effect";
 
-export const COMPOSER_MENTION_DRAG_TYPE = "application/x-t3code-composer-mention";
+export const COMPOSER_MENTION_DRAG_TYPE = "application/x-mines-composer-mention";
 
-export const COMPOSER_PULL_REQUEST_DRAG_TYPE = "application/x-t3code-pull-request";
+export const COMPOSER_PULL_REQUEST_DRAG_TYPE = "application/x-mines-pull-request";
 
 const PullRequestDragPayload = Schema.fromJsonString(PullRequestContextMetadata);
 const decodePullRequestPayload = Schema.decodeUnknownOption(PullRequestDragPayload);

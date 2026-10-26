@@ -177,7 +177,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/storage",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage delete deleted archived threads old inactive merged unchanged worktrees retention days project inherit off custom",
+      "disk storage delete deleted archived mines old inactive merged unchanged worktrees retention days project inherit off custom",
     ],
   },
   {
@@ -212,7 +212,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Default model",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["new thread project provider reasoning effort"],
+    searchTerms: ["new mine project provider reasoning effort"],
   },
   {
     id: "default-permissions",
@@ -220,7 +220,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     scope: "project-defaults",
     searchTerms: [
-      "new thread default runtime mode supervised approvals auto accept edits full access",
+      "new mine default runtime mode supervised approvals auto accept edits full access",
     ],
   },
   {
@@ -259,7 +259,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "chat-width",
-    title: "Chat width",
+    title: "Mine width",
     to: "/settings/appearance",
     searchTerms: ["wide full width column layout messages composer monitor"],
   },
@@ -337,13 +337,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "snooze-limited-threads",
-    title: "Snooze limited threads",
+    title: "Snooze limited mines",
     to: "/settings/general",
     searchTerms: ["usage quota rate limit reset wake recover continue"],
   },
   {
     id: "auto-resume-limited-threads",
-    title: "Auto-resume limited threads",
+    title: "Auto-resume limited mines",
     to: "/settings/general",
     searchTerms: ["usage quota rate limit reset recover continue"],
   },
@@ -351,7 +351,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "working-shelf",
     title: "Working section",
     to: "/settings/beta",
-    searchTerms: ["beta hide fold running monitoring threads inbox sidebar shelf"],
+    searchTerms: ["beta hide fold running monitoring mines inbox sidebar shelf"],
   },
   {
     id: "guest-links",
@@ -362,7 +362,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-inactive-threads",
-    title: "Auto-settle inactive threads",
+    title: "Auto-settle inactive mines",
     to: "/settings/general",
     searchTerms: ["sidebar inactivity days no activity automatically"],
     requiresThreadAutoSettlement: true,
@@ -370,14 +370,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "compact-idle-threads",
-    title: "Compact idle threads",
+    title: "Compact idle mines",
     to: "/settings/general",
     scope: "environment-defaults",
     searchTerms: ["claude context compaction idle cache tokens usage summary resume"],
   },
   {
     id: "auto-settle-merged-threads",
-    title: "Auto-settle merged threads",
+    title: "Auto-settle merged mines",
     to: "/settings/general",
     searchTerms: ["pull request merge closed automatically sidebar"],
     requiresThreadAutoSettlement: true,
@@ -388,13 +388,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Days of inactivity before auto-settle",
     to: "/settings/general",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["thread timeout activity sidebar"],
+    searchTerms: ["mine timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
   {
     id: "thread-notifications",
-    title: "Thread notifications",
+    title: "Mine notifications",
     to: "/settings/general",
     searchTerms: ["notification sound alert completion input approval desktop"],
   },
@@ -480,7 +480,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "continue-threads-after-server-update",
-    title: "Continue threads after restarts",
+    title: "Continue mines after restarts",
     to: "/settings/general",
     scope: "project-defaults",
     searchTerms: [
@@ -498,7 +498,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "new-threads",
-    title: "New threads",
+    title: "New mines",
     to: "/settings/general",
     scope: "project-defaults",
     searchTerms: ["default workspace mode draft local worktree"],
@@ -508,7 +508,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Submodules",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["git submodule init recursive top-level none worktree t3.json"],
+    searchTerms: ["git submodule init recursive top-level none worktree mines.json"],
   },
   {
     id: "start-from-origin",
@@ -528,19 +528,19 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "unpin-confirmation",
     title: "Unpin confirmation",
     to: "/settings/general",
-    searchTerms: ["ask before thread pinned section"],
+    searchTerms: ["ask before mine pinned section"],
   },
   {
     id: "archive-confirmation",
     title: "Archive confirmation",
     to: "/settings/general",
-    searchTerms: ["ask before thread second click inline action"],
+    searchTerms: ["ask before mine second click inline action"],
   },
   {
     id: "delete-confirmation",
     title: "Delete confirmation",
     to: "/settings/general",
-    searchTerms: ["ask before thread chat history"],
+    searchTerms: ["ask before mine mine history"],
   },
   {
     id: "quit-confirmation",
@@ -554,14 +554,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Text generation model",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles source control content default provider"],
+    searchTerms: ["generated mine titles source control content default provider"],
   },
   {
     id: "thread-title-instructions",
-    title: "Thread title instructions",
+    title: "Mine title instructions",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
+    searchTerms: ["generated mine titles prompt custom style naming rename regenerate"],
   },
   {
     id: "app-version",
@@ -578,7 +578,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "cli-command",
-    title: "t3 command",
+    title: "mines command",
     to: "/settings/general",
     searchTerms: ["cli terminal shell path install command line"],
     desktopOnly: true,
@@ -588,12 +588,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Mobile app",
     to: "/settings/general",
     searchTerms: ["phone tablet iPhone iPad iOS Android App Store Google Play QR"],
-  },
-  {
-    id: "privacy-policy",
-    title: "Privacy policy",
-    to: "/settings/general",
-    searchTerms: ["telemetry analytics usage data tracking legal opt out"],
   },
   {
     id: "telemetry-export",
@@ -630,7 +624,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "legacy-sidebar",
     title: "Sidebar (legacy)",
     to: "/settings/general",
-    searchTerms: ["project thread tree old flat list"],
+    searchTerms: ["project mine tree old flat list"],
   },
   {
     id: "keybindings",
@@ -683,7 +677,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Providers",
     to: "/settings/providers",
     searchTerms: [
-      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
+      "agents cli codex claude cursor grok opencode antigravity google account switching failover priority quota sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
     ],
   },
   {
@@ -805,7 +799,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "pull-request-links-open-in-app",
-    title: "Open pull requests in T3 Code",
+    title: "Open pull requests in mines",
     to: "/settings/integrations",
     searchTerms: [
       `pr links ${SOURCE_CONTROL_HOST_LABELS} browser external click default pull request view panel`,
@@ -924,7 +918,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-actions",
     title: "Actions",
     to: "/settings/projects",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+    searchTerms: ["commands scripts setup run dev server checkout worktree mines.json import"],
   },
   {
     id: "environment-icon",
@@ -942,83 +936,39 @@ export const SETTINGS_SEARCH_ITEMS = [
     desktopOnly: true,
   },
   {
-    id: "network-access",
-    title: "Network access",
-    to: "/settings/connections",
-    targetId: "connections-environment",
-    searchTerms: ["expose backend remote pairing local machine interfaces host restart"],
-    localBackendManagementOnly: true,
-  },
-  {
-    id: "tailscale-https",
-    title: "Tailscale HTTPS",
-    to: "/settings/connections",
-    targetId: "connections-environment",
-    searchTerms: ["serve magicdns endpoint remote secure network"],
-    desktopOnly: true,
-    localBackendManagementOnly: true,
-  },
-  {
-    id: "wsl-backend",
-    title: "WSL backend",
+    id: "direct-device-access",
+    title: "Direct device access",
     to: "/settings/connections",
     searchTerms: [
-      "windows subsystem linux distro second server projects stop windows backend restart",
+      "phone remote approve qr pairing code revoke device keys connection signaling stun webrtc",
     ],
-    desktopOnly: true,
-    windowsOnly: true,
-    localBackendManagementOnly: true,
-    wslAvailableOnly: true,
   },
   {
-    id: "t3-connect",
-    localEnvironmentOnly: true,
-    title: "T3 Connect",
+    id: "connect-peer-computer",
+    title: "Connect another computer",
     to: "/settings/connections",
-    targetId: "connections-environment",
-    searchTerms: ["managed tunnel cloud other devices remote"],
-    desktopOnly: true,
-    cloudOnly: true,
+    searchTerms: ["remote peer pair pairing trust host device approval key direct connection"],
   },
   {
-    id: "hold-webhooks-while-offline",
-    localEnvironmentOnly: true,
-    title: "Hold webhooks while offline",
+    id: "group-host-routes",
+    title: "Groups across computers",
     to: "/settings/connections",
-    targetId: "connections-environment",
-    searchTerms: ["webhook automations offline queue mailbox t3 connect"],
-    cloudOnly: true,
-    managedTunnelOnly: true,
+    searchTerms: ["group chat coordinator remote route peer hosts"],
+    environmentOnly: true,
   },
   {
-    id: "publish-agent-activity",
-    localEnvironmentOnly: true,
-    title: "Publish agent activity",
+    id: "authorized-clients",
+    title: "Authorized clients",
     to: "/settings/connections",
-    targetId: "connections-environment",
-    searchTerms: ["mobile push notifications live activities cloud tunnel"],
-    cloudOnly: true,
+    searchTerms: ["permissions access scopes sessions revoke tokens pairing grants"],
+    environmentOnly: true,
   },
   {
     id: "connections-environment",
-    title: "This machine",
+    title: "Your computers",
     to: "/settings/connections",
     searchTerms: [
-      "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint",
-    ],
-  },
-  {
-    id: "remote-environments",
-    title: "Environments",
-    to: "/settings/connections",
-    searchTerms: ["add pair backend host code ssh config agent tunnel saved t3 connect"],
-  },
-  {
-    id: "load-balancing",
-    title: "Load balancing",
-    to: "/settings/connections",
-    searchTerms: [
-      "automatic machine environment resources cpu memory capacity preference weight shared projects",
+      "connections server local remote machines devices enable diagnostics permissions",
     ],
   },
   {
@@ -1031,7 +981,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "archive",
-    title: "Archived threads",
+    title: "Archived mines",
     to: "/settings/archived",
     searchTerms: ["restore reopen deleted history projects"],
   },

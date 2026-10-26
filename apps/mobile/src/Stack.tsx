@@ -185,6 +185,7 @@ const DETAIL_HEADER_OPTIONS: AppScreenOptions = {
 // header, and reversing toward the latest message restores it. Other devices ignore it.
 const THREAD_HEADER_OPTIONS: AppScreenOptions = {
   ...DETAIL_HEADER_OPTIONS,
+  title: "Mine",
   unstable_headerMinimizationBehavior: "onScrollUp",
 };
 
@@ -264,7 +265,7 @@ const SETTINGS_SCREENS = {
   SettingsEnvironmentNewThreads: createNativeStackScreen({
     screen: SettingsEnvironmentNewThreadsRouteScreen,
     linking: "settings/new-threads",
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "New threads" },
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "New mines" },
   }),
   SettingsEnvironmentSourceControl: createNativeStackScreen({
     screen: SettingsEnvironmentSourceControlRouteScreen,
@@ -294,12 +295,12 @@ const SETTINGS_SCREENS = {
   SettingsThreads: createNativeStackScreen({
     screen: SettingsThreadsRouteScreen,
     linking: "settings/thread-preferences",
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "Thread behavior" },
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Mine behavior" },
   }),
   SettingsAbout: createNativeStackScreen({
     screen: SettingsAboutRouteScreen,
     linking: "settings/about",
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "About T3 Code" },
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "About mines" },
   }),
   SettingsEnvironmentNew: createNativeStackScreen({
     screen: ConnectionsNewRouteScreen,
@@ -314,7 +315,7 @@ const SETTINGS_SCREENS = {
     linking: "settings/archive",
     options: {
       ...SETTINGS_PAGE_OPTIONS,
-      title: "Archived Threads",
+      title: "Archived Mines",
     },
   }),
   SettingsNavigation: createNativeStackScreen({
@@ -593,14 +594,14 @@ function NotFoundScreen() {
       }}
       style={[{ flex: 1 }, screenBgStyle]}
     >
-      <Text className="text-3xl font-t3-bold text-foreground" selectable>
+      <Text className="text-3xl font-mines-bold text-foreground" selectable>
         Route not found
       </Text>
       <Pressable
         style={returnHomeButtonStyle}
         onPress={() => navigation.dispatch(StackActions.replace("Home"))}
       >
-        <Text className="text-base font-t3-bold text-primary-foreground">Return home</Text>
+        <Text className="text-base font-mines-bold text-primary-foreground">Return home</Text>
       </Pressable>
     </ScrollView>
   );

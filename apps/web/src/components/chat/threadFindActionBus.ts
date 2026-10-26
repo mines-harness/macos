@@ -6,7 +6,7 @@ import {
 } from "@t3tools/shared/paletteSearch";
 import type { ThreadFindStart } from "./threadFind";
 
-const THREAD_FIND_OPEN_EVENT = "t3:thread-find-open";
+const THREAD_FIND_OPEN_EVENT = "mines:thread-find-open";
 
 export function requestThreadFindOpen(): void {
   window.dispatchEvent(new Event(THREAD_FIND_OPEN_EVENT));
@@ -17,7 +17,7 @@ export function subscribeThreadFindOpen(listener: () => void): () => void {
   return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, listener);
 }
 
-const THREAD_FIND_QUERY_EVENT = "t3:thread-find-query";
+const THREAD_FIND_QUERY_EVENT = "mines:thread-find-query";
 interface PendingFind {
   readonly query: string;
   /** Where find starts, such as the message a palette result came from. */

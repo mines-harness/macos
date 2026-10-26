@@ -200,6 +200,11 @@ interface MessagesTimelineProps {
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
+  importedHistory?: {
+    readonly label: string;
+    readonly sourceItemId: string;
+    readonly archiveAttachments?: readonly ChatFileAttachment[] | undefined;
+  } | null;
   latestRun: TimelineLatestRun | null;
   /** The run the screen reader announcer follows; see announcedRun. */
   announcedRun?: { readonly runId: RunId; readonly status: TimelineLatestRun["status"] } | null;
@@ -309,6 +314,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   awaitingRequestId = null,
   listRef,
   timelineEntries,
+  importedHistory = null,
   findExpanded = false,
   findQuery = "",
   activeFindMatch = null,
@@ -993,7 +999,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
             label="Subagent of"
             detail={parentThreadLink.title}
             icon={BotIcon}
-            actionLabel="Open parent thread"
+            actionLabel="Open parent mine"
             onAction={() => onOpenThread(parentThreadLink.threadId)}
           />
         </div>
@@ -1041,6 +1047,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
 
   // LegendList moves rows one commit late; per-row providers prevent thread context leaks.
+  const importBoundaryRowId = importedHistory
+    ? rows.findLast(
+        (row) =>
+          "projectedItem" in row &&
+          row.projectedItem?.sourceItemId === importedHistory.sourceItemId,
+      )?.id
+    : undefined;
   const renderItem = ({ item }: { item: MessagesTimelineRow }) => (
     <TimelineRowCtx value={sharedState}>
       <div className="messages-timeline-row-frame">
@@ -1049,11 +1062,19 @@ const ConversationTimeline = memo(function ConversationTimeline({
           data-timeline-root="true"
         >
           <TimelineRowContent row={item} />
+          {item.id === importBoundaryRowId && importedHistory ? (
+            <TimelineSystemDivider label={importedHistory.label} />
+          ) : null}
         </div>
       </div>
     </TimelineRowCtx>
   );
-  const listExtraData = { identity: listIdentityKey, rowCount: rows.length, sharedState };
+  const listExtraData = {
+    identity: listIdentityKey,
+    rowCount: rows.length,
+    sharedState,
+    importedHistory,
+  };
 
   const forwardMinimapWheel = (event: WheelEvent) => {
     const scrollNode = listRef.current?.getScrollableNode();

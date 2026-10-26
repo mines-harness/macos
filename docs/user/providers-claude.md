@@ -1,6 +1,6 @@
 # Claude
 
-T3 Code uses Claude Code's login and configuration. Start with the default provider
+mines uses Claude Code's login and configuration. Start with the default provider
 for one account; [provider setup](./install.md#providers) covers installation and
 shared provider settings.
 
@@ -30,7 +30,7 @@ location intact. Use the same variable for the login command. Setting `HOME`
 instead can put credentials where this provider will not find them.
 
 Check the account reported in provider settings after signing in. Existing
-threads can switch only between Claude instances with the same config directory.
+mines can switch only between Claude instances with the same config directory.
 Separate account directories stay isolated, including their local conversation
 state. Claude does not have Codex's shared-home and shadow-home arrangement.
 
@@ -38,8 +38,8 @@ For presets that differ only in API keys or endpoints, use the instance's
 **Environment variables**. Variable assignments do not belong in **Launch arguments**.
 
 Claude Code's verbose mode can stay enabled when you use Claude for text generation, including
-thread titles, branch names, commit messages, and pull request descriptions. On a remote connection,
-T3 Code uses the Claude configuration on the connected server.
+mine titles, branch names, commit messages, and pull request descriptions. On a remote connection,
+mines uses the Claude configuration on the connected server.
 
 ## Compact long conversations
 
@@ -49,27 +49,27 @@ Set **Auto-compact after** in the Claude provider settings to an integer between
 window. Leave it empty for Claude Code's default.
 
 You can also send `/compact` in an existing conversation. Web and desktop offer
-**Compact context** from the context meter. When you return to a large thread
-after Claude's prompt cache expires, a **Compact** chip with the thread's token count shows
+**Compact context** from the context meter. When you return to a large mine
+after Claude's prompt cache expires, a **Compact** chip with the mine's token count shows
 next to the send button. While it is on, Enter summarizes the history first, then
 sends your message. Click the chip to switch it to **Full** and keep the full
 history for that message. The cache lasts about an hour on a Claude
 subscription and 5 minutes with an API key, Bedrock, or Vertex. See [commands and skills](./composer.md#commands-and-skills) for using
 composer commands.
 
-**Compact idle threads** in **Settings > General** controls this for threads
+**Compact idle mines** in **Settings > General** controls this for mines
 over 200,000 tokens. Each Claude provider's settings can override it:
 
 - **When you return** shows the **Compact** chip described above. This is the default.
-- **Before the cache expires (beta)** compacts an idle thread shortly before its
+- **Before the cache expires (beta)** compacts an idle mine shortly before its
   prompt cache expires, so coming back does not reprocess the whole conversation.
-  The compaction appears in the thread as a `/compact` turn sent by T3 Code.
+  The compaction appears in the mine as a `/compact` turn sent by mines.
 - **Never** skips idle compaction and Claude's resume prompt. **Auto-compact after**
   still applies, and you can still compact by hand.
 
 ## Usage limits
 
-If your Claude subscription runs out of usage mid-turn, the thread shows which
+If your Claude subscription runs out of usage mid-turn, the mine shows which
 limit was reached and the remaining wait when Claude provides a reset time.
 Claude Code holds the turn until that window reopens, so it can keep showing as
 working. Wait for the reset, or stop the turn and continue later. The warning's
@@ -110,11 +110,11 @@ If that Claude config directory has a cached Anthropic login, run `/logout` in a
 Claude Code session using that directory before starting the router setup. Cached
 login credentials can conflict with the router token.
 
-Select the model you want in T3 Code. For an OpenRouter model outside the built-in
+Select the model you want in mines. For an OpenRouter model outside the built-in
 list, open that Claude instance in **Settings > Providers** and add its full model
-ID with **Add custom model**. Then select it in the chat model picker.
+ID with **Add custom model**. Then select it in the mine model picker.
 `ANTHROPIC_DEFAULT_*_MODEL` variables map Claude Code aliases such as `sonnet`; they
-do not replace the explicit model ID selected in T3 Code. Custom models may have
+do not replace the explicit model ID selected in mines. Custom models may have
 fewer effort, thinking, or context controls than built-in models.
 
 Verify the model used in OpenRouter's activity dashboard. For current compatibility
@@ -128,3 +128,11 @@ config directory and put the router's endpoint and credential variables in that
 instance's **Environment variables**. The router must run where the environment
 can reach it. Follow the [Claude Code Router instructions](https://github.com/musistudio/claude-code-router)
 for its installation and routing configuration.
+
+## Switching accounts after a usage limit
+
+Mines keeps each provider account in its own configured CLI home. Sign in through the provider's own login flow, and select an account in the model picker to continue manually. When the provider reports a reset time, a stopped mine can also use **Resume at reset**.
+
+Automatic subscription switching is disabled unless the provider adapter explicitly confirms support. Adding accounts or changing local settings cannot override that requirement. The current Codex and Claude adapters do not confirm it, so they remain manual.
+
+For an adapter that supports automatic switching, **Settings → Providers → Account switching** lets you opt accounts in and set their order. Mines requires fresh quota readings, separate authenticated account homes, and the same provider and model. It continues through the existing mine handoff and tries each account at most once, with a limit of eight accounts. If no eligible account remains, the mine stays stopped and its reset recovery remains available.

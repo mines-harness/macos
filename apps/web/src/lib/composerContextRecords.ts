@@ -162,7 +162,7 @@ export function threadContextReference(record: ThreadContextRecord): ComposerCon
 }
 
 export function threadContextRecord(ref: ScopedThreadRef, title: string): ThreadContextRecord {
-  const label = sanitizeComposerContextLabel(title, "thread");
+  const label = sanitizeComposerContextLabel(title, "mine");
   return {
     version: 1,
     kind: "thread",

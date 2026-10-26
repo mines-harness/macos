@@ -133,13 +133,13 @@ function EnvironmentNotifications({
     const { thread, status } = entry;
     const title =
       kind === "completion"
-        ? "Thread completed"
+        ? "Mine completed"
         : status === "approval"
           ? "Approval needed"
           : status === "limited"
             ? "Usage limit reached"
             : status === "failed"
-              ? "Thread failed"
+              ? "Mine failed"
               : status === "request"
                 ? "Guest request"
                 : "Input needed";
@@ -172,7 +172,7 @@ function EnvironmentNotifications({
             ),
         },
         actionProps: {
-          children: "Open thread",
+          children: "Open mine",
           onClick: () => {
             toastManager.close(toastId);
             void navigate({

@@ -105,6 +105,8 @@ import {
   startAttachmentUpload,
 } from "../../lib/attachmentUploadQueue";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { requestWorkflowLauncher } from "./WorkflowPicker";
+import { useParticipantGroupSend } from "./useParticipantGroupSend";
 import { fileAttachmentCapabilityBlockReason } from "./composerAttachmentFiles";
 import { readEnvironmentScope } from "../../state/session";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -353,6 +355,15 @@ export function useComposerSend(input: ComposerSendInput) {
     resetLocalDispatch,
     setThreadError,
   });
+  const participantGroupSend = useParticipantGroupSend({
+    environmentId,
+    composerDraftTarget,
+    routeThreadKey,
+    currentRouteThreadKeyRef,
+    composerRef,
+    promptRef,
+    setThreadError,
+  });
   const submitPlanFollowUp = usePlanFollowUpSend({
     environmentId,
     routeThreadKey,
@@ -436,6 +447,17 @@ export function useComposerSend(input: ComposerSendInput) {
       notifyDirectAnnotationAttached();
       return;
     }
+    if (isLocalDraftThread && participantGroupSend.hasParticipants) {
+      if (directAnnotation) {
+        setThreadError(
+          activeThread.id,
+          "Groups accept text and workspace references. Remove the annotation before sending to participants.",
+        );
+        return;
+      }
+      await participantGroupSend.send(activeThread.id);
+      return;
+    }
     if (needsLoadBalancing) {
       const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
       toastManager.add({
@@ -499,14 +521,7 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     if (multipleModelBlock === "needs-new-git-thread") {
-      toastManager.add(
-        stackedThreadToast({
-          type: "warning",
-          title: "Choose models and a base branch",
-          description:
-            "Multiple models need a new thread in a Git project. Each gets its own worktree.",
-        }),
-      );
+      requestWorkflowLauncher(routeThreadKey);
       return;
     }
     const {
@@ -550,7 +565,7 @@ export function useComposerSend(input: ComposerSendInput) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: "Attached thread is on another machine",
+          title: "Attached mine is on another machine",
           description: `This machine's agent can't read "${strandedThread.title}". Remove it, or switch back to ${owner} to send.`,
         }),
       );
@@ -602,7 +617,7 @@ export function useComposerSend(input: ComposerSendInput) {
         toastManager.add(
           stackedThreadToast({
             type: "warning",
-            title: "Start a Codex thread first",
+            title: "Start a Codex mine first",
             description: "Send a message before you submit feedback.",
           }),
         );
@@ -935,7 +950,7 @@ export function useComposerSend(input: ComposerSendInput) {
       setThreadError(
         threadIdForSend,
         attachmentCapabilitiesBeforeDispatch.fileBlockReason ??
-          "This connection cannot change threads.",
+          "This connection cannot change mines.",
       );
       setDockedDraftHeroThreadKey((currentThreadKey) =>
         currentThreadKey === activeThreadKey ? null : currentThreadKey,
@@ -1405,7 +1420,7 @@ export function useComposerSend(input: ComposerSendInput) {
               title:
                 submissionIntent === "background"
                   ? "Background task failed"
-                  : "Could not start thread",
+                  : "Could not start mine",
               description: error instanceof Error ? error.message : "Failed to send message.",
               actionProps: {
                 children: "Open draft",

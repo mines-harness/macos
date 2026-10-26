@@ -26,7 +26,7 @@ export const AUTH_SCOPE_OPTIONS: ReadonlyArray<{
   {
     scope: AuthOrchestrationReadScope,
     title: "View environment",
-    description: "Read threads, status, checkpoints, and configuration.",
+    description: "Read mines, status, checkpoints, and configuration.",
   },
   {
     scope: AuthOrchestrationOperateScope,

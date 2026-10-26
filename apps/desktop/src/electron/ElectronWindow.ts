@@ -111,6 +111,7 @@ export class ElectronWindow extends Context.Service<
   {
     readonly create: (
       options: Electron.BrowserWindowConstructorOptions,
+      role?: "auxiliary",
     ) => Effect.Effect<Electron.BrowserWindow, ElectronWindowCreateError>;
     readonly main: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
@@ -139,6 +140,7 @@ export const make = Effect.gen(function* () {
     return windowsForegroundFocus;
   };
   const captureRevealWindows = new Set<number>();
+  const auxiliaryWindows = new WeakSet<Electron.BrowserWindow>();
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
 
@@ -169,7 +171,11 @@ export const make = Effect.gen(function* () {
 
   const liveMain = Effect.gen(function* () {
     const main = yield* Ref.get(mainWindowRef);
-    if (Option.isNone(main) || (yield* isWindowDestroyed(main.value))) {
+    if (
+      Option.isNone(main) ||
+      auxiliaryWindows.has(main.value) ||
+      (yield* isWindowDestroyed(main.value))
+    ) {
       return Option.none<Electron.BrowserWindow>();
     }
     return main;
@@ -181,11 +187,12 @@ export const make = Effect.gen(function* () {
       return main;
     }
 
-    const first = Option.fromNullishOr((yield* listWindows)[0] ?? null);
-    if (Option.isNone(first) || (yield* isWindowDestroyed(first.value))) {
-      return Option.none<Electron.BrowserWindow>();
+    for (const window of yield* listWindows) {
+      if (!auxiliaryWindows.has(window) && !(yield* isWindowDestroyed(window))) {
+        return Option.some(window);
+      }
     }
-    return first;
+    return Option.none<Electron.BrowserWindow>();
   });
 
   const focusedMainOrFirst = Effect.gen(function* () {
@@ -200,14 +207,18 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     }).pipe(Effect.orDie);
-    if (Option.isSome(focused) && !(yield* isWindowDestroyed(focused.value))) {
+    if (
+      Option.isSome(focused) &&
+      !auxiliaryWindows.has(focused.value) &&
+      !(yield* isWindowDestroyed(focused.value))
+    ) {
       return focused;
     }
     return yield* currentMainOrFirst;
   });
 
   return ElectronWindow.of({
-    create: (options) => {
+    create: (options, role) => {
       const webPreferences = options.webPreferences;
       const diagnosticOptions = {
         title: options.title ?? null,
@@ -232,7 +243,11 @@ export const make = Effect.gen(function* () {
       } satisfies typeof ElectronWindowCreateOptions.Type;
 
       return Effect.try({
-        try: () => new Electron.BrowserWindow(options),
+        try: () => {
+          const window = new Electron.BrowserWindow(options);
+          if (role === "auxiliary") auxiliaryWindows.add(window);
+          return window;
+        },
         catch: (cause) => new ElectronWindowCreateError({ options: diagnosticOptions, cause }),
       });
     },

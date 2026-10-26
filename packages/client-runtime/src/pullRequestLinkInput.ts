@@ -100,7 +100,7 @@ export function resolveLinkPullRequestInput(input: {
   if (input.project === null) {
     return {
       error:
-        "Paste the full pull request URL; this thread has no repository to resolve the number against.",
+        "Paste the full pull request URL; this mine has no repository to resolve the number against.",
     };
   }
   const webUrl = input.project.webUrl(number);

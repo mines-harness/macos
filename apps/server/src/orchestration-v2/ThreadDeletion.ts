@@ -121,7 +121,7 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
       payload: {
         ...request,
         status: "cancelled",
-        responseCapability: { type: "not_resumable", reason: "The thread was deleted." },
+        responseCapability: { type: "not_resumable", reason: "The mine was deleted." },
         resolvedAt: now,
       },
     });
@@ -193,7 +193,7 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
       payload: {
         providerSessionId: session.id,
         detachedAt: now,
-        reason: "Thread deleted.",
+        reason: "Mine deleted.",
       },
     });
     effects.push({
@@ -203,7 +203,7 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
       request: {
         type: "provider-session.detach",
         providerSessionId: session.id,
-        detail: "Thread deleted.",
+        detail: "Mine deleted.",
         revokeMcpCredential: true,
       },
     });

@@ -3,6 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./mine-transfer": {
+      "types": "./src/mineTransfer.ts",
+      "default": "./src/mineTransfer.ts"
+    },
+    "./state/mine-transfer": {
+      "types": "./src/state/mineTransfer.ts",
+      "default": "./src/state/mineTransfer.ts"
+    },
     "./workspace-basename-lookup": {
       "types": "./src/workspaceBasenameLookup.ts",
       "default": "./src/workspaceBasenameLookup.ts"
@@ -119,9 +127,13 @@
       "types": "./src/voice-input/index.ts",
       "default": "./src/voice-input/index.ts"
     },
-    "./t3ToolSummary": {
-      "types": "./src/t3ToolSummary.ts",
-      "default": "./src/t3ToolSummary.ts"
+    "./voice-live": {
+      "types": "./src/voice-live/index.ts",
+      "default": "./src/voice-live/index.ts"
+    },
+    "./minesToolSummary": {
+      "types": "./src/minesToolSummary.ts",
+      "default": "./src/minesToolSummary.ts"
     },
     "./relay": {
       "types": "./src/relay/index.ts",
@@ -466,6 +478,26 @@
     "./model-traits": {
       "types": "./src/modelTraits.ts",
       "default": "./src/modelTraits.ts"
+    },
+    "./catalog": {
+      "types": "./src/catalog/index.ts",
+      "import": "./src/catalog/index.ts"
+    },
+    "./catalog/persistence": {
+      "types": "./src/catalog/persistence.ts",
+      "import": "./src/catalog/persistence.ts"
+    },
+    "./peer": {
+      "types": "./src/peer/index.ts",
+      "import": "./src/peer/index.ts"
+    },
+    "./catalog/peer": {
+      "types": "./src/catalog/peer.ts",
+      "import": "./src/catalog/peer.ts"
+    },
+    "./group-chat": {
+      "types": "./src/groupChat.ts",
+      "import": "./src/groupChat.ts"
     }
   },
   "scripts": {
@@ -479,7 +511,8 @@
     "@t3tools/source-control-core": "workspace:*",
     "@t3tools/source-control-definitions": "workspace:*",
     "effect": "catalog:",
-    "three": "0.180.0"
+    "three": "0.180.0",
+    "yjs": "13.6.27"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

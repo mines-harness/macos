@@ -105,7 +105,7 @@ export class ThreadSnoozeBlockedError extends Schema.TaggedError<ThreadSnoozeBlo
   },
 ) {
   override get message(): string {
-    return "This thread is waiting on you. Respond to the pending request before snoozing it.";
+    return "This mine is waiting on you. Respond to the pending request before snoozing it.";
   }
 }
 
@@ -126,7 +126,7 @@ export class ThreadAutoSettleOptOutUnsupportedError extends Schema.TaggedError<T
   },
 ) {
   override get message(): string {
-    return "This environment's server does not support turning auto-settle off per thread yet. Update the server to use it.";
+    return "This environment's server does not support turning auto-settle off per mine yet. Update the server to use it.";
   }
 }
 
@@ -150,7 +150,7 @@ export class ThreadPinReorderUnsupportedError extends Schema.TaggedError<ThreadP
   },
 ) {
   override get message(): string {
-    return "This environment's server does not support reordering pinned threads yet. Update the server to reorder pins.";
+    return "This environment's server does not support reordering pinned mines yet. Update the server to reorder pins.";
   }
 }
 
@@ -162,7 +162,7 @@ export class ThreadActiveReorderUnsupportedError extends Schema.TaggedError<Thre
   },
 ) {
   override get message(): string {
-    return "Update this environment's server to reorder active threads.";
+    return "Update this environment's server to reorder active mines.";
   }
 }
 
@@ -178,10 +178,9 @@ async function requestThreadUnpinConfirmation(input: {
 
   return settlePromise(() =>
     confirm(
-      [
-        `Unpin thread "${input.title}"?`,
-        "This will move the thread out of your pinned section.",
-      ].join("\n"),
+      [`Unpin mine "${input.title}"?`, "This will move the mine out of your pinned section."].join(
+        "\n",
+      ),
     ),
   );
 }
@@ -193,7 +192,7 @@ export async function navigateAfterThreadDeletion(navigate: () => Promise<void>)
     toastManager.add(
       stackedThreadToast({
         type: "error",
-        title: "Thread deleted, but navigation failed",
+        title: "Mine deleted, but navigation failed",
         description: error instanceof Error ? error.message : "An error occurred.",
       }),
     );
@@ -239,7 +238,7 @@ function threadOperationFailure(target: ScopedThreadRef) {
     : AsyncResult.failure(
         Cause.fail(
           new EnvironmentAuthorizationError({
-            message: "This connection cannot change threads.",
+            message: "This connection cannot change mines.",
             requiredScope: AuthOrchestrationOperateScope,
           }),
         ),
@@ -490,7 +489,7 @@ export function useThreadActions() {
       const confirmationResult = await settlePromise(() =>
         localApi.dialogs.confirm(
           [
-            "This thread is the only one linked to this worktree:",
+            "This mine is the only one linked to this worktree:",
             displayWorktreePath ?? orphanedWorktreePath,
             "",
             "Delete the worktree too?",
@@ -594,7 +593,7 @@ export function useThreadActions() {
       const removalFailed = removeResult._tag === "Failure";
       const error = squashAtomCommandFailure(cleanupFailure);
       const message = error instanceof Error ? error.message : "An error occurred.";
-      console.error("Worktree cleanup failed after thread deletion", {
+      console.error("Worktree cleanup failed after mine deletion", {
         threadId: threadRef.threadId,
         projectCwd: threadProject.workspaceRoot,
         worktreePath: orphanedWorktreePath,
@@ -759,7 +758,7 @@ export function useThreadActions() {
     const resolved = resolveThreadTarget(target);
     const confirmationResult = await requestThreadUnpinConfirmation({
       enabled: confirmThreadUnpin,
-      title: resolved?.thread.title ?? "this thread",
+      title: resolved?.thread.title ?? "this mine",
       confirm: localApi ? (message) => localApi.dialogs.confirm(message) : null,
     });
     if (confirmationResult._tag === "Failure") {
@@ -859,7 +858,7 @@ export function useThreadActions() {
       action: "Snoozed",
       claim: action,
       undo: () => runUndoPlan(target, ThreadUndo.planThreadUndo("snooze")),
-      failureTitle: "Failed to wake thread",
+      failureTitle: "Failed to wake mine",
     });
     return result;
   };
@@ -895,12 +894,12 @@ export function useThreadActions() {
     const resolved = resolveThreadTarget(target);
 
     if (confirmThreadDelete && localApi) {
-      const title = resolved?.thread.title ?? "this thread";
+      const title = resolved?.thread.title ?? "this mine";
       const confirmationResult = await settlePromise(() =>
         localApi.dialogs.confirm(
           [
-            `Delete thread "${title}"?`,
-            "This permanently clears conversation history for this thread.",
+            `Delete mine "${title}"?`,
+            "This permanently clears conversation history for this mine.",
           ].join("\n"),
           { variant: "destructive" },
         ),

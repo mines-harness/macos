@@ -22,14 +22,15 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../config.ts";
+import * as CatalogRunContextService from "../catalog/CatalogRunContextService.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
-import * as ServerSettings from "../serverSettings.ts";
+import type * as ServerSettings from "../serverSettings.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
@@ -94,7 +95,7 @@ export interface ProviderTurnStartServiceV2Shape {
 export class ProviderTurnStartServiceV2 extends Context.Service<
   ProviderTurnStartServiceV2,
   ProviderTurnStartServiceV2Shape
->()("t3/orchestration-v2/ProviderTurnStartService/ProviderTurnStartServiceV2") {}
+>()("mines/orchestration-v2/ProviderTurnStartService/ProviderTurnStartServiceV2") {}
 
 export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
@@ -113,6 +114,8 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | WorkspaceRunLease.WorkspaceRunLease
+  | CatalogRunContextService.CatalogRunContextService
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -121,8 +124,6 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const serverConfig = yield* ServerConfig.ServerConfig;
-    const serverSettings = yield* ServerSettings.ServerSettingsService;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
@@ -130,6 +131,8 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const workspaceRunLeases = yield* WorkspaceRunLease.WorkspaceRunLease;
+    const catalogContext = yield* CatalogRunContextService.CatalogRunContextService;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
@@ -241,11 +244,15 @@ export const layer: Layer.Layer<
       };
     };
 
-    const start = Effect.fn("orchestrationV2.providerTurnStart.start")(function* (input: {
-      readonly threadId: ThreadId;
-      readonly runId: RunId;
-      readonly willRetry?: boolean;
-    }) {
+    const start = Effect.fn("orchestrationV2.providerTurnStart.start")(function* (
+      input: {
+        readonly threadId: ThreadId;
+        readonly runId: RunId;
+        readonly willRetry?: boolean;
+      },
+      onExecutionSettled: Effect.Effect<void>,
+      onCheckpointScheduled: Effect.Effect<void>,
+    ) {
       const { runId } = input;
       const projection = yield* projectionStore.getTurnStartContext(input.threadId, runId);
       const run = projection.runs.find((candidate) => candidate.id === runId);
@@ -442,7 +449,7 @@ export const layer: Layer.Layer<
           const failure = isEmptyCompaction
             ? makeProviderFailure({
                 class: "validation_error",
-                message: "Start a conversation before compacting this thread.",
+                message: "Start a conversation before compacting this mine.",
               })
             : authResult?._tag === "Failure"
               ? makeProviderFailure({
@@ -463,7 +470,7 @@ export const layer: Layer.Layer<
                 ? {
                     type: "error",
                     title: isEmptyCompaction
-                      ? "Cannot compact an empty thread"
+                      ? "Cannot compact an empty mine"
                       : "Provider sign-out failed",
                     failure,
                   }
@@ -483,6 +490,36 @@ export const layer: Layer.Layer<
           return;
         }
       }
+      const isContextCompaction =
+        message.attachments.length === 0 && message.text.trim().toLowerCase() === "/compact";
+      const preparedContext = yield* Effect.result(
+        isContextCompaction
+          ? Effect.succeed("")
+          : catalogContext.forRun({ thread: projection.thread, run }),
+      );
+      if (preparedContext._tag === "Failure") {
+        if (preparedContext.failure.code === "unavailable") return yield* preparedContext.failure;
+        yield* settleRunBeforeStart({
+          signal: `organizational-context-${preparedContext.failure.code}`,
+          status: "failed",
+          now: yield* DateTime.now,
+          providerInstanceId: run.providerInstanceId,
+          itemProviderThreadId: providerThread.id,
+          item: {
+            type: "error",
+            title:
+              preparedContext.failure.code === "too-large"
+                ? "Project and section context is too large"
+                : "Project and section context is not synchronized",
+            failure: makeProviderFailure({
+              class: "validation_error",
+              message: preparedContext.failure.message,
+            }),
+          },
+        });
+        return;
+      }
+      const organizationalContext = preparedContext.success;
       const { worktreePath, branch } = projection.thread;
       if (worktreePath !== null && branch !== null) {
         const exists = yield* fileSystem
@@ -1025,10 +1062,14 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const userText = projectComposerContextForProvider({
+      const composerText = projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
       });
+      const userText =
+        organizationalContext === ""
+          ? composerText
+          : `${organizationalContext}\n\nUser message:\n${composerText}`;
       // The provider turn marks cancellation work delivered; restart continuations use their own text or resume natively.
       const noteContinuation = isRestartNoteContinuation(
         run,
@@ -1289,6 +1330,8 @@ export const layer: Layer.Layer<
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       return runExecution.startRootRun({
+        onExecutionSettled,
+        onCheckpointScheduled,
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
         providerSessionId,
@@ -1343,13 +1386,53 @@ export const layer: Layer.Layer<
     return ProviderTurnStartServiceV2.of({
       start: Effect.fn("ProviderTurnStartService.start")(
         function* (input) {
-          // Storage cleanup removes worktrees under the same lease. Only startup
-          // holds it; the provider turn runs after it is released.
           const { thread } = yield* projectionStore.getThreadRecords(input.threadId, []);
-          const providerTurn = yield* thread.worktreePath === null
-            ? start(input)
-            : withWorkspaceLease(path.resolve(thread.worktreePath), start(input));
-          if (providerTurn !== undefined) yield* providerTurn;
+          const project =
+            thread.worktreePath === null
+              ? yield* projects.getById(thread.projectId)
+              : Option.none();
+          const cwd = thread.worktreePath ?? Option.getOrUndefined(project)?.workspaceRoot;
+          if (cwd === undefined) {
+            return yield* new ProviderTurnStartError({ runId: input.runId });
+          }
+          // Delegated children share the parent workflow; unrelated threads and forks do not.
+          let owner: Pick<typeof thread, "id" | "lineage"> = thread;
+          const ancestors = new Set([thread.id]);
+          while (
+            owner.lineage?.relationshipToParent === "subagent" &&
+            owner.lineage.parentThreadId !== null
+          ) {
+            if (ancestors.has(owner.lineage.parentThreadId)) break;
+            ancestors.add(owner.lineage.parentThreadId);
+            const parent = yield* projectionStore.getThreadShell(owner.lineage.parentThreadId);
+            if (parent === null) break;
+            owner = parent;
+          }
+          yield* Effect.uninterruptibleMask((restore) =>
+            Effect.gen(function* () {
+              const lease = yield* restore(
+                workspaceRunLeases.acquire({ cwd, ownerId: owner.id, runId: input.runId }),
+              );
+              let transferred = false;
+              yield* restore(
+                Effect.gen(function* () {
+                  // The cleanup lease covers startup; the run lease follows detached provider work.
+                  const providerTurn = yield* thread.worktreePath === null
+                    ? start(input, lease.executionSettled, lease.checkpointScheduled)
+                    : withWorkspaceLease(
+                        path.resolve(thread.worktreePath),
+                        start(input, lease.executionSettled, lease.checkpointScheduled),
+                      );
+                  if (providerTurn !== undefined) {
+                    yield* providerTurn;
+                    transferred = true;
+                  }
+                }),
+              ).pipe(
+                Effect.ensuring(Effect.suspend(() => (transferred ? Effect.void : lease.release))),
+              );
+            }),
+          );
         },
         (effect, input) =>
           effect.pipe(

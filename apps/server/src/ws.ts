@@ -1,3 +1,14 @@
+import * as MineTransferService from "./mineTransfer/MineTransferService.ts";
+import { CatalogRpcError } from "@t3tools/contracts/catalogRpc";
+import * as HostCatalogService from "./catalog/HostCatalogService.ts";
+import * as RemoteGroupTransport from "./groupChat/RemoteGroupTransport.ts";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as HostSignalingService from "./peer/HostSignalingService.ts";
+import * as PeerManagement from "./peer/PeerManagement.ts";
+import * as CloudTaskService from "./cloud/CloudTaskService.ts";
+import * as ProviderVoiceService from "./provider/ProviderVoiceService.ts";
+import * as GroupChatService from "./groupChat/GroupChatService.ts";
+import * as SharedGroupService from "./groupChat/SharedGroupService.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -7,14 +18,12 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Base64 from "effect/encoding/Base64";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -216,7 +225,6 @@ import * as ProjectService from "./project/ProjectService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
-import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
@@ -805,7 +813,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
         (cause) =>
           new OrchestrationV2GetThreadProjectionError({
             threadId: input.threadId,
-            message: `Failed to hydrate migrated thread ${input.threadId}`,
+            message: `Failed to hydrate migrated mine ${input.threadId}`,
             cause,
           }),
       ),
@@ -828,7 +836,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             (cause) =>
               new OrchestrationV2GetThreadProjectionError({
                 threadId: input.threadId,
-                message: `Failed while streaming orchestration V2 thread ${input.threadId}`,
+                message: `Failed while streaming orchestration V2 mine ${input.threadId}`,
                 cause,
               }),
           ),
@@ -856,7 +864,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             (cause) =>
               new OrchestrationV2GetThreadProjectionError({
                 threadId: input.threadId,
-                message: `Failed while replaying orchestration V2 thread ${input.threadId}`,
+                message: `Failed while replaying orchestration V2 mine ${input.threadId}`,
                 cause,
               }),
           ),
@@ -881,7 +889,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           (cause) =>
             new OrchestrationV2GetThreadProjectionError({
               threadId: input.threadId,
-              message: `Failed to load orchestration V2 thread ${input.threadId}`,
+              message: `Failed to load orchestration V2 mine ${input.threadId}`,
               cause,
             }),
         ),
@@ -917,7 +925,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           (cause) =>
             new OrchestrationV2GetThreadProjectionError({
               threadId: input.threadId,
-              message: `Failed to prepare orchestration V2 thread ${input.threadId} replay`,
+              message: `Failed to prepare orchestration V2 mine ${input.threadId} replay`,
               cause,
             }),
         ),
@@ -937,7 +945,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             (cause) =>
               new OrchestrationV2GetThreadProjectionError({
                 threadId: input.threadId,
-                message: `Failed to measure orchestration V2 thread ${input.threadId} replay`,
+                message: `Failed to measure orchestration V2 mine ${input.threadId} replay`,
                 cause,
               }),
           ),
@@ -955,7 +963,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             (cause) =>
               new OrchestrationV2GetThreadProjectionError({
                 threadId: input.threadId,
-                message: `Failed to locate recreated orchestration V2 thread ${input.threadId}`,
+                message: `Failed to locate recreated orchestration V2 mine ${input.threadId}`,
                 cause,
               }),
           ),
@@ -1232,6 +1240,7 @@ export const layerWsRpc = (
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
+  localCatalogAccess = false,
 ) =>
   Layer.effectContext(
     Effect.gen(function* () {
@@ -1300,12 +1309,20 @@ export const layerWsRpc = (
             );
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
-      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
+      const hostSignaling = yield* HostSignalingService.HostSignalingService;
+      const peers = yield* PeerManagement.PeerManagement;
+      const catalog = yield* HostCatalogService.HostCatalogService;
+      const cloudTasks = yield* CloudTaskService.CloudTaskService;
+      const voice = yield* ProviderVoiceService.ProviderVoiceService;
+      const groupPeers = yield* RemoteGroupTransport.RemoteGroupTransport;
+      const groupChat = yield* GroupChatService.GroupChatService;
+      const sharedGroups = yield* SharedGroupService.SharedGroupService;
+      const mineTransfers = yield* MineTransferService.MineTransferService;
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
       const agentSessionImporter = yield* AgentSessionImporter.AgentSessionImporter;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
@@ -1561,7 +1578,7 @@ export const layerWsRpc = (
               if (racedImport !== null) return { threadId, imported: false } as const;
               return yield* new AcpRegistryOperationError({
                 reason: "session_import_failed",
-                message: "Could not create a T3 thread for the ACP session.",
+                message: "Could not create a mine for the ACP session.",
                 cause: launched.failure,
               });
             }
@@ -1602,7 +1619,7 @@ export const layerWsRpc = (
             if (importedThread !== null) {
               return yield* new AcpRegistryOperationError({
                 reason: "session_delete_failed",
-                message: "Delete the imported T3 thread before deleting its native ACP session.",
+                message: "Delete the imported mine before deleting its native ACP session.",
               });
             }
             yield* manager.deleteSession({
@@ -1824,7 +1841,7 @@ export const layerWsRpc = (
         Effect.mapError(
           (cause) =>
             new OrchestrationV2GetShellSnapshotError({
-              message: "Failed to load archived thread snapshot",
+              message: "Failed to load archived mine snapshot",
               cause,
             }),
         ),
@@ -1878,7 +1895,7 @@ export const layerWsRpc = (
             Stream.mapError(
               (cause) =>
                 new OrchestrationV2GetShellSnapshotError({
-                  message: "Failed while streaming archived threads",
+                  message: "Failed while streaming archived mines",
                   cause,
                 }),
             ),
@@ -1973,7 +1990,7 @@ export const layerWsRpc = (
             Effect.mapError(
               (cause) =>
                 new OrchestrationGetFullThreadDiffError({
-                  message: "Failed to load full thread diff",
+                  message: "Failed to load full mine diff",
                   cause,
                 }),
             ),
@@ -1999,7 +2016,7 @@ export const layerWsRpc = (
             Effect.mapError(
               (cause) =>
                 new OrchestrationSearchThreadsError({
-                  message: "Failed to search threads",
+                  message: "Failed to search mines",
                   cause,
                 }),
             ),
@@ -2007,7 +2024,7 @@ export const layerWsRpc = (
         [ORCHESTRATION_V2_WS_METHODS.getArchivedShellSnapshot]: (_input) =>
           getOrchestrationV2ArchivedShellSnapshot,
         [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: (input) =>
-          readOmittableShellRows({ familyOf: input.threadId }, "Failed to load the thread family"),
+          readOmittableShellRows({ familyOf: input.threadId }, "Failed to load the mine family"),
         [ORCHESTRATION_V2_WS_METHODS.getOlderSettledThreads]: (input) =>
           loadOlderSettledThreadsPage({
             sql,
@@ -2019,7 +2036,7 @@ export const layerWsRpc = (
             Effect.mapError(
               (cause) =>
                 new OrchestrationV2GetShellSnapshotError({
-                  message: "Failed to load older settled threads",
+                  message: "Failed to load older settled mines",
                   cause,
                 }),
             ),
@@ -2027,7 +2044,7 @@ export const layerWsRpc = (
         [ORCHESTRATION_V2_WS_METHODS.getWorktreeThreadIds]: (input) =>
           readOmittableShellRows(
             { worktreePath: input.worktreePath },
-            "Failed to load the worktree's threads",
+            "Failed to load the worktree's mines",
           ).pipe(Effect.map(({ threads }) => ({ threadIds: threads.map((thread) => thread.id) }))),
         [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
@@ -2049,7 +2066,7 @@ export const layerWsRpc = (
                     (cause) =>
                       new OrchestrationV2GetThreadProjectionError({
                         threadId: input.threadId,
-                        message: `Failed to load orchestration V2 thread ${input.threadId}`,
+                        message: `Failed to load orchestration V2 mine ${input.threadId}`,
                         cause,
                       }),
                   ),
@@ -2066,6 +2083,9 @@ export const layerWsRpc = (
                 .enqueueCommand(
                   ThreadMessageIntake.launchThread({
                     commandId: input.commandId,
+                    ...(input.catalogContextRevision === undefined
+                      ? {}
+                      : { catalogContextRevision: input.catalogContextRevision }),
                     ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
                     ...(input.reuseExistingThread === undefined
                       ? {}
@@ -2132,14 +2152,14 @@ export const layerWsRpc = (
                       new OrchestrationV2ThreadLaunchError({
                         commandId: input.commandId,
                         projectId: input.projectId,
-                        message: "Failed to launch thread",
+                        message: "Failed to launch mine",
                         cause,
                       }),
                     ServerRuntimeStartupError: (cause) =>
                       new OrchestrationV2ThreadLaunchError({
                         commandId: input.commandId,
                         projectId: input.projectId,
-                        message: "Failed to launch thread",
+                        message: "Failed to launch mine",
                         cause,
                       }),
                     ThreadManagementProviderInstanceDisabledError: (cause) =>
@@ -2398,7 +2418,7 @@ export const layerWsRpc = (
                 return yield* Effect.fail(
                   new ProviderUploadFeedbackError({
                     threadId: input.threadId,
-                    cause: "No provider session has run in this thread yet.",
+                    cause: "No provider session has run in this mine yet.",
                   }),
                 );
               }
@@ -2840,7 +2860,93 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.attachmentsCreateUploadUrl]: (input) => issueAttachmentUploadUrl(input),
         [WS_METHODS.attachmentsDelete]: (input) => deletePendingAttachment(input.attachmentId),
-        [WS_METHODS.agentSessionsScan]: () => agentSessionScanner.scan,
+        [WS_METHODS.voiceGetCapabilities]: (input) => voice.getCapabilities(input),
+        [WS_METHODS.voiceStart]: (input) => voice.start(input),
+        [WS_METHODS.voiceSubscribe]: (input) => voice.subscribe(input),
+        [WS_METHODS.voiceStop]: (input) => voice.stop(input),
+        [WS_METHODS.sharedGroupsGet]: (input) => sharedGroups.get(input),
+        [WS_METHODS.sharedGroupsSubscribe]: (input) => sharedGroups.subscribe(input),
+        [WS_METHODS.sharedGroupsSend]: (input) => sharedGroups.send(input),
+        [WS_METHODS.sharedGroupsAddChats]: (input) => sharedGroups.addChats(input),
+        [WS_METHODS.sharedGroupsRemoveChats]: (input) => sharedGroups.removeChats(input),
+        [WS_METHODS.sharedGroupsLeave]: (input) => sharedGroups.leave(input),
+        [WS_METHODS.groupsSubscribe]: (input) => groupChat.subscribe(input),
+        [WS_METHODS.peerConfigure]: (input) =>
+          hostSignaling
+            .configure(input)
+            .pipe(Effect.andThen(SubscriptionRef.get(hostSignaling.state))),
+        [WS_METHODS.peerConnectionState]: (_input) => SubscriptionRef.get(hostSignaling.state),
+        [WS_METHODS.peerDisable]: (_input) =>
+          hostSignaling.disable.pipe(Effect.andThen(SubscriptionRef.get(hostSignaling.state))),
+        [WS_METHODS.peerGetState]: (_input) => peers.state,
+        [WS_METHODS.peerStatus]: (_input) => peers.status,
+        [WS_METHODS.peerCheckDevice]: (input) => peers.checkDevice(input),
+        [WS_METHODS.peerApprove]: (input) => peers.approve(input),
+        [WS_METHODS.peerRevoke]: (input) => peers.revoke(input),
+        [WS_METHODS.cloudSnapshot]: (_input) => cloudTasks.snapshot,
+        [WS_METHODS.cloudRefresh]: (input) => cloudTasks.refresh(input),
+        [WS_METHODS.cloudSubmit]: (input) => cloudTasks.submit(input),
+        [WS_METHODS.cloudLink]: (input) => cloudTasks.link(input),
+        [WS_METHODS.cloudFollowUp]: (input) => cloudTasks.followUp(input),
+        [WS_METHODS.cloudStatus]: (input) => cloudTasks.status(input),
+        [WS_METHODS.cloudDiff]: (input) => cloudTasks.diff(input),
+        [WS_METHODS.cloudApply]: (input) => cloudTasks.apply(input),
+        [WS_METHODS.cloudUnlink]: (input) => cloudTasks.unlink(input),
+        [WS_METHODS.catalogBindIdentity]: (input) =>
+          localCatalogAccess
+            ? catalog.bindIdentity(input)
+            : Effect.fail(
+                new CatalogRpcError({
+                  message: "Catalog identity can only be changed from this computer.",
+                }),
+              ),
+        [WS_METHODS.catalogExchange]: (input) =>
+          localCatalogAccess
+            ? catalog.exchange(input)
+            : Effect.fail(
+                new CatalogRpcError({
+                  message:
+                    "Catalog synchronization requires a local connection or an approved direct peer.",
+                }),
+              ),
+        [WS_METHODS.catalogSubscribe]: (input) =>
+          localCatalogAccess
+            ? catalog.updates(input.accountId)
+            : Stream.fail(
+                new CatalogRpcError({
+                  message:
+                    "Catalog synchronization requires a local connection or an approved direct peer.",
+                }),
+              ),
+        [WS_METHODS.groupsPeer]: (input) =>
+          groupPeers
+            .verify(input)
+            .pipe(
+              Effect.flatMap((verified) =>
+                groupChat.peer(verified.environmentId, verified.request),
+              ),
+            ),
+        [WS_METHODS.groupsConnectHost]: (input) => groupPeers.connectHost(input),
+        [WS_METHODS.groupsListHostRoutes]: (_input) => groupPeers.listHostRoutes,
+        [WS_METHODS.groupsDisconnectHost]: (input) => groupPeers.disconnectHost(input),
+        [WS_METHODS.mineTransferPreflight]: (input) => mineTransfers.preflight(input),
+        [WS_METHODS.mineTransferPrepare]: (input) => mineTransfers.prepare(input),
+        [WS_METHODS.mineTransferReadChunk]: (input) => mineTransfers.readChunk(input),
+        [WS_METHODS.mineTransferBegin]: (input) => mineTransfers.begin(input),
+        [WS_METHODS.mineTransferWriteChunk]: (input) => mineTransfers.writeChunk(input),
+        [WS_METHODS.mineTransferAccept]: (input) => mineTransfers.accept(input),
+        [WS_METHODS.mineTransferFinalize]: (input) => mineTransfers.finalize(input),
+        [WS_METHODS.mineTransferCancel]: (input) => mineTransfers.cancel(input),
+        [WS_METHODS.mineTransferGet]: (input) => mineTransfers.get(input),
+        [WS_METHODS.groupsList]: (_input) => groupChat.list(),
+        [WS_METHODS.groupsGet]: (input) => groupChat.get(input),
+        [WS_METHODS.groupsCreate]: (input) => groupChat.create(input),
+        [WS_METHODS.groupsAddMembers]: (input) => groupChat.addMembers(input),
+        [WS_METHODS.groupsSend]: (input) => groupChat.send(input),
+        [WS_METHODS.groupsStop]: (input) => groupChat.stop(input),
+        [WS_METHODS.groupsArchive]: (input) => groupChat.archive(input),
+        [WS_METHODS.groupsRetry]: (input) => groupChat.retry(input),
+        [WS_METHODS.agentSessionsScan]: (input) => agentSessionScanner.scan(input),
         [WS_METHODS.agentSessionsImport]: (input) =>
           agentSessionImporter.importRecentAgentThreads(input),
         [WS_METHODS.assetsCreateUrl]:
@@ -3339,6 +3445,13 @@ export const layer = Layer.unwrap(
               clientAnalyticsProps,
               previewAutomationBroker,
               serverBrowser,
+              session.method !== "dpop-access-token" &&
+                Option.exists(request.remoteAddress, (address) =>
+                  ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address),
+                ) &&
+                !request.headers["forwarded"] &&
+                !request.headers["x-forwarded-for"] &&
+                !request.headers["cf-connecting-ip"],
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.

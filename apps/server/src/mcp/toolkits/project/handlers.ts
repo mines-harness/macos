@@ -44,7 +44,7 @@ const assertProjectWorktree = Effect.fn("mcp.assertProjectWorktree")(function* (
     return yield* new OrchestratorMcpFailure({
       code: "invalid_request",
       message:
-        "worktreePath must be one of the project's git worktrees. t3_worktree_list shows them.",
+        "worktreePath must be one of the project's git worktrees. mines_worktree_list shows them.",
     });
 });
 
@@ -53,7 +53,7 @@ const access = Effect.gen(function* () {
   return yield* Project.ProjectService;
 });
 export const layer = McpToolAccess.toLayer(ProjectToolkit, {
-  t3_thread_launch: McpToolAccess.startsThreads(
+  mines_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
     (input, { runtimeMode, interactionMode }) =>
       Effect.gen(function* () {
@@ -66,7 +66,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
           return yield* new OrchestratorMcpFailure({
             code: "invalid_request",
-            message: "A new thread accepts only pending attachment uploads.",
+            message: "A new mine accepts only pending attachment uploads.",
           });
         if (
           input.scratch === true &&
@@ -115,7 +115,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
               (error) =>
                 new OrchestratorMcpFailure({
                   code: "invalid_request",
-                  message: `${error.message} No thread was created. Pass a branch, tag, or commit that exists there${
+                  message: `${error.message} No mine was created. Pass a branch, tag, or commit that exists there${
                     strategy.startFromOrigin === true
                       ? "; the project has no usable remote to fetch it from."
                       : ", or set startFromOrigin:true if it exists only on a remote."
@@ -206,7 +206,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         };
       }),
   ),
-  t3_project_list: McpToolAccess.reads((input) =>
+  mines_project_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const projects = yield* access;
       const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
@@ -216,7 +216,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       return { projects: rows.slice(start, end), nextCursor: end < rows.length ? end : null };
     }),
   ),
-  t3_project_read: McpToolAccess.reads((input) =>
+  mines_project_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const projects = yield* access;
       const result = yield* projects.getById(input.projectId).pipe(Effect.mapError(unavailable));
@@ -228,7 +228,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       return result.value;
     }),
   ),
-  t3_project_create: McpToolAccess.writesEnvironment(({ workspaceRoot, ...input }) =>
+  mines_project_create: McpToolAccess.writesEnvironment(({ workspaceRoot, ...input }) =>
     Effect.gen(function* () {
       const projects = yield* Project.ProjectService;
       if (workspaceRoot === undefined) {
@@ -241,7 +241,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           return yield* new OrchestratorMcpFailure({
             code: "invalid_request",
             message:
-              "A project started from its title takes only a title; set scripts or defaultModelSelection afterwards with t3_project_update.",
+              "A project started from its title takes only a title; set scripts or defaultModelSelection afterwards with mines_project_update.",
           });
         const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
         const created = yield* folders
@@ -271,7 +271,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         .pipe(Effect.mapError(projectFailure));
     }),
   ),
-  t3_project_update: McpToolAccess.writesEnvironment((input) =>
+  mines_project_update: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const projects = yield* Project.ProjectService;
       return yield* projects
@@ -279,7 +279,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         .pipe(Effect.mapError(projectFailure));
     }),
   ),
-  t3_project_delete: McpToolAccess.writesEnvironment((input) =>
+  mines_project_delete: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const projects = yield* Project.ProjectService;
       return yield* projects
@@ -287,7 +287,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         .pipe(Effect.mapError(projectFailure));
     }),
   ),
-  t3_project_clone: McpToolAccess.writesEnvironment((input) =>
+  mines_project_clone: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const repositories = yield* Repositories.SourceControlRepositoryService;
       return yield* repositories.cloneRepository(input).pipe(

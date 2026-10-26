@@ -17,16 +17,18 @@ import {
 } from "./versionSkew";
 
 const MISMATCH_HINT =
-  "Version mismatch. Try syncing the client and server to the same T3 Code version.";
+  "Version mismatch. Try syncing the client and server to the same mines version.";
 
 describe("versionSkew", () => {
-  it("updates only the proven npm prefix and safely quotes its path", () => {
+  it("does not guess a public package without a configured mines registry", () => {
     expect(manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/node" })).toBe(
-      "npm install --global --prefix '/opt/node' t3@0.0.45",
+      null,
     );
     expect(
       manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/maria's node" }),
-    ).toBe("npm install --global --prefix '/opt/maria'\\''s node' t3@0.0.45");
+    ).toBeNull();
+    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBeNull();
+    expect(manualServerUpdateCommand("0.0.45")).toBeNull();
   });
   beforeEach(() => {
     branding.APP_VERSION = "0.0.34";

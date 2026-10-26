@@ -24,7 +24,7 @@ import { isProjectScopedSettingKey } from "./scopedSettings";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 
 interface InheritanceLayer {
-  readonly key: "project" | "environment" | "t3.json" | "built-in";
+  readonly key: "project" | "environment" | "mines.json" | "built-in";
   readonly label: string;
   readonly value: string;
   readonly effective: boolean;
@@ -112,11 +112,11 @@ export function settingInheritanceLayers(
   });
   if (fileBacked && target.projectId !== null) {
     layers.push({
-      key: "t3.json",
-      label: "t3.json",
-      value: source === "t3.json" ? formatValue(key, target.settings[key]) : "Inherits",
-      effective: source === "t3.json",
-      set: source === "t3.json",
+      key: "mines.json",
+      label: "mines.json",
+      value: source === "mines.json" ? formatValue(key, target.settings[key]) : "Inherits",
+      effective: source === "mines.json",
+      set: source === "mines.json",
     });
   }
   // File-backed defaults come from the resolver, not the schema's decoded null.

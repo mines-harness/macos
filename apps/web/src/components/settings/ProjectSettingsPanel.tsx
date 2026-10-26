@@ -476,7 +476,7 @@ function ProjectDetail({
           ) : null}
           <SettingsRow
             title="Name"
-            description="The shared name for this project group in the sidebar and thread lists."
+            description="The shared name for this project group in the sidebar and mine lists."
             control={
               <Input
                 key={`${group.projectKey}:${group.displayName}`}
@@ -562,10 +562,10 @@ function ProjectDetail({
             }
             description={
               hasOtherMembers
-                ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
+                ? "Deletes the selected machine's checkout entries and their mines. Other machines and files on disk are not touched."
                 : group.memberProjects.length > 1
-                  ? `Deletes all ${group.memberProjects.length} checkout entries and their threads on every machine. Files on disk are not touched.`
-                  : "Deletes the project entry and its threads. Files on disk are not touched."
+                  ? `Deletes all ${group.memberProjects.length} checkout entries and their mines on every machine. Files on disk are not touched.`
+                  : "Deletes the project entry and its mines. Files on disk are not touched."
             }
             control={
               <Button

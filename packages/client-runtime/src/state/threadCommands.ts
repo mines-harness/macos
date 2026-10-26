@@ -1,3 +1,5 @@
+import { prefetchThreadHistory } from "./historyPrefetch.ts";
+export { historyPrefetchCandidates, PASSIVE_HISTORY_PREFETCH_BYTES } from "./historyPrefetch.ts";
 import type { ThreadId } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -153,6 +155,22 @@ export function createThreadEnvironmentAtoms<R, E>(
     key: ({ environmentId, input }: { environmentId: string; input: { threadId: string } }) =>
       JSON.stringify([environmentId, input.threadId]),
   };
+  const loadEarlierBody = Effect.fn("ThreadCommands.loadEarlierBody")(function* (input: {
+    threadId: import("@t3tools/contracts").ThreadId;
+    sourceThreadId: import("@t3tools/contracts").ThreadId;
+    itemId: import("@t3tools/contracts").TurnItemId;
+  }) {
+    const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+    const controller = yield* Effect.serviceOption(ThreadHistoryController.ThreadHistoryController);
+    return Option.isNone(controller)
+      ? ({ _tag: "noop" } as const)
+      : yield* controller.value.loadEarlierBody(
+          supervisor.target.environmentId,
+          input.threadId,
+          input.sourceThreadId,
+          input.itemId,
+        );
+  });
   const loadEarlierHistory = Effect.fn("ThreadCommands.loadEarlierHistory")(function* (
     input: LoadEarlierThreadHistoryInput,
   ) {
@@ -425,6 +443,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     editQueuedRun: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:edit-queued-run",
       execute: (input: EditQueuedRunInput) => editQueuedRun(input),
+      scheduler,
+      concurrency,
+    }),
+    prefetchHistory: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:prefetch-history",
+      execute: prefetchThreadHistory,
+      scheduler,
+      concurrency: { mode: "serial", key: () => "passive-history-prefetch" },
+    }),
+    loadEarlierBody: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:load-earlier-body",
+      execute: loadEarlierBody,
       scheduler,
       concurrency,
     }),

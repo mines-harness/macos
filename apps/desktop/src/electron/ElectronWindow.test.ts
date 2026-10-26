@@ -4,6 +4,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type * as Electron from "electron";
 import { beforeEach, vi } from "vite-plus/test";
 
@@ -72,7 +73,7 @@ function makeWindowsRevealWindow() {
     show: vi.fn(),
     moveTop: vi.fn(),
     focus: vi.fn(),
-    getTitle: vi.fn(() => "T3 Code (Dev)"),
+    getTitle: vi.fn(() => "mines (Dev)"),
     getBounds: vi.fn(() => ({ x: 100, y: 50, width: 1_200, height: 800 })),
     getContentBounds: vi.fn(() => ({ x: 108, y: 50, width: 1_184, height: 792 })),
     getNativeWindowHandle: vi.fn(() => Buffer.from([41, 0, 0, 0])),
@@ -101,6 +102,25 @@ describe("ElectronWindow", () => {
     windowsForegroundPrepareMock.mockReset().mockResolvedValue(false);
     windowsForegroundCloseMock.mockReset();
   });
+
+  it.effect("excludes auxiliary panels from both main-window fallbacks", () =>
+    Effect.gen(function* () {
+      const panel = { id: 1, isDestroyed: () => false } as Electron.BrowserWindow;
+      const main = { id: 2, isDestroyed: () => false } as Electron.BrowserWindow;
+      browserWindowMock.mockImplementation(function () {
+        return panel;
+      });
+      getAllWindowsMock.mockReturnValue([panel, main]);
+      getFocusedWindowMock.mockReturnValue(panel);
+      const windows = yield* ElectronWindow.ElectronWindow;
+      yield* windows.create({}, "auxiliary");
+      assert.strictEqual(Option.getOrThrow(yield* windows.currentMainOrFirst), main);
+      assert.strictEqual(Option.getOrThrow(yield* windows.focusedMainOrFirst), main);
+      getAllWindowsMock.mockReturnValue([panel]);
+      assert.isTrue(Option.isNone(yield* windows.currentMainOrFirst));
+      assert.isTrue(Option.isNone(yield* windows.focusedMainOrFirst));
+    }).pipe(Effect.provide(layerTest)),
+  );
 
   it.effect("cancels native focus when destroyed during the foreground query", () =>
     Effect.gen(function* () {

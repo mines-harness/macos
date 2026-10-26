@@ -190,7 +190,7 @@ export class GuestShareService extends Context.Service<
       GuestShareAccessError
     >;
   }
->()("t3/guest/GuestShareService") {}
+>()("mines/guest/GuestShareService") {}
 
 /** The thread record an event carries, for the share and the view. */
 const threadOf = (event: OrchestrationV2DomainEvent): OrchestrationV2AppThread | null => {

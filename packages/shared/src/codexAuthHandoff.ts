@@ -87,17 +87,17 @@ export function codexCallbackUrl(value: string, redirectUri: string, state: stri
 }
 
 export function codexAuthHandoffUrl(input: CodexAuthHandoff, development = false) {
-  const url = new URL(`${development ? "t3code-dev" : "t3code"}://auth/codex`);
+  const url = new URL(`${development ? "mines-dev" : "mines"}://auth/codex`);
   url.searchParams.set("request", encodeHandoff(input));
   return url.toString();
 }
 
-export function readCodexAuthHandoff(value: string, development: boolean) {
+export function readCodexAuthHandoff(value: string, development: boolean, hostedAppUrl?: string) {
   try {
     const url = new URL(value);
     if (
       value.length > 32_768 ||
-      url.protocol !== (development ? "t3code-dev:" : "t3code:") ||
+      url.protocol !== (development ? "mines-dev:" : "mines:") ||
       url.host !== "auth" ||
       url.pathname !== "/codex" ||
       url.username ||
@@ -108,7 +108,7 @@ export function readCodexAuthHandoff(value: string, development: boolean) {
       return undefined;
     const input = decodeHandoff(url.searchParams.get("request"));
     codexAuthorizationRequest(input.authorizationUrl);
-    if (!providerAuthReturnUrl(input.returnUrl)) return undefined;
+    if (!providerAuthReturnUrl(input.returnUrl, hostedAppUrl)) return undefined;
     return input;
   } catch {
     return undefined;
@@ -116,11 +116,15 @@ export function readCodexAuthHandoff(value: string, development: boolean) {
 }
 
 /** Codes travel in a fragment, never in hosted web requests or a token store on the helper. */
-export function codexAuthDeliveryUrl(input: CodexAuthHandoff, callbackUrl: string) {
+export function codexAuthDeliveryUrl(
+  input: CodexAuthHandoff,
+  callbackUrl: string,
+  hostedAppUrl?: string,
+) {
   const request = codexAuthorizationRequest(input.authorizationUrl);
   codexCallbackUrl(callbackUrl, request.redirectUri, request.state);
-  const destination = providerAuthReturnUrl(input.returnUrl);
-  if (!destination) throw new Error("Invalid T3 Code return address.");
+  const destination = providerAuthReturnUrl(input.returnUrl, hostedAppUrl);
+  if (!destination) throw new Error("Invalid mines return address.");
   const url = new URL(destination);
   const delivery = {
     environmentId: input.environmentId,
@@ -133,16 +137,16 @@ export function codexAuthDeliveryUrl(input: CodexAuthHandoff, callbackUrl: strin
   return url.toString();
 }
 
-export function readCodexAuthDelivery(value: string) {
+export function readCodexAuthDelivery(value: string, hostedAppUrl?: string) {
   try {
     const url = new URL(value);
     if (!url.hash.startsWith("#codex-auth=") || url.hash.length > 32_768) return undefined;
     const input = decodeDelivery(decodeURIComponent(url.hash.slice("#codex-auth=".length)));
-    const destination = providerAuthReturnUrl(value);
+    const destination = providerAuthReturnUrl(value, hostedAppUrl);
     if (!destination) return undefined;
     const returnUrl = new URL(destination);
     returnUrl.hash = input.returnHash;
-    const sanitized = providerAuthReturnUrl(returnUrl.toString());
+    const sanitized = providerAuthReturnUrl(returnUrl.toString(), hostedAppUrl);
     if (!sanitized) return undefined;
     return { ...input, returnUrl: sanitized };
   } catch {

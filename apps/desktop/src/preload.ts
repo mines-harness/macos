@@ -7,7 +7,6 @@ import type {
   DesktopPreviewTabState,
   DesktopSnapShotEvent,
 } from "@t3tools/contracts";
-import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
@@ -30,8 +29,6 @@ function isSnapShotEvent(value: unknown): value is DesktopSnapShotEvent {
   );
 }
 
-exposeClerkBridge({ passkeys: true });
-
 // Runs before any app script reads localStorage. See DesktopLegacyLocalStorage.
 try {
   const legacyItems: unknown = ipcRenderer.sendSync(IpcChannels.TAKE_LEGACY_LOCAL_STORAGE_CHANNEL);
@@ -42,8 +39,34 @@ try {
   }
 } catch {}
 
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Electron exposes the client platform in its sandboxed preload process.
+// oxlint-disable-next-line mines/no-global-process-runtime -- Electron exposes the client platform in its sandboxed preload process.
 const clientPlatform = process.platform;
+
+// Native ready-to-show can precede React mounting, so the startup window waits for app content.
+if (process.isMainFrame) {
+  window.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      const root = document.getElementById("root");
+      if (!root) return;
+      const reportReadiness = () => {
+        const failed = document.getElementById("boot-error") !== null;
+        if (!failed && (document.getElementById("boot-shell") || root.childElementCount === 0)) {
+          return;
+        }
+        observer.disconnect();
+        ipcRenderer.send(IpcChannels.STARTUP_RENDERER_READY_CHANNEL, {
+          ready: !failed,
+          reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        });
+      };
+      const observer = new MutationObserver(reportReadiness);
+      observer.observe(root, { childList: true, subtree: true });
+      reportReadiness();
+    },
+    { once: true },
+  );
+}
 
 if (clientPlatform === "darwin") {
   // Native buttons ignore Chromium zoom; reserve native points even after reload.
@@ -85,6 +108,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.sendSync(IpcChannels.GET_RELAY_TELEMETRY_ENABLED_CHANNEL) === true,
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getClientPlatform: () => clientPlatform,
+  setMenuBarState: (state) => ipcRenderer.invoke(IpcChannels.SET_MENU_BAR_STATE_CHANNEL, state),
   setNotificationBadge: (badge) =>
     ipcRenderer.invoke(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, badge),
   onNotificationBadgeClear: (listener) => {
@@ -137,6 +161,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.DISMISS_SNAP_SHOT_ANIMATION_CHANNEL, id),
   acknowledgeSnapShot: (id) => ipcRenderer.invoke(IpcChannels.ACKNOWLEDGE_SNAP_SHOT_CHANNEL, id),
   getConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.GET_CONNECTION_CATALOG_CHANNEL),
+  getMinesAccountToken: () => ipcRenderer.invoke(IpcChannels.GET_MINES_ACCOUNT_TOKEN_CHANNEL),
+  setMinesAccountToken: (token) =>
+    ipcRenderer.invoke(IpcChannels.SET_MINES_ACCOUNT_TOKEN_CHANNEL, token),
+  getMinesCatalog: (accountId) =>
+    ipcRenderer.invoke(IpcChannels.GET_MINES_CATALOG_CHANNEL, accountId),
+  setMinesCatalog: (accountId, snapshot, mergeCatalog) =>
+    ipcRenderer.invoke(IpcChannels.SET_MINES_CATALOG_CHANNEL, {
+      accountId,
+      snapshot,
+      mergeCatalog,
+    }),
+  clearMinesCatalog: (accountId) =>
+    ipcRenderer.invoke(IpcChannels.CLEAR_MINES_CATALOG_CHANNEL, accountId),
   setConnectionCatalog: (catalog) =>
     ipcRenderer.invoke(IpcChannels.SET_CONNECTION_CATALOG_CHANNEL, catalog),
   clearConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.CLEAR_CONNECTION_CATALOG_CHANNEL),

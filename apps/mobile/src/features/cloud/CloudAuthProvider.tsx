@@ -1,5 +1,4 @@
-import { ClerkProvider, useAuth } from "@clerk/expo";
-import { tokenCache } from "@clerk/expo/token-cache";
+import { MinesAccountProvider, useMinesAccount } from "./MinesAccountProvider";
 import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
 import {
   reportAtomCommandResult,
@@ -23,7 +22,9 @@ import {
   unregisterAgentAwarenessDeviceForCurrentUser,
 } from "../agent-awareness/remoteRegistration";
 import { clearConnectOnboardingRequest, requestConnectOnboarding } from "./connectOnboarding";
-import { resolveCloudPublicConfig, resolveRelayClerkTokenOptions } from "./publicConfig";
+import { resolveCloudPublicConfig } from "./publicConfig";
+import { MinesPushBridge } from "../agent-awareness/MinesPush";
+import { PeerAccountBridge } from "../connection/PeerPairingSection";
 import { removeCloudEnvironments } from "./cloud-drafts";
 
 function resetManagedRelayTokenCache() {
@@ -51,7 +52,7 @@ export function activateCloudRelayAccount(
 }
 
 function CloudAuthBridge(props: { readonly children: ReactNode }) {
-  const { getToken, isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
+  const { getToken, isLoaded, isSignedIn, userId } = useMinesAccount();
   const removeRelayEnvironments = useAtomCommand(removeCloudEnvironments, {
     reportFailure: false,
     reportDefect: false,
@@ -127,7 +128,7 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
     }
 
     const previous = previousTokenProviderRef.current;
-    const tokenProvider = () => getToken(resolveRelayClerkTokenOptions());
+    const tokenProvider = () => getToken();
     const activateSession = () => {
       if (cancelled) {
         return;
@@ -187,22 +188,26 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
 
 export function CloudAuthProvider(props: { readonly children: ReactNode }) {
   const config = resolveCloudPublicConfig();
-  const publishableKey = config.clerk.publishableKey;
+  const controlUrl = config.identity.controlUrl;
   const relayUrl = config.relay.url;
 
   useEffect(() => {
-    if (!publishableKey || !relayUrl) {
+    if (!controlUrl || !relayUrl) {
       deactivateCloudRelayAccount();
     }
-  }, [publishableKey, relayUrl]);
+  }, [controlUrl, relayUrl]);
 
-  if (!publishableKey || !relayUrl) {
+  if (!controlUrl) {
     return props.children;
   }
 
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <CloudAuthBridge>{props.children}</CloudAuthBridge>
-    </ClerkProvider>
+    <MinesAccountProvider>
+      <PeerAccountBridge>
+        <MinesPushBridge>
+          {relayUrl ? <CloudAuthBridge>{props.children}</CloudAuthBridge> : props.children}
+        </MinesPushBridge>
+      </PeerAccountBridge>
+    </MinesAccountProvider>
   );
 }

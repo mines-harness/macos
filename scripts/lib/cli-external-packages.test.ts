@@ -29,11 +29,13 @@ describe("shouldBundleCliDependency", () => {
   it("leaves native addons and their dlopen wrappers external", () => {
     for (const id of [
       "node-pty",
+      "node-datachannel",
+      "@node-datachannel/darwin-arm64",
+      "detect-libc",
       "ffi-rs",
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
       "@napi-rs/keyring",
-      "@clerk/electron-passkeys",
       "node-addon-api",
     ]) {
       assert.strictEqual(shouldBundleCliDependency(id), false, id);
@@ -148,6 +150,47 @@ var x = 1;
     const result = findInlinedExternalPackages(source);
 
     assert.deepStrictEqual(result.inlinedPackages, ["effect", "yaml"]);
+    assert.deepStrictEqual(result.inlined, []);
+  });
+
+  it("detects native packages in the current plain source-path markers", () => {
+    const source = [
+      "// ../../node_modules/.pnpm/node-datachannel@0.33.4/node_modules/node-datachannel/lib/index.js",
+      "const channel = {};",
+      "// ../../node_modules/.pnpm/@ff-labs+fff-node@0.4.0/node_modules/@ff-labs/fff-node/index.js",
+      "const finder = {};",
+      "// ../../node_modules/.pnpm/effect@4.0.5/node_modules/effect/dist/Clock.js",
+      "const clock = {};",
+      "// src/bin.ts",
+    ].join("\n");
+    const result = findInlinedExternalPackages(source);
+    assert.strictEqual(result.regionCount, 4);
+    assert.deepStrictEqual(result.inlined, ["@ff-labs/fff-node", "node-datachannel"]);
+    assert.deepStrictEqual(result.inlinedPackages, [
+      "@ff-labs/fff-node",
+      "effect",
+      "node-datachannel",
+    ]);
+  });
+
+  it("preserves detection when region and plain markers occur together", () => {
+    const result = findInlinedExternalPackages(
+      region("../../node_modules/node-pty/lib/index.js") +
+        "// ../../node_modules/ffi-rs/index.cjs\n",
+    );
+    assert.strictEqual(result.regionCount, 2);
+    assert.deepStrictEqual(result.inlined, ["ffi-rs", "node-pty"]);
+  });
+
+  it("keeps the missing-marker sentinel for unrecognized output and ordinary comments", () => {
+    const result = findInlinedExternalPackages(
+      [
+        "// Load node_modules/node-datachannel/lib/index.js from disk.",
+        'const external = "// ../../node_modules/node-pty/lib/index.js";',
+        'import channel from "node-datachannel";',
+      ].join("\n"),
+    );
+    assert.strictEqual(result.regionCount, 0);
     assert.deepStrictEqual(result.inlined, []);
   });
 });

@@ -6,6 +6,7 @@ import {
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2PlanArtifact,
   type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
@@ -491,7 +492,7 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
     case "thread_created":
       return {
         ...common,
-        label: "Created thread",
+        label: "Created mine",
       };
     case "compaction":
       return {
@@ -621,6 +622,7 @@ export interface TimelineEntriesInput {
   readonly attempts?: ReadonlyArray<OrchestrationV2RunAttempt>;
   readonly nodes?: ReadonlyArray<OrchestrationV2ExecutionNode>;
   readonly plans?: ReadonlyArray<OrchestrationV2PlanArtifact>;
+  readonly liveVoiceRuns?: ReadonlyArray<Pick<OrchestrationV2Run, "userMessageId" | "liveVoice">>;
 }
 
 export interface TimelineEntriesProjection {
@@ -638,6 +640,14 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
   );
   const nodeById = new Map((input.nodes ?? []).map((node) => [node.id, node] as const));
   const planById = new Map((input.plans ?? []).map((plan) => [plan.id, plan] as const));
+  const liveVoiceMessageIds = new Set(
+    (input.liveVoiceRuns ?? []).filter((run) => run.liveVoice).map((run) => run.userMessageId),
+  );
+  const isVoicePlaceholder = (message: Pick<ChatMessage, "id" | "role" | "text" | "attachments">) =>
+    message.role === "user" &&
+    liveVoiceMessageIds.has(message.id) &&
+    message.text.trim().length === 0 &&
+    (message.attachments?.length ?? 0) === 0;
 
   const resolveAttempt = (item: OrchestrationV2TurnItem): TimelineAttempt | undefined => {
     if (item.nodeId === null || item.runId === null) return undefined;
@@ -722,6 +732,7 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
         ...(item.type === "user_message" ? { inputIntent: item.inputIntent } : {}),
       };
       committedMessageIds.add(message.id);
+      if (isVoicePlaceholder(message)) continue;
       entries.push({
         id: message.id,
         kind: "message",
@@ -812,6 +823,7 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
   for (const message of input.anchoredMessages ?? []) {
     if (retainedMessageIds.has(message.id)) continue;
     retainedMessageIds.add(message.id);
+    if (isVoicePlaceholder(message)) continue;
     const entry: TimelineEntry = {
       id: message.id,
       kind: "message",
@@ -829,7 +841,11 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
   }
 
   for (const message of input.optimisticMessages) {
-    if (message.inputIntent !== "queued_turn" && !retainedMessageIds.has(message.id)) {
+    if (
+      message.inputIntent !== "queued_turn" &&
+      !retainedMessageIds.has(message.id) &&
+      !isVoicePlaceholder(message)
+    ) {
       retainedMessageIds.add(message.id);
       entries.push({
         id: message.id,
@@ -973,7 +989,8 @@ function reuseTimelineEntries(
     !shallow(input.attachmentUrlById, before.attachmentUrlById) ||
     !shallow(input.attempts, before.attempts) ||
     !shallow(input.nodes, before.nodes) ||
-    !shallow(input.plans, before.plans)
+    !shallow(input.plans, before.plans) ||
+    !shallow(input.liveVoiceRuns, before.liveVoiceRuns)
   ) {
     return null;
   }

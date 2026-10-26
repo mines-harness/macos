@@ -108,7 +108,7 @@ import {
 type ThreadProjection = EnvironmentThread["projection"];
 type ThreadStructureRow = ThreadStructure["visibleTurnItems"][number];
 
-export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
+export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "mines:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
 const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
@@ -525,7 +525,7 @@ export function buildLocalDraftThread(
   return presentThreadShell(draftThread.environmentId, {
     id: threadId,
     projectId: draftThread.projectId,
-    title: "New thread",
+    title: "New mine",
     providerInstanceId: fallbackModelSelection.instanceId,
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
@@ -1030,8 +1030,8 @@ export function getStartedThreadModelChangeBlockReason(input: {
       return null;
     }
     return {
-      title: "Start a new chat to switch providers",
-      description: "This thread does not support switching providers after it has started.",
+      title: "Start a new mine to switch providers",
+      description: "This mine does not support switching providers after it has started.",
     };
   }
   const currentProvider = input.providers.find(
@@ -1047,7 +1047,7 @@ export function getStartedThreadModelChangeBlockReason(input: {
     return null;
   }
   return {
-    title: "Start a new chat to change models",
+    title: "Start a new mine to change models",
     description: "This provider does not allow switching models after a conversation has started.",
   };
 }
@@ -1093,7 +1093,7 @@ export async function waitForRevertedMessage(
     return latest === undefined || run.ordinal > latest.ordinal ? run : latest;
   }, undefined);
   if (witness === undefined) {
-    throw new Error("The thread has changed. Select a message to rewind again.");
+    throw new Error("The mine has changed. Select a message to rewind again.");
   }
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -1135,7 +1135,7 @@ export async function waitForRevertedMessage(
     };
     unsubscribe = appAtomRegistry.subscribe(threadAtom, inspect);
     timeout = globalThis.setTimeout(() => {
-      finish(new Error("Timed out waiting for the thread to rewind."));
+      finish(new Error("Timed out waiting for the mine to rewind."));
     }, timeoutMs);
     Promise.resolve()
       .then(revert)
@@ -1447,7 +1447,7 @@ export function makeModelDisabledReason(
       ...context,
       nextModelSelection: { instanceId, model },
     });
-    return reason ? `${reason.description} Start a new thread to use this model.` : null;
+    return reason ? `${reason.description} Start a new mine to use this model.` : null;
   };
 }
 

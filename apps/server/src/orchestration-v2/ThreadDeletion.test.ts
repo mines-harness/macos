@@ -209,7 +209,7 @@ it.effect("cancels active work without reviving a run while disposing delegated 
     assert.equal(pending.status, "cancelled");
     assert.deepEqual(pending.responseCapability, {
       type: "not_resumable",
-      reason: "The thread was deleted.",
+      reason: "The mine was deleted.",
     });
     assert.deepEqual(deleted.runtimeRequests[1], projection.runtimeRequests[1]);
     assert.deepEqual(deleted.runs.find((run) => run.id === parentRun.id)?.delegatedCompletion, {
@@ -287,7 +287,7 @@ it.effect("queues provider and resource cleanup and preserves an earlier deletio
         {
           type: "provider-session.detach",
           providerSessionId: ProviderSessionId.make("session:delete-plan:running"),
-          detail: "Thread deleted.",
+          detail: "Mine deleted.",
           revokeMcpCredential: true,
         },
         { type: "scheduled-tasks.cleanup" },

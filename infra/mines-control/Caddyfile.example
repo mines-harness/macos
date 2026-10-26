@@ -1,0 +1,5 @@
+{$MINES_CONTROL_DOMAIN} {
+  reverse_proxy 127.0.0.1:8788 {
+    header_up X-Real-IP {remote_host}
+  }
+}

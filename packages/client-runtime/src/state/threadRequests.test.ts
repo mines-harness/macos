@@ -1,8 +1,11 @@
 import {
+  ChatAttachmentId,
+  MessageId,
   NodeId,
   ProviderSessionId,
   RuntimeRequestId,
   TurnItemId,
+  ThreadId,
   type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -115,6 +118,66 @@ describe("declining approvals before sending", () => {
       await sendApprovalFeedback({ ...approval, supportsFeedback: true }, "Safer please.", respond),
     ).toBe(false);
   });
+});
+
+it("hides only the old generated import archive note while retaining source data and real messages", () => {
+  const threadId = ThreadId.make("import:codex:retained-session");
+  const messageId = MessageId.make(`${threadId}:000002`);
+  const archive = {
+    id: TurnItemId.make(`agent-session-import:v2:turn-item:${messageId}`),
+    threadId,
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 3,
+    status: "completed" as const,
+    title: null,
+    startedAt: v2Now,
+    completedAt: v2Now,
+    updatedAt: v2Now,
+    type: "user_message" as const,
+    createdBy: "system" as const,
+    creationSource: "server" as const,
+    messageId,
+    inputIntent: "turn_start" as const,
+    text: "mines import archive: original transcript, tool records, and attachment references. Download the manifest and numbered parts to inspect the complete source. Referenced files have not been fetched or executed.",
+    attachments: [
+      {
+        type: "file" as const,
+        id: ChatAttachmentId.make("archive-manifest"),
+        name: "source-history-manifest.json",
+        mimeType: "application/json",
+        sizeBytes: 123,
+      },
+    ],
+  };
+  const row = (item: typeof archive | OrchestrationV2ThreadProjection["turnItems"][number]) => ({
+    item,
+    position: 0,
+    sourceItemId: item.id,
+    sourceThreadId: item.threadId,
+    visibility: "local" as const,
+  });
+  const project = createQuestionHistoryProjector();
+  const original = { visibleTurnItems: [row(archive)], runtimeRequests: [] };
+  expect(project(original)).toEqual([]);
+  expect(original.visibleTurnItems[0]?.item).toBe(archive);
+  expect(archive.attachments[0]?.name).toBe("source-history-manifest.json");
+
+  for (const item of [
+    { ...archive, createdBy: "user" as const },
+    { ...archive, creationSource: "web" as const },
+    { ...archive, text: `Quoted: ${archive.text}` },
+    { ...archive, messageId: MessageId.make("ordinary-message") },
+    { ...archive, threadId: ThreadId.make("ordinary-thread") },
+    { ...archive, attachments: [] },
+  ]) {
+    const visibleTurnItems = [row(item)];
+    expect(project({ visibleTurnItems, runtimeRequests: [] })).toBe(visibleTurnItems);
+  }
 });
 
 describe("initial user input drafts", () => {

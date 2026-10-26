@@ -1,4 +1,9 @@
 import {
+  CLI_RELEASE_BASE_URL_ENV,
+  CLI_RELEASE_REPOSITORY_ENV,
+  resolveCliReleaseBaseUrl,
+} from "@t3tools/shared/cliRelease";
+import {
   EnvironmentId,
   ORCHESTRATION_PROTOCOL_VERSION,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
@@ -46,14 +51,14 @@ export class ServerEnvironment extends Context.Service<
     readonly getEnvironmentId: Effect.Effect<EnvironmentId>;
     readonly getDescriptor: Effect.Effect<ExecutionEnvironmentDescriptor>;
   }
->()("t3/environment/ServerEnvironment") {}
+>()("mines/environment/ServerEnvironment") {}
 
 export class ServerEnvironmentIdentity extends Context.Service<
   ServerEnvironmentIdentity,
   {
     readonly getEnvironmentId: Effect.Effect<EnvironmentId>;
   }
->()("t3/environment/ServerEnvironment/ServerEnvironmentIdentity") {}
+>()("mines/environment/ServerEnvironment/ServerEnvironmentIdentity") {}
 
 function platformOs(platform: NodeJS.Platform): ExecutionEnvironmentDescriptor["platform"]["os"] {
   switch (platform) {
@@ -193,9 +198,15 @@ export const make = Effect.gen(function* () {
   const label = yield* resolveServerEnvironmentLabel({ cwdBaseName });
   const machine = yield* detectServerEnvironmentMachineKind();
   const launcher = yield* resolveServiceLauncherMode();
+  const updateEnvironment = yield* HostProcess.Environment;
   const serverSelfUpdate = resolveServerSelfUpdateCapability({
     desktopManaged: serverConfig.mode === "desktop",
     launcherManaged: launcher.managed,
+    releaseConfigured:
+      resolveCliReleaseBaseUrl(
+        updateEnvironment[CLI_RELEASE_BASE_URL_ENV],
+        updateEnvironment[CLI_RELEASE_REPOSITORY_ENV],
+      ) !== undefined,
   });
   const serverInstallation = serverSelfUpdate === null ? yield* resolveServerInstallation : null;
   // Desktop and server ship together; a control fd guarantees requestDesktopUpdate support.
@@ -214,6 +225,7 @@ export const make = Effect.gen(function* () {
     serverVersion: packageJson.version,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     capabilities: {
+      mineTransfer: true,
       repositoryIdentity: true,
       connectionProbe: true,
       attachmentUploads: true,

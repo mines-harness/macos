@@ -45,7 +45,7 @@ before an upload finishes requires you to attach that file again.
 You can drag or paste images into the web or desktop composer. HEIC and HEIF
 photos are converted to JPEG there and when selected from the mobile photo
 library; photos over the image limit are also resized to fit. On mobile, you can
-also send files to T3 Code through another app's system share sheet.
+also send files to mines through another app's system share sheet.
 
 See [images and videos](#images-and-videos-in-messages) for previewing and saving media.
 
@@ -81,8 +81,8 @@ keyboard. The button only offers Steer when the running agent supports it.
 
 Mobile keeps local copies of draft attachments, so you can preview them and queue
 messages while disconnected. Uploads resume when you reconnect. Drafts and queued
-messages survive app restarts. Signing out of T3 Connect keeps that work on your
-device until you sign back into the same account.
+messages survive app restarts. Account-specific work stays on your device when
+you sign out and becomes available when you sign back into the same mines account.
 
 ## Custom models
 
@@ -107,7 +107,7 @@ instance:
 
 ## Model defaults
 
-T3 Code remembers your provider, model, and model options for new threads. A
+mines remembers your provider, model, and model options for new mines. A
 project's configured model takes precedence; resetting that project setting
 returns to the remembered selection.
 
@@ -134,9 +134,9 @@ navigate to their sources.
 
 ## Recall a sent prompt
 
-Press `ArrowUp` in an empty composer to bring back the last prompt you sent in this thread. Press
+Press `ArrowUp` in an empty composer to bring back the last prompt you sent in this mine. Press
 `ArrowUp` again to go further back, and `ArrowDown` to come forward. Moving forward past the newest
-prompt clears the composer. Recall walks the prompts loaded in the thread. Attachments, terminal
+prompt clears the composer. Recall walks the prompts loaded in the mine. Attachments, terminal
 context, and other extras from the original message are not restored, only the text you typed. A
 composer that holds an attachment or a picked element does not count as empty.
 
@@ -151,14 +151,14 @@ On web and desktop, choose **Edit from here** beneath a sent message to rewind
 the conversation to before that message. Choose **Revert and keep changes** to
 leave workspace files as they are, or **Revert files too** to put the workspace back
 to its checkpoint from before that message. That also undoes edits you made yourself.
-File restore is only offered for threads running in a worktree, and it is
-refused when another thread or agent session also uses that directory, a folder
+File restore is only offered for mines running in a worktree, and it is
+refused when another mine or agent session also uses that directory, a folder
 inside it, or a folder that contains it, since
-restoring would erase their changes. A thread that works in the project directory
+restoring would erase their changes. A mine that works in the project directory
 rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
-This removes the selected message and later conversation from the active thread
+This removes the selected message and later conversation from the active mine
 and provider history. It does not undo external actions or separate provider
 memory. The action is available only when the provider supports rewind.
 
@@ -172,6 +172,21 @@ stash menu when there are several.
 Stashes containing uploaded files must be restored in their original environment.
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
+
+## Live voice with Codex
+
+With a connected ChatGPT account and a supported Codex runtime, choose **Live voice**
+in a mine to speak with its agent. Codex checks your account's availability when
+the conversation starts. Voice can direct coding work using the mine's existing
+workspace and permissions; **Stop** ends the voice session and its active run.
+
+Microphone access starts only when you choose the action. Audio connects to
+OpenAI through Codex using your connected account, without a separate API key.
+Web microphone access requires HTTPS or localhost. Leaving the mine or stopping
+voice releases the microphone.
+
+Provider dictation into an editable prompt and Claude live voice remain unavailable
+until their providers expose supported interfaces for Mines.
 
 ## Voice input on iPhone
 
@@ -192,7 +207,7 @@ for example, put **Other Bluetooth** above your AirPods so a new headset is pref
 while the AirPods microphone stays low. By default, CarPlay comes after the built-in
 microphone.
 
-Transcription runs on your device. T3 Code deletes the temporary audio after
+Transcription runs on your device. mines deletes the temporary audio after
 transcription or cancellation; only the message text is sent when you submit.
 
 ## Queued messages
@@ -224,7 +239,7 @@ composer when it is empty, and is discarded otherwise.
 ## Commands and skills
 
 Type `/` for commands or `$` to add a skill from the selected environment and
-provider. On mobile, both are also available before starting a thread on
+provider. On mobile, both are also available before starting a mine on
 **New task**.
 
 The slash menu also includes skills unless you turn off **Settings → General →
@@ -234,20 +249,20 @@ After you add or change skills, plugins, or MCP servers, use **Restart agent
 session** in the command palette on web and desktop. The conversation continues,
 and your next message starts the agent again with the new setup.
 
-Provider commands must start the message to run. T3 Code commands such as
+Provider commands must start the message to run. mines commands such as
 `/model` and `/plan`, and skill mentions, work on any line.
 
 Send `/compact` in an existing conversation to reduce context usage when the
 provider supports it. Web and desktop also offer compaction from the context meter.
 
-Claude instances can also compact idle threads for you. See
+Claude instances can also compact idle mines for you. See
 [compact long conversations](./providers-claude.md#compact-long-conversations).
 
 ## Goals
 
 With Codex and Claude, send `/goal` followed by what "done" means, for example
 `/goal all tests in packages/api pass`. The agent keeps working across turns
-until it judges the goal met. The thread shows **Goal** while it works, and a
+until it judges the goal met. The mine shows **Goal** while it works, and a
 row above the composer shows the goal and its progress.
 
 - `/goal` alone shows the current goal. `/goal clear` removes it.
@@ -268,20 +283,20 @@ excerpt, Terminal 1 lines 3-4" and similar to screen readers.
 A pull request appears as its icon and number. Its color reflects whether it was open, draft,
 merged, or closed when it was attached. Select it to inspect the captured title and branches,
 then choose **Open pull request** to visit the pull request. On web and desktop, type `#` to browse the newest
-pull requests in the current project's repository. Pull requests linked to the thread are included
+pull requests in the current project's repository. Pull requests linked to the mine are included
 from any repository and listed first, after any exact number match. Continue typing digits to filter the recent list
 by any part of its pull request numbers. A complete number is also resolved directly, even when that
 pull request is older than the recent list. Type a single word after `#` to search pull requests in
 the repository by text. Choose a result to insert it as a chip.
 
-Another thread can be context too. Type `@` followed by part of its title to pick one from
-the same server, or on web and desktop drag a thread out of the sidebar and drop it on the
-composer; a multi-selection drops together. The chip shows the thread's current title and
-opens it when selected. Your prompt only carries a reference: the agent reads the thread's
-history on demand, so attaching a long thread costs nothing until the agent looks. Attaching a
-thread does not change it, and the agent cannot send messages to it unless you ask.
+Another mine can be context too. Type `@` followed by part of its title to pick one from
+the same server, or on web and desktop drag a mine out of the sidebar and drop it on the
+composer; a multi-selection drops together. The chip shows the mine's current title and
+opens it when selected. Your prompt only carries a reference: the agent reads the mine's
+history on demand, so attaching a long mine costs nothing until the agent looks. Attaching a
+mine does not change it, and the agent cannot send messages to it unless you ask.
 
-Dropping a thread from another environment attaches a saved transcript file. The source
+Dropping a mine from another environment attaches a saved transcript file. The source
 environment must be connected and up to date. The transcript includes the visible history and
 saved text context at the time of the drop; later messages and the contents of attached files
 are not copied. The agent can read the saved transcript after the source disconnects. Normal
@@ -292,10 +307,10 @@ say exactly which image you mean. Deleting an image chip leaves the image on the
 the thumbnail asks first when the image is still mentioned in your text, then removes both. Files
 exist only as chips: deleting a file's last chip removes the file from the message.
 
-Copy text that holds chips and paste it into another draft, in the same thread or another one,
+Copy text that holds chips and paste it into another draft, in the same mine or another one,
 and the chips come along with what they point to. Images and files are fetched again from the
 environment they came from; while that happens the chip shows a dashed outline, and if it cannot
-complete T3 Code tells you and leaves the chip for you to remove or replace. A chip whose
+complete mines tells you and leaves the chip for you to remove or replace. A chip whose
 context is no longer available shows the same dashed outline; hover it for what to do.
 
 Copying a message with the copy button, or copying text out of it, gives other apps readable
@@ -342,7 +357,7 @@ styles, or images from neighboring files.
 
 On web and desktop, HTML and PDF files open as rendered pages. Switch an HTML
 file to source view to read its markup; a link to a specific line opens source
-automatically. HTML previews cannot access your T3 Code session.
+automatically. HTML previews cannot access your mines session.
 
 The file viewer recognizes images, HTML, and PDF files by their filename extension,
 including filenames or folders containing `#` or `?`.

@@ -1,16 +1,21 @@
-import * as NodeOS from "node:os";
-
 import {
   AgentSessionScanError,
+  ThreadId,
+  type ChatFileAttachment,
   ClaudeSettings,
   CodexSettings,
   ProviderDriverKind,
   ProviderInstanceId,
-  resolveProviderInstanceEnabled,
   type AgentSessionImportSource,
   type AgentSessionProjectCandidate,
   type AgentSessionProjectGit,
   type AgentSessionScanResult,
+  AgentSessionScanInput,
+  isAgentSessionGeneratedContextTitle,
+  type AgentSessionSourceReport,
+  type AgentSessionSourceSection,
+  type AgentSessionThreadCandidate,
+  AgentSessionThreadProvenance,
   type ProviderInstanceConfig,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -29,12 +34,26 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import { repositoryPathFromRemoteUrl } from "@t3tools/source-control-core/server/SourceControlProvider";
 
+import { createDeterministicAttachmentId } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as ServerSettings from "../serverSettings.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
+import { archiveSession } from "./AgentSessionArchive.ts";
+import { readCodexAppCatalog } from "./CodexAppCatalog.ts";
+import {
+  discoverT3CodeSessions,
+  loadT3CodeSession,
+  type T3CodeSessionCandidate,
+} from "./T3CodeAgentSessions.ts";
+import {
+  discoverExternalSessions,
+  externalSessionArchive,
+  loadExternalSession,
+  type ExternalSessionCandidate,
+} from "./ExternalAgentSessions.ts";
 import {
   createTranscriptJsonReader,
   createTranscriptJsonSelector,
@@ -44,26 +63,30 @@ import {
 const TRANSCRIPT_PREFIX_BYTES = 32 * 1024;
 const METADATA_READ_BYTES = 8 * 1024;
 const MAX_TRANSCRIPT_SCAN_BYTES = 1024 * 1024;
+const MAX_TITLE_RECOVERY_BYTES = 4 * 1024 * 1024;
 
-const MAX_TRANSCRIPTS_PER_SOURCE = 5000;
-
-const MAX_DISCOVERY_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
-const MAX_METADATA_BYTES_PER_SOURCE = 64 * 1024 * 1024;
-const MAX_METADATA_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
-const MAX_METADATA_RECORDS_PER_SOURCE = 100_000;
 const MAX_METADATA_RECORDS_PER_TRANSCRIPT = 1_000;
-const RECENT_THREAD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 // Screenshot-heavy transcripts can reach GiB; select fields while streaming to avoid allocating payloads.
-const MAX_IMPORTED_TRANSCRIPT_BYTES = 4 * 1024 * 1024 * 1024;
-const MAX_IMPORTED_MESSAGES = 200;
 const MAX_IMPORT_HISTORY_BYTES = 32 * 1024 * 1024;
 const MAX_IMPORT_BYTES = 4 * 1024 * 1024 * 1024;
 const MAX_IMPORT_TRANSCRIPTS = 100;
-const MAX_IMPORT_RECORDS = 100_000;
+const MAX_IMPORT_RECORDS = Number.MAX_SAFE_INTEGER;
 
 const TranscriptContentBlock = Schema.Struct({
   type: Schema.optional(Schema.String),
   text: Schema.optional(Schema.String),
+  id: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  tool_use_id: Schema.optional(Schema.String),
+  image_url: Schema.optional(Schema.String),
+  source: Schema.optional(
+    Schema.Struct({
+      type: Schema.optional(Schema.String),
+      path: Schema.optional(Schema.String),
+      url: Schema.optional(Schema.String),
+      media_type: Schema.optional(Schema.String),
+    }),
+  ),
 });
 
 const TranscriptMessage = Schema.Struct({
@@ -93,6 +116,8 @@ const TranscriptRecord = Schema.Struct({
       session_id: Schema.optional(Schema.String),
       type: Schema.optional(Schema.String),
       role: Schema.optional(Schema.String),
+      name: Schema.optional(Schema.String),
+      call_id: Schema.optional(Schema.String),
       message: Schema.optional(Schema.String),
       model: Schema.optional(Schema.String),
       cwd: Schema.optional(Schema.String),
@@ -102,6 +127,18 @@ const TranscriptRecord = Schema.Struct({
   ),
 });
 
+const MessageProjection = Schema.Array(
+  Schema.Struct({
+    role: Schema.Literals(["user", "assistant"]),
+    text: Schema.String,
+    createdAt: Schema.String,
+  }),
+);
+const encodeMessages = Schema.encodeSync(Schema.fromJsonString(MessageProjection));
+const decodeMessages = Schema.decodeUnknownEffect(Schema.fromJsonString(MessageProjection));
+const encodeReference = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const encodeScanInput = Schema.encodeSync(Schema.fromJsonString(AgentSessionScanInput));
+const threadProvenance = Schema.decodeUnknownSync(AgentSessionThreadProvenance);
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 const decodeTranscriptRecord = Schema.decodeUnknownOption(Schema.fromJsonString(TranscriptRecord));
@@ -124,8 +161,9 @@ export interface AgentSessionThreadMessage {
   readonly createdAt: string;
 }
 
-export interface AgentSessionThread {
+export interface AgentSessionThread extends AgentSessionThreadProvenance {
   readonly source: AgentSessionSource;
+  readonly providerDriver?: ProviderDriverKind;
   readonly providerInstanceId: ProviderInstanceId;
   readonly providerSessionId: string;
   readonly title: string;
@@ -133,6 +171,12 @@ export interface AgentSessionThread {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly messages: ReadonlyArray<AgentSessionThreadMessage>;
+  readonly nativeContinuation?: boolean;
+  readonly partial?: boolean;
+  readonly projectionFiles?: ReadonlyArray<string>;
+  readonly messageCount?: number;
+  readonly archiveAttachments?: ReadonlyArray<ChatFileAttachment>;
+  readonly sourceSection?: AgentSessionSourceSection;
 }
 
 export type AgentSessionRecentThread =
@@ -141,20 +185,41 @@ export type AgentSessionRecentThread =
       readonly thread: AgentSessionThread;
       readonly source: AgentSessionImportSource;
     }
-  | { readonly _tag: "AlreadyImported"; readonly source: AgentSessionImportSource }
+  | (AgentSessionThreadProvenance & {
+      readonly _tag: "AlreadyImported";
+      readonly source: AgentSessionImportSource;
+      readonly title?: string;
+      readonly nativeTitle?: string;
+      readonly sourceSection?: AgentSessionSourceSection;
+    })
   | { readonly _tag: "Duplicate"; readonly source: AgentSessionImportSource }
-  | { readonly _tag: "Skipped" };
+  | {
+      readonly _tag: "Skipped";
+      readonly reason?: "deferred" | "unavailable" | "failed";
+      readonly cursor?: number;
+    };
 
 export class AgentSessionScanner extends Context.Service<
   AgentSessionScanner,
   {
-    readonly scan: Effect.Effect<AgentSessionScanResult, AgentSessionScanError>;
+    readonly scan: (
+      input?: AgentSessionScanInput,
+    ) => Effect.Effect<AgentSessionScanResult, AgentSessionScanError>;
+    readonly streamMessages: (
+      thread: AgentSessionThread,
+    ) => Stream.Stream<AgentSessionThreadMessage, AgentSessionScanError>;
     readonly recentThreads: (
       workspaceRoot: string,
       completedSources?: ReadonlyArray<AgentSessionImportSource>,
+      input?: AgentSessionScanInput,
+      titleRepairThreadIds?: ReadonlyArray<ThreadId>,
     ) => Stream.Stream<AgentSessionRecentThread, AgentSessionScanError>;
+    readonly projectSourceSection: (
+      workspaceRoot: string,
+      input?: AgentSessionScanInput,
+    ) => Effect.Effect<AgentSessionSourceSection | undefined>;
   }
->()("t3/project/AgentSessionScanner") {}
+>()("mines/project/AgentSessionScanner") {}
 
 type AgentSessionSource = AgentSessionProjectCandidate["sources"][number];
 
@@ -164,9 +229,15 @@ interface RawCandidate {
   readonly providerInstanceId: ProviderInstanceId;
   readonly threadCount: number;
   readonly lastActiveAtMs: number | null;
+  readonly title?: string;
+  readonly sourceSection?: AgentSessionSourceSection;
   readonly transcripts: ReadonlyArray<{
     readonly filePath: string;
     readonly mtimeMs: number | null;
+    readonly external?: ExternalSessionCandidate;
+    readonly t3Code?: T3CodeSessionCandidate;
+    readonly preview: AgentSessionThreadCandidate;
+    readonly nativeTitle?: string;
   }>;
 }
 
@@ -190,10 +261,9 @@ function selectMetadataTranscripts(transcripts: ReadonlyArray<TranscriptCandidat
     Map.groupBy(transcripts, (transcript) => transcript.providerInstanceId).values(),
     (entries) => entries.values(),
   );
-  while (pending.length > 0 && selected.length < MAX_TRANSCRIPTS_PER_SOURCE) {
+  while (pending.length > 0) {
     const nextRound: typeof pending = [];
     for (const iterator of pending) {
-      if (selected.length === MAX_TRANSCRIPTS_PER_SOURCE) break;
       const next = iterator.next();
       if (next.done) continue;
       selected.push(next.value);
@@ -206,7 +276,7 @@ function selectMetadataTranscripts(transcripts: ReadonlyArray<TranscriptCandidat
 
 function splitTranscriptRecords(contents: string, limit: number): string[] {
   const records = contents.endsWith("\n") ? contents.slice(0, -1) : contents;
-  return records.split("\n", limit);
+  return records.split("\n", Math.min(limit, 0xffff_ffff));
 }
 
 function isTextContentBlock(block: typeof TranscriptContentBlock.Type): boolean {
@@ -244,7 +314,7 @@ function codexTurnId(metadata: unknown): string | null {
 }
 
 function isHiddenClaudeRecord(record: DecodedTranscriptRecord): boolean {
-  return record.isSidechain === true || record.isMeta === true || record.isCompactSummary === true;
+  return record.isMeta === true || record.isCompactSummary === true;
 }
 
 // Claude repeats session fields on records that need not be retained.
@@ -280,11 +350,14 @@ function foldClaudeFields(fields: ClaudeFields, record: DecodedTranscriptRecord)
 // Codex records setup context as user text ahead of the real request. Skip
 // these leading blocks when deriving a title; imported messages keep them.
 const CODEX_TITLE_PREAMBLE =
-  /^(?:\s*(?:<(recommended_plugins|environment_context|user_instructions|INSTRUCTIONS|in-app-browser-context)(?:\s[^>]*)?>[\s\S]*?<\/\1>|# AGENTS\.md instructions\b[^\n]*|## My request for Codex:))+/;
+  /^(?:\s*(?:<(recommended_plugins|environment_context|user_instructions|INSTRUCTIONS|in-app-browser-context|external_codex_apps_open_page)(?:\s[^>]*)?>[\s\S]*?<\/\1>|# AGENTS\.md instructions\b[^\n]*|## My request for Codex:))+/;
 
 function deriveTitle(source: AgentSessionSource, text: string): string | undefined {
   const request = source === "codex" ? text.replace(CODEX_TITLE_PREAMBLE, "") : text;
-  return request.trim().split("\n")[0]?.slice(0, 100).trim() || undefined;
+  const title = request.trim().split("\n")[0]?.slice(0, 100).trim();
+  return title && (source !== "codex" || !isAgentSessionGeneratedContextTitle(title))
+    ? title
+    : undefined;
 }
 
 export function parseAgentSessionTranscript(
@@ -383,7 +456,6 @@ function parseAgentSessionRecords(
       derivedTitle = deriveTitle(input.source, message.text);
     }
     messages.push(message);
-    if (messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
   };
 
   const hasMatchingCodexEventInTurn = (text: string) => {
@@ -479,28 +551,100 @@ function parseAgentSessionRecords(
   const visibleMessages = messages.map(
     ({ codexResponseUser: _codexResponseUser, ...message }) => message,
   );
-  if (providerSessionId.trim().length === 0 || firstUserMessage === undefined) return null;
-  const firstUserMessageRetained = messages.includes(firstUserMessage);
-  const { codexResponseUser: _codexResponseUser, ...visibleFirstUserMessage } = firstUserMessage;
-  const retainedMessages = firstUserMessageRetained
-    ? visibleMessages
-    : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
+  const nativeContinuation = input.source !== "codex" || hasCodexSessionId;
+  if (providerSessionId.trim().length === 0) providerSessionId = input.fallbackSessionId;
+  if (providerSessionId.trim().length === 0) return null;
+  const retainedMessages = [...visibleMessages];
+  if (firstUserMessage !== undefined && !messages.includes(firstUserMessage)) {
+    const { codexResponseUser: _codexResponseUser, ...visibleFirstUserMessage } = firstUserMessage;
+    retainedMessages.unshift(visibleFirstUserMessage);
+  }
 
   return {
     source: input.source,
     providerInstanceId: input.providerInstanceId,
     providerSessionId,
-    title: claudeFields.customTitle ?? title ?? derivedTitle ?? "Imported thread",
+    title: claudeFields.customTitle ?? title ?? derivedTitle ?? "Imported mine",
     model,
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
     messages: retainedMessages,
+    nativeContinuation,
+    partial:
+      firstUserMessage === undefined ||
+      records.some(
+        (record) =>
+          (record.type === "response_item" && record.payload?.type !== "message") ||
+          [record.message?.content, record.payload?.content].some(
+            (content) =>
+              Array.isArray(content) && content.some((block) => !isTextContentBlock(block)),
+          ),
+      ),
   };
 }
 
 function extractDecodedCwd(record: DecodedTranscriptRecord): string | null {
   const cwd = record.cwd?.trim() || record.payload?.cwd?.trim();
   return cwd && cwd.length > 0 ? cwd : null;
+}
+
+function normalizedReferences(record: DecodedTranscriptRecord, sourceRecord: number) {
+  const references: Array<{
+    kind: string;
+    sourceRecord: number;
+    sourcePath: string;
+    id?: string;
+    name?: string;
+    reference?: string;
+  }> = [];
+  const payload = record.payload;
+  if (
+    record.type === "response_item" &&
+    (payload?.type === "function_call" ||
+      payload?.type === "function_call_output" ||
+      payload?.type === "custom_tool_call" ||
+      payload?.type === "custom_tool_call_output")
+  ) {
+    references.push({
+      kind: payload.type.endsWith("output") ? "tool-result" : "tool-call",
+      sourceRecord,
+      sourcePath: "payload",
+      ...(payload.call_id ? { id: payload.call_id } : {}),
+      ...(payload.name ? { name: payload.name } : {}),
+    });
+  }
+  for (const [sourcePath, content] of [
+    ["message.content", record.message?.content],
+    ["payload.content", payload?.content],
+  ] as const) {
+    if (!Array.isArray(content)) continue;
+    for (const [index, block] of content.entries()) {
+      const kind =
+        block.type === "tool_use"
+          ? "tool-call"
+          : block.type === "tool_result"
+            ? "tool-result"
+            : block.type === "image" ||
+                block.type === "input_image" ||
+                block.type === "document" ||
+                block.type === "file"
+              ? "attachment-reference"
+              : null;
+      if (kind === null) continue;
+      const reference = block.source?.path ?? block.source?.url ?? block.image_url;
+      references.push({
+        kind,
+        sourceRecord,
+        sourcePath: `${sourcePath}[${index}]`,
+        ...(block.id || block.tool_use_id ? { id: block.id ?? block.tool_use_id } : {}),
+        ...(block.name ? { name: block.name } : {}),
+        ...(reference
+          ? { reference: reference.startsWith("data:") ? "embedded in source archive" : reference }
+          : {}),
+      });
+    }
+  }
+  return references;
 }
 
 function shouldRetainDecodedRecord(
@@ -529,25 +673,10 @@ function shouldRetainDecodedRecord(
   );
 }
 
-function normalizeForWorktreeMatch(value: string, caseFold: boolean): string {
-  const normalized = `${value.replaceAll("\\", "/")}/`;
-  return caseFold ? normalized.toLowerCase() : normalized;
-}
-
-function isT3ManagedWorktree(
-  candidatePath: string,
-  worktreesDir: string,
-  caseFold: boolean,
-): boolean {
-  const normalized = normalizeForWorktreeMatch(candidatePath, caseFold);
-  return (
-    normalized.startsWith(normalizeForWorktreeMatch(worktreesDir, caseFold)) ||
-    normalized.includes("/.t3/worktrees/")
-  );
-}
-
-// false stops metadata scanning for an excluded rollout, even if later records contain a cwd.
-function extractCwd(line: string, source: AgentSessionSource): string | null | false {
+function extractCwd(
+  line: string,
+  source: AgentSessionSource,
+): { cwd: string; sessionId?: string; title?: string } | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
@@ -557,28 +686,37 @@ function extractCwd(line: string, source: AgentSessionSource): string | null | f
   if (typeof parsed !== "object" || parsed === null) return null;
 
   const record = parsed as Record<string, unknown>;
-  if (typeof record.cwd === "string" && record.cwd.trim().length > 0) {
-    return record.cwd;
-  }
   const payload = record.payload;
-  if (typeof payload === "object" && payload !== null) {
-    if (source === "codex" && record.type === "session_meta") {
-      const sessionSource = (payload as Record<string, unknown>).source;
-      if (
-        typeof sessionSource === "object" &&
-        sessionSource !== null &&
-        !Array.isArray(sessionSource) &&
-        (Object.hasOwn(sessionSource, "subagent") || Object.hasOwn(sessionSource, "subAgent"))
-      ) {
-        return false;
-      }
-    }
-    const nested = (payload as Record<string, unknown>).cwd;
-    if (typeof nested === "string" && nested.trim().length > 0) {
-      return nested;
-    }
-  }
-  return null;
+  const nested =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>)
+      : undefined;
+  const cwd = typeof record.cwd === "string" && record.cwd.trim() ? record.cwd : nested?.cwd;
+  if (typeof cwd !== "string" || !cwd.trim()) return null;
+  const sessionId =
+    source === "codex"
+      ? record.type === "session_meta"
+        ? nested?.id
+        : nested?.session_id
+      : record.sessionId;
+  const title = record.customTitle ?? record.aiTitle;
+  return {
+    cwd,
+    ...(typeof sessionId === "string" ? { sessionId } : {}),
+    ...(typeof title === "string" && title.trim() ? { title: title.trim() } : {}),
+  };
+}
+
+function threadCandidateKey(
+  source: AgentSessionSource,
+  providerInstanceId: ProviderInstanceId,
+  filePath: string,
+  sessionId = "",
+) {
+  return createDeterministicAttachmentId(
+    "import-thread",
+    `${source}\0${providerInstanceId}\0${filePath}\0${sessionId}`,
+  )!;
 }
 
 function transcriptIdentity(filePath: string, stats: FileSystem.File.Info) {
@@ -623,39 +761,19 @@ function sameTranscriptIdentity(left: TranscriptIdentity, right: TranscriptIdent
 /** @public */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
+  const serverConfig = yield* ServerConfig.ServerConfig;
   // Concurrent client imports must not hold multiple selected-history budgets.
   const importReadLock = yield* Semaphore.make(1);
   const path = yield* Path.Path;
-  const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
-  const baseDir = path.resolve(serverConfig.baseDir);
-  const worktreesDir = path.resolve(serverConfig.worktreesDir);
-  const foldWorktreeCase = (yield* HostProcess.Platform) === "win32";
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;
-  // `/private/tmp` is what macOS reports for sessions started in `/tmp`.
-  const excludedProjectRoots = new Set(
-    [homeDir, NodeOS.tmpdir(), "/tmp", "/private/tmp"].map((directory) =>
-      normalizeProjectPathForComparison(path.resolve(directory)),
-    ),
-  );
-  const excludedProjectAncestors = [
-    path.join(homeDir, "Downloads"),
-    path.join(homeDir, "Documents", "Codex"),
-  ];
-
-  const isExcludedProjectPath = (candidatePath: string) =>
-    excludedProjectRoots.has(normalizeProjectPathForComparison(candidatePath)) ||
-    excludedProjectAncestors.some((ancestor) =>
-      normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
-        normalizeForWorktreeMatch(ancestor, foldWorktreeCase),
-      ),
-    ) ||
-    normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
-      normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
-    ) ||
-    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase);
+  let cachedCodexCatalogs: ReadonlyMap<
+    ProviderInstanceId,
+    Effect.Success<ReturnType<typeof readCodexAppCatalog>>
+  > = new Map();
+  let cachedCodexCatalogKey: string | null = null;
 
   const listDirectory = (directory: string) =>
     fileSystem.readDirectory(directory).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
@@ -805,13 +923,72 @@ export const make = Effect.gen(function* () {
     ).pipe(Effect.orElseSucceed(() => null));
   });
 
+  const readCodexRequestTitle = Effect.fn("AgentSessionScanner.readCodexRequestTitle")(function* (
+    filePath: string,
+    expected: TranscriptIdentity,
+  ) {
+    const titleFromRecord = (line: string) => {
+      const record = decodeTranscriptRecord(line);
+      if (Option.isNone(record)) return undefined;
+      const { type, payload } = record.value;
+      const text =
+        type === "event_msg" && payload?.type === "user_message"
+          ? payload.message
+          : type === "response_item" && payload?.type === "message" && payload.role === "user"
+            ? extractText(payload.content)
+            : undefined;
+      const title = text === undefined ? undefined : deriveTitle("codex", text);
+      return title && !isAgentSessionGeneratedContextTitle(title) ? title : undefined;
+    };
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const file = yield* fileSystem.open(filePath, { flag: "r" });
+        const decoder = new TextDecoder();
+        let remaining = "";
+        let bytesRead = 0;
+        let recordsRead = 0;
+        while (
+          bytesRead < MAX_TITLE_RECOVERY_BYTES &&
+          recordsRead < MAX_METADATA_RECORDS_PER_TRANSCRIPT
+        ) {
+          const next = yield* file.readAlloc(
+            Math.min(METADATA_READ_BYTES, MAX_TITLE_RECOVERY_BYTES - bytesRead),
+          );
+          if (Option.isNone(next)) {
+            const title = titleFromRecord(remaining + decoder.decode());
+            return title &&
+              sameTranscriptIdentity(expected, transcriptIdentity(filePath, yield* file.stat))
+              ? title
+              : undefined;
+          }
+          bytesRead += next.value.byteLength;
+          remaining += decoder.decode(next.value, { stream: true });
+          const lines = remaining.split("\n");
+          remaining = lines.pop() ?? "";
+          for (const line of lines) {
+            if (recordsRead++ === MAX_METADATA_RECORDS_PER_TRANSCRIPT) return undefined;
+            const title = titleFromRecord(line);
+            if (title)
+              return sameTranscriptIdentity(
+                expected,
+                transcriptIdentity(filePath, yield* file.stat),
+              )
+                ? title
+                : undefined;
+          }
+        }
+        return undefined;
+      }),
+    ).pipe(Effect.orElseSucceed(() => undefined));
+  });
+
   const readTranscript = Effect.fn("AgentSessionScanner.readTranscript")(function* (
     filePath: string,
     expected: ReturnType<typeof transcriptIdentity>,
     recordLimit: number,
-    source: AgentSessionSource,
+    metadata: AgentSessionTranscriptMetadata,
   ) {
-    if (expected.size > MAX_IMPORTED_TRANSCRIPT_BYTES) return null;
+    const source = metadata.source;
 
     return yield* Effect.scoped(
       fileSystem.open(filePath, { flag: "r" }).pipe(
@@ -824,14 +1001,69 @@ export const make = Effect.gen(function* () {
             let cwd = Option.none<string>();
             let claudeFields = emptyClaudeFields;
             let historyBytes = 0;
+            const projectionFiles: string[] = [];
+            let projectedThread: AgentSessionThread | null = null;
+            const getProjectedThread = (): AgentSessionThread | null => projectedThread;
+            let messageCount = 0;
+            let sessionMetadata: DecodedTranscriptRecord | undefined;
+            const flushRecords = Effect.fn("AgentSessionScanner.flushProjection")(function* () {
+              const parsed = parseAgentSessionRecords(metadata, records, claudeFields);
+              if (parsed !== null) {
+                const directory = path.join(
+                  serverConfig.baseDir,
+                  "imported-history",
+                  "staging",
+                  createDeterministicAttachmentId(
+                    "history",
+                    `${filePath}:${expected.size}:${expected.mtimeMs}`,
+                  )!,
+                );
+                yield* fileSystem.makeDirectory(directory, { recursive: true });
+                const projectionFile = path.join(directory, `${projectionFiles.length}.json`);
+                yield* fileSystem.writeFileString(projectionFile, encodeMessages(parsed.messages));
+                projectionFiles.push(projectionFile);
+                messageCount += parsed.messages.length;
+                projectedThread = {
+                  ...parsed,
+                  title: projectedThread?.title ?? parsed.title,
+                  createdAt: projectedThread?.createdAt ?? parsed.createdAt,
+                  messages: [],
+                  partial: true,
+                };
+              }
+              records.length = 0;
+              if (sessionMetadata) records.push(sessionMetadata);
+              historyBytes = 0;
+            });
+            let referenceFile: string | undefined;
+            let referenceLines: string[] = [];
+            const flushReferences = Effect.fn("AgentSessionScanner.flushReferences")(function* () {
+              if (referenceLines.length === 0) return;
+              const directory = path.join(
+                serverConfig.baseDir,
+                "imported-history",
+                "staging",
+                createDeterministicAttachmentId(
+                  "history",
+                  `${filePath}:${expected.size}:${expected.mtimeMs}`,
+                )!,
+              );
+              yield* fileSystem.makeDirectory(directory, { recursive: true });
+              const destination = path.join(directory, "references.jsonl");
+              yield* fileSystem.writeFileString(destination, referenceLines.join("\n") + "\n", {
+                flag: referenceFile ? "a" : "w",
+              });
+              referenceFile = destination;
+              referenceLines = [];
+            });
             let recordBytes = 0;
             let recordCount = 0;
             let bytesRead = 0;
             const reserve = (bytes: number) => {
               recordBytes += bytes;
-              if (historyBytes + recordBytes > MAX_IMPORT_HISTORY_BYTES) {
+              if (recordBytes > MAX_IMPORT_HISTORY_BYTES) {
                 throw new TranscriptJsonLimitError(
-                  "Transcript selected history exceeds the 32 MiB memory budget",
+                  "A single transcript record exceeds the projection memory budget; original history remains available in the archive",
                 );
               }
             };
@@ -845,7 +1077,13 @@ export const make = Effect.gen(function* () {
               if (recordCount > recordLimit) return false;
               const decoded = decodeTranscriptValue(reader.finish());
               if (Option.isSome(decoded)) {
+                referenceLines.push(
+                  ...normalizedReferences(decoded.value, recordCount).map((reference) =>
+                    encodeReference(reference),
+                  ),
+                );
                 if (Option.isNone(cwd)) cwd = Option.fromNullOr(extractDecodedCwd(decoded.value));
+                if (decoded.value.type === "session_meta") sessionMetadata = decoded.value;
                 if (source === "claudeAgent") {
                   claudeFields = foldClaudeFields(claudeFields, decoded.value);
                 }
@@ -884,11 +1122,24 @@ export const make = Effect.gen(function* () {
                 return true;
               });
               if (!withinBudget) return null;
+              yield* flushReferences();
+              if (historyBytes >= 4 * 1024 * 1024) yield* flushRecords();
             }
 
             if (recordStarted && !(yield* Effect.try(finishRecord))) return null;
+            yield* flushReferences();
+            if (projectionFiles.length > 0) yield* flushRecords();
             return sameTranscriptIdentity(expected, transcriptIdentity(filePath, yield* file.stat))
-              ? { records, recordCount, cwd, claudeFields }
+              ? {
+                  records,
+                  recordCount,
+                  cwd,
+                  claudeFields,
+                  projectedThread: getProjectedThread(),
+                  projectionFiles,
+                  messageCount,
+                  referenceFile,
+                }
               : null;
           }),
         ),
@@ -914,119 +1165,47 @@ export const make = Effect.gen(function* () {
     return path.join(homeDir, ".claude");
   };
 
-  const discoverClaudeTranscripts = Effect.fn("AgentSessionScanner.discoverClaudeTranscripts")(
-    function* (homePath: string, providerInstanceId: ProviderInstanceId, operationBudget: number) {
-      const projectsDir = path.join(homePath, "projects");
-      let operationsRemaining = operationBudget;
-      let truncated = false;
-      const readDirectory = (directory: string) => {
-        if (operationsRemaining <= 0) {
-          truncated = true;
-          return Effect.succeed<ReadonlyArray<string>>([]);
-        }
-        operationsRemaining -= 1;
-        return listDirectory(directory);
-      };
-      const projectDirectories = yield* readDirectory(projectsDir);
+  const discoverNativeTranscripts = Effect.fn("AgentSessionScanner.discoverNativeTranscripts")(
+    function* (
+      homePath: string,
+      providerInstanceId: ProviderInstanceId,
+      operationBudget: number,
+      directories: ReadonlyArray<string>,
+    ) {
       const transcripts: Array<TranscriptCandidate> = [];
-
-      for (const projectDirectory of projectDirectories) {
-        if (operationsRemaining <= 0) {
-          truncated = true;
-          break;
-        }
-        const directory = path.join(projectsDir, projectDirectory);
-        const directoryTranscripts = (yield* readDirectory(directory))
-          .filter((entry) => entry.endsWith(".jsonl"))
-          .map((entry) => path.join(directory, entry));
-
-        for (const filePath of directoryTranscripts) {
-          if (operationsRemaining <= 0) {
-            truncated = true;
-            break;
-          }
-          operationsRemaining -= 1;
-          const stats = yield* statOption(filePath);
+      const pending = directories.map((directory) => path.join(homePath, directory));
+      let operationsRemaining = operationBudget;
+      while (pending.length > 0 && operationsRemaining > 0) {
+        const directory = pending.pop()!;
+        operationsRemaining -= 1;
+        for (const name of (yield* listDirectory(directory)).toSorted()) {
+          const filePath = path.join(directory, name);
           if (
-            Option.isNone(stats) ||
-            stats.value.type !== "File" ||
-            Option.isNone(stats.value.mtime)
-          ) {
+            yield* fileSystem.readLink(filePath).pipe(
+              Effect.as(true),
+              Effect.orElseSucceed(() => false),
+            )
+          )
             continue;
-          }
-          transcripts.push({
-            filePath,
-            mtimeMs: stats.value.mtime.value.getTime(),
-            providerInstanceId,
-            size: Number(stats.value.size),
-          });
-        }
-      }
-      return { transcripts, truncated };
-    },
-  );
-
-  const discoverCodexTranscripts = Effect.fn("AgentSessionScanner.discoverCodexTranscripts")(
-    function* (homePath: string, providerInstanceId: ProviderInstanceId, operationBudget: number) {
-      const sessionsDir = path.join(homePath, "sessions");
-
-      const transcripts: Array<TranscriptCandidate> = [];
-      let operationsRemaining = operationBudget;
-      let truncated = false;
-      const readDirectory = (directory: string) => {
-        if (operationsRemaining <= 0) {
-          truncated = true;
-          return Effect.succeed<ReadonlyArray<string>>([]);
-        }
-        operationsRemaining -= 1;
-        return listDirectory(directory);
-      };
-      for (const year of (yield* readDirectory(sessionsDir)).toSorted().toReversed()) {
-        if (operationsRemaining <= 0) {
-          truncated = true;
-          break;
-        }
-        for (const month of (yield* readDirectory(path.join(sessionsDir, year)))
-          .toSorted()
-          .toReversed()) {
-          if (operationsRemaining <= 0) {
-            truncated = true;
-            break;
-          }
-          for (const day of (yield* readDirectory(path.join(sessionsDir, year, month)))
-            .toSorted()
-            .toReversed()) {
-            if (operationsRemaining <= 0) {
-              truncated = true;
-              break;
-            }
-            const directory = path.join(sessionsDir, year, month, day);
-            for (const entry of (yield* readDirectory(directory)).toSorted().toReversed()) {
-              if (!entry.startsWith("rollout-") || !entry.endsWith(".jsonl")) continue;
-              if (operationsRemaining <= 0) {
-                truncated = true;
-                break;
-              }
-              const filePath = path.join(directory, entry);
-              operationsRemaining -= 1;
-              const stats = yield* statOption(filePath);
-              if (
-                Option.isSome(stats) &&
-                stats.value.type === "File" &&
-                Option.isSome(stats.value.mtime)
-              ) {
-                transcripts.push({
-                  filePath,
-                  mtimeMs: stats.value.mtime.value.getTime(),
-                  providerInstanceId,
-                  size: Number(stats.value.size),
-                });
-              }
-            }
+          const stats = yield* statOption(filePath);
+          if (Option.isNone(stats)) continue;
+          if (stats.value.type === "Directory") {
+            pending.push(filePath);
+          } else if (
+            stats.value.type === "File" &&
+            name.endsWith(".jsonl") &&
+            Option.isSome(stats.value.mtime)
+          ) {
+            transcripts.push({
+              filePath,
+              mtimeMs: stats.value.mtime.value.getTime(),
+              providerInstanceId,
+              size: Number(stats.value.size),
+            });
           }
         }
       }
-      return { transcripts, truncated };
+      return { transcripts, truncated: pending.length > 0 };
     },
   );
 
@@ -1034,6 +1213,10 @@ export const make = Effect.gen(function* () {
     source: AgentSessionSource,
     transcripts: ReadonlyArray<TranscriptCandidate>,
     budget: MetadataReadBudget,
+    catalogs: ReadonlyMap<
+      ProviderInstanceId,
+      Effect.Success<ReturnType<typeof readCodexAppCatalog>>
+    >,
   ) {
     const byOwnerAndCwd = new Map<
       string,
@@ -1041,54 +1224,105 @@ export const make = Effect.gen(function* () {
         cwd: string;
         providerInstanceId: ProviderInstanceId;
         lastActiveAtMs: number;
-        transcripts: Array<{ filePath: string; mtimeMs: number }>;
+        transcripts: Array<RawCandidate["transcripts"][number]>;
+        projects: Map<
+          string,
+          { title: string | undefined; section: AgentSessionSourceSection | undefined }
+        >;
       }
     >();
 
     for (const transcript of transcripts) {
-      const cwd = yield* readCwd(source, transcript, budget);
-      if (cwd === null || cwd === false) continue;
+      const metadata = yield* readCwd(source, transcript, budget);
+      if (metadata === null) continue;
+      const { cwd } = metadata;
+      const native = catalogs
+        .get(transcript.providerInstanceId)
+        ?.resolve(cwd, transcript.filePath, metadata.sessionId);
+      const nativeTitle =
+        native?.threadTitle && !isAgentSessionGeneratedContextTitle(native.threadTitle)
+          ? native.threadTitle
+          : undefined;
+      const transcriptTitle =
+        source === "codex" && metadata.title && isAgentSessionGeneratedContextTitle(metadata.title)
+          ? undefined
+          : metadata.title;
+      const preview: AgentSessionThreadCandidate = {
+        ...threadProvenance(native ?? {}),
+        key: threadCandidateKey(source, transcript.providerInstanceId, transcript.filePath),
+        title:
+          nativeTitle ??
+          transcriptTitle ??
+          metadata.sessionId ??
+          path.basename(transcript.filePath, ".jsonl"),
+        source,
+        lastActiveAt: DateTime.formatIso(DateTime.makeUnsafe(transcript.mtimeMs)),
+        ...(native?.threadSection ? { sourceSection: native.threadSection } : {}),
+      };
+      const entry = {
+        filePath: transcript.filePath,
+        mtimeMs: transcript.mtimeMs,
+        preview,
+        ...(nativeTitle ? { nativeTitle } : {}),
+      };
       const key = `${transcript.providerInstanceId}\0${cwd}`;
       const existing = byOwnerAndCwd.get(key);
       if (existing) {
         existing.lastActiveAtMs = Math.max(existing.lastActiveAtMs, transcript.mtimeMs);
-        existing.transcripts.push(transcript);
+        existing.transcripts.push(entry);
+        if (native?.projectId)
+          existing.projects.set(native.projectId, {
+            title: native.projectTitle,
+            section: native.projectSection,
+          });
       } else {
         byOwnerAndCwd.set(key, {
           cwd,
           providerInstanceId: transcript.providerInstanceId,
           lastActiveAtMs: transcript.mtimeMs,
-          transcripts: [transcript],
+          transcripts: [entry],
+          projects: new Map(
+            native?.projectId
+              ? [[native.projectId, { title: native.projectTitle, section: native.projectSection }]]
+              : [],
+          ),
         });
       }
     }
 
-    return Array.from(byOwnerAndCwd.values(), (group): RawCandidate => ({
-      cwd: group.cwd,
-      source,
-      providerInstanceId: group.providerInstanceId,
-      threadCount: group.transcripts.length,
-      lastActiveAtMs: group.lastActiveAtMs,
-      transcripts: group.transcripts,
-    }));
+    return Array.from(byOwnerAndCwd.values(), (group): RawCandidate => {
+      const project = group.projects.size === 1 ? group.projects.values().next().value : undefined;
+      return {
+        cwd: group.cwd,
+        source,
+        providerInstanceId: group.providerInstanceId,
+        threadCount: group.transcripts.length,
+        lastActiveAtMs: group.lastActiveAtMs,
+        transcripts: group.transcripts,
+        ...(project?.title ? { title: project.title } : {}),
+        ...(project?.section ? { sourceSection: project.section } : {}),
+      };
+    });
   });
 
-  const collectCandidates = Effect.fn("AgentSessionScanner.collectCandidates")(function* () {
+  const collectCandidates = Effect.fn("AgentSessionScanner.collectCandidates")(function* (
+    input: AgentSessionScanInput = {},
+  ) {
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })),
     );
 
     const raw: Array<RawCandidate> = [];
+    const catalogReports: AgentSessionSourceReport[] = [];
     let truncated = false;
 
     for (const source of ["claudeAgent", "codex"] as const) {
+      if (input.sources && !input.sources.includes(source)) continue;
       const instances: Array<{
         readonly instanceId: ProviderInstanceId;
         readonly config: ProviderInstanceConfig;
       }> = Object.entries(settings.providerInstances)
-        .filter(
-          ([, instance]) => instance.driver === source && resolveProviderInstanceEnabled(instance),
-        )
+        .filter(([, instance]) => instance.driver === source)
         .map(([instanceId, config]) => ({
           instanceId: ProviderInstanceId.make(instanceId),
           config,
@@ -1098,9 +1332,7 @@ export const make = Effect.gen(function* () {
           instanceId: ProviderInstanceId.make(source),
           config: { driver: ProviderDriverKind.make(source) },
         };
-        if (resolveProviderInstanceEnabled(defaultInstance.config)) {
-          instances.push(defaultInstance);
-        }
+        instances.push(defaultInstance);
       }
 
       instances.sort((left, right) => {
@@ -1143,49 +1375,180 @@ export const make = Effect.gen(function* () {
       }
 
       const transcriptCandidates: Array<TranscriptCandidate> = [];
-      const baseOperationBudget = Math.floor(
-        MAX_DISCOVERY_OPERATIONS_PER_SOURCE / Math.max(1, homes.length),
-      );
-      const extraOperationBudgets = MAX_DISCOVERY_OPERATIONS_PER_SOURCE % Math.max(1, homes.length);
-      for (const [index, home] of homes.entries()) {
-        const operationBudget = baseOperationBudget + (index < extraOperationBudgets ? 1 : 0);
-        if (operationBudget === 0) {
-          truncated = true;
-          continue;
+      const catalogs = new Map<
+        ProviderInstanceId,
+        Effect.Success<ReturnType<typeof readCodexAppCatalog>>
+      >();
+      for (const home of homes) {
+        if (source === "codex") {
+          const catalog = yield* readCodexAppCatalog(home.homePath).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          );
+          catalogs.set(home.providerInstanceId, catalog);
+          catalogReports.push(...catalog.reports);
         }
-        const discovered = yield* source === "claudeAgent"
-          ? discoverClaudeTranscripts(home.homePath, home.providerInstanceId, operationBudget)
-          : discoverCodexTranscripts(home.homePath, home.providerInstanceId, operationBudget);
+        const operationBudget = Number.MAX_SAFE_INTEGER;
+        const discovered = yield* discoverNativeTranscripts(
+          home.homePath,
+          home.providerInstanceId,
+          operationBudget,
+          source === "claudeAgent" ? ["projects"] : ["sessions", "archived_sessions"],
+        );
         truncated ||= discovered.truncated;
         transcriptCandidates.push(...discovered.transcripts);
+      }
+      if (source === "codex") {
+        cachedCodexCatalogs = catalogs;
+        cachedCodexCatalogKey = encodeScanInput({
+          sources: input.sources,
+          exportPaths: input.exportPaths,
+        });
       }
 
       transcriptCandidates.sort(
         (left, right) =>
           right.mtimeMs - left.mtimeMs || left.filePath.localeCompare(right.filePath),
       );
-      if (transcriptCandidates.length > MAX_TRANSCRIPTS_PER_SOURCE) {
-        truncated = true;
-      }
       const selectedTranscripts = selectMetadataTranscripts(transcriptCandidates);
       const metadataBudget: MetadataReadBudget = {
-        bytesRemaining: MAX_METADATA_BYTES_PER_SOURCE,
-        operationsRemaining: MAX_METADATA_OPERATIONS_PER_SOURCE,
-        recordsRemaining: MAX_METADATA_RECORDS_PER_SOURCE,
+        bytesRemaining: Number.POSITIVE_INFINITY,
+        operationsRemaining: Number.POSITIVE_INFINITY,
+        recordsRemaining: Number.POSITIVE_INFINITY,
         truncated: false,
       };
-      raw.push(...(yield* groupTranscriptsByCwd(source, selectedTranscripts, metadataBudget)));
+      raw.push(
+        ...(yield* groupTranscriptsByCwd(source, selectedTranscripts, metadataBudget, catalogs)),
+      );
       truncated ||= metadataBudget.truncated;
     }
 
-    return { candidates: raw, truncated };
+    const openCodeRoots: Array<{ path: string; providerInstanceId: ProviderInstanceId }> = [];
+    // Explicit source selection opts into additional local stores. Legacy callers keep their original scope.
+    if (input.sources?.includes("opencode")) {
+      const instances = Object.entries(settings.providerInstances).filter(
+        ([, config]) => config.driver === "opencode",
+      );
+      if (!instances.some(([id]) => id === "opencode"))
+        instances.push(["opencode", { driver: ProviderDriverKind.make("opencode") }]);
+      for (const [id, config] of instances) {
+        const environment = {
+          ...hostEnvironment,
+          ...Object.fromEntries(config.environment?.map(({ name, value }) => [name, value]) ?? []),
+        };
+        const dataHome = environment.XDG_DATA_HOME?.trim();
+        const roots = environment.OPENCODE_DATA_DIR?.split(",")
+          .map((root) => root.trim())
+          .filter(Boolean);
+        for (const root of roots?.length
+          ? roots
+          : [
+              path.join(
+                dataHome && path.isAbsolute(dataHome)
+                  ? dataHome
+                  : path.join(homeDir, ".local", "share"),
+                "opencode",
+              ),
+            ]) {
+          openCodeRoots.push({
+            path: path.resolve(expandHomePath(root, homeDir)),
+            providerInstanceId: ProviderInstanceId.make(id),
+          });
+        }
+      }
+    }
+    const external = yield* discoverExternalSessions(
+      { ...input, sources: input.sources ?? ["codex", "claudeAgent"] },
+      openCodeRoots,
+    ).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    for (const candidate of external.candidates) {
+      raw.push({
+        cwd: candidate.cwd,
+        source: candidate.source,
+        providerInstanceId: candidate.providerInstanceId,
+        threadCount: 1,
+        lastActiveAtMs: candidate.mtimeMs,
+        transcripts: [
+          {
+            filePath: candidate.filePath,
+            mtimeMs: candidate.mtimeMs,
+            external: candidate,
+            preview: {
+              key: threadCandidateKey(
+                candidate.source,
+                candidate.providerInstanceId,
+                candidate.filePath,
+                candidate.sessionId,
+              ),
+              title: candidate.sessionId,
+              source: candidate.source,
+              lastActiveAt: DateTime.formatIso(DateTime.makeUnsafe(candidate.mtimeMs)),
+            },
+          },
+        ],
+      });
+    }
+    const t3Code = input.sources?.includes("t3code")
+      ? yield* discoverT3CodeSessions(input, homeDir).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        )
+      : { candidates: [], reports: [] };
+    for (const candidate of t3Code.candidates)
+      raw.push({
+        cwd: candidate.cwd,
+        source: "t3code",
+        providerInstanceId: candidate.providerInstanceId,
+        threadCount: 1,
+        lastActiveAtMs: candidate.mtimeMs,
+        title: candidate.projectTitle ?? path.basename(candidate.cwd),
+        transcripts: [
+          {
+            filePath: candidate.filePath,
+            mtimeMs: candidate.mtimeMs,
+            t3Code: candidate,
+            preview: {
+              key: threadCandidateKey(
+                "t3code",
+                candidate.providerInstanceId,
+                candidate.filePath,
+                candidate.sessionId,
+              ),
+              title: candidate.title,
+              source: "t3code",
+              lastActiveAt: DateTime.formatIso(DateTime.makeUnsafe(candidate.mtimeMs)),
+            },
+          },
+        ],
+      });
+    const sourceReports: AgentSessionSourceReport[] = [
+      ...external.reports,
+      ...catalogReports,
+      ...t3Code.reports,
+    ];
+    for (const source of ["codex", "claudeAgent"] as const) {
+      if (input.sources && !input.sources.includes(source)) continue;
+      sourceReports.push({
+        source,
+        status: raw.some((candidate) => candidate.source === source) ? "available" : "unavailable",
+        message:
+          "All retained history in configured profiles and archives is scanned regardless of age. Original tool records and attachment references are preserved in downloadable source archives.",
+      });
+    }
+    return { candidates: raw, truncated, sourceReports };
   });
 
-  let cachedCandidates: ReadonlyArray<RawCandidate> | null = null;
+  let cachedCandidates: { key: string; candidates: ReadonlyArray<RawCandidate> } | null = null;
 
-  const scan: AgentSessionScanner["Service"]["scan"] = Effect.gen(function* () {
-    const { candidates: raw, truncated } = yield* collectCandidates();
-    cachedCandidates = raw;
+  const scan = Effect.fn("AgentSessionScanner.scan")(function* (input: AgentSessionScanInput = {}) {
+    const { candidates: raw, truncated, sourceReports } = yield* collectCandidates(input);
+    cachedCandidates = {
+      key: encodeScanInput({ sources: input.sources, exportPaths: input.exportPaths }),
+      candidates: raw,
+    };
 
     const merged = new Map<
       string,
@@ -1195,50 +1558,60 @@ export const make = Effect.gen(function* () {
         threadCount: number;
         lastActiveAtMs: number | null;
         git: AgentSessionProjectGit | null;
+        sourceWorkspaceRoot?: string;
+        title?: string;
+        sourceSection?: AgentSessionSourceSection;
+        threads: AgentSessionThreadCandidate[];
       }
     >();
     const directoryKeys = new Map<string, string>();
     const gitIdentities = new Map<string, AgentSessionProjectGit | null>();
+    const missingRoots = new Map<string, string>();
 
     for (const candidate of raw) {
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
-      if (isExcludedProjectPath(resolved)) continue;
       let key = directoryKeys.get(resolved);
       if (key === undefined) {
         const stats = yield* statOption(resolved);
         if (Option.isNone(stats) || stats.value.type !== "Directory") {
-          directoryKeys.set(resolved, "");
-          continue;
-        }
-        const realPath = yield* fileSystem
-          .realPath(resolved)
-          .pipe(Effect.orElseSucceed(() => resolved));
-        // Symlinks can disguise excluded worktree paths; re-check their targets.
-        if (isExcludedProjectPath(realPath)) {
-          key = "";
+          key = normalizeProjectPathForComparison(resolved);
+          directoryKeys.set(resolved, key);
+          missingRoots.set(key, resolved);
+          sourceReports.push({
+            source: candidate.source,
+            status: "partial",
+            message: `Workspace ${resolved} is unavailable. Its history can be imported into a separate history project; the original directory is not recreated.`,
+          });
         } else {
           const gitIdentity = yield* readGitIdentity(resolved);
-          if (gitIdentity._tag === "Worktree") {
-            key = "";
-          } else {
-            key = yield* directoryIdentity(resolved, stats.value);
-            gitIdentities.set(key, gitIdentity._tag === "Repository" ? gitIdentity.git : null);
-          }
+          key = yield* directoryIdentity(resolved, stats.value);
+          gitIdentities.set(key, gitIdentity._tag === "Repository" ? gitIdentity.git : null);
+          directoryKeys.set(resolved, key);
         }
-        directoryKeys.set(resolved, key);
       }
       if (key === "") continue;
 
       const existing = merged.get(key);
       if (!existing) {
         merged.set(key, {
-          path: resolved,
+          path: missingRoots.has(key)
+            ? path.join(
+                serverConfig.baseDir,
+                "imported-history",
+                "projects",
+                createDeterministicAttachmentId("history", resolved)!,
+              )
+            : resolved,
+          ...(missingRoots.has(key) ? { sourceWorkspaceRoot: resolved } : {}),
           sources: [candidate.source],
           threadCount: candidate.threadCount,
           lastActiveAtMs: candidate.lastActiveAtMs,
           git: gitIdentities.get(key) ?? null,
+          ...(candidate.title ? { title: candidate.title } : {}),
+          ...(candidate.sourceSection ? { sourceSection: candidate.sourceSection } : {}),
+          threads: candidate.transcripts.map((transcript) => transcript.preview),
         });
         continue;
       }
@@ -1246,6 +1619,10 @@ export const make = Effect.gen(function* () {
         existing.sources.push(candidate.source);
       }
       existing.threadCount += candidate.threadCount;
+      existing.threads.push(...candidate.transcripts.map((transcript) => transcript.preview));
+      if (!existing.title && candidate.title) existing.title = candidate.title;
+      if (!existing.sourceSection && candidate.sourceSection)
+        existing.sourceSection = candidate.sourceSection;
       existing.lastActiveAtMs =
         existing.lastActiveAtMs === null || candidate.lastActiveAtMs === null
           ? (existing.lastActiveAtMs ?? candidate.lastActiveAtMs)
@@ -1273,9 +1650,29 @@ export const make = Effect.gen(function* () {
         importedProjectsByRoot.get(normalizeProjectPathForComparison(entry.path)) ??
         importedProjectsByRoot.get(key);
       const candidatePath = importedProject?.workspaceRoot ?? entry.path;
+      const sourceProject = entry.threads[0]?.sourceProject;
+      const sharedSourceProject =
+        sourceProject !== undefined &&
+        entry.threads.every((thread) =>
+          sourceProject === null
+            ? thread.sourceProject === null
+            : thread.sourceProject?.id === sourceProject.id,
+        );
       candidates.push({
+        ...(sharedSourceProject ? { sourceProject } : {}),
         path: candidatePath,
-        title: path.basename(candidatePath) || candidatePath,
+        title:
+          entry.title ??
+          (path.basename(entry.sourceWorkspaceRoot ?? candidatePath) || candidatePath),
+        ...(entry.sourceSection ? { sourceSection: entry.sourceSection } : {}),
+        threads: entry.threads.toSorted(
+          (left, right) =>
+            (right.lastActiveAt ?? "").localeCompare(left.lastActiveAt ?? "") ||
+            left.key.localeCompare(right.key),
+        ),
+        ...(entry.sourceWorkspaceRoot === undefined
+          ? {}
+          : { workspaceAvailable: false, sourceWorkspaceRoot: entry.sourceWorkspaceRoot }),
         ...(importedProject === undefined ? {} : { projectId: importedProject.id }),
         sources: entry.sources,
         threadCount: entry.threadCount,
@@ -1298,6 +1695,7 @@ export const make = Effect.gen(function* () {
     return {
       candidates,
       scannedAt: DateTime.formatIso(yield* DateTime.now),
+      sourceReports,
       ...(truncated ? { truncated: true } : {}),
     };
   });
@@ -1305,33 +1703,34 @@ export const make = Effect.gen(function* () {
   const prepareRecentThreads = Effect.fn("AgentSessionScanner.prepareRecentThreads")(function* (
     workspaceRoot: string,
     completedSources: ReadonlyArray<AgentSessionImportSource>,
+    input: AgentSessionScanInput,
+    titleRepairThreadIds: ReadonlyArray<ThreadId>,
   ) {
-    const root = path.resolve(expandHomePath(workspaceRoot, homeDir));
-    const realRoot = yield* fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root));
-    if (isExcludedProjectPath(root) || isExcludedProjectPath(realRoot)) return Stream.empty;
+    const root = path.resolve(expandHomePath(input.sourceWorkspaceRoot ?? workspaceRoot, homeDir));
     const rootIdentity = yield* directoryIdentity(root);
-    const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-    const cutoffMs = nowMs - RECENT_THREAD_WINDOW_MS;
-
-    const candidates = cachedCandidates ?? (yield* collectCandidates()).candidates;
-    cachedCandidates = candidates;
+    const key = encodeScanInput({ sources: input.sources, exportPaths: input.exportPaths });
+    const candidates =
+      cachedCandidates?.key === key
+        ? cachedCandidates.candidates
+        : (yield* collectCandidates(input)).candidates;
+    cachedCandidates = { key, candidates };
 
     const eligibleTranscripts: Array<{
       readonly candidate: RawCandidate;
       readonly transcript: RawCandidate["transcripts"][number] & { readonly mtimeMs: number };
     }> = [];
+    const selectedKeys = input.threadKeys === undefined ? undefined : new Set(input.threadKeys);
+    const titleRepairs = new Set(titleRepairThreadIds);
     for (const candidate of candidates) {
+      if (input.sources && !input.sources.includes(candidate.source)) continue;
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
       if ((yield* directoryIdentity(resolved)) !== rootIdentity) continue;
 
       for (const transcript of candidate.transcripts) {
-        if (
-          transcript.mtimeMs === null ||
-          transcript.mtimeMs < cutoffMs ||
-          transcript.mtimeMs > nowMs
-        ) {
+        if (selectedKeys !== undefined && !selectedKeys.has(transcript.preview.key)) continue;
+        if (transcript.mtimeMs === null) {
           continue;
         }
         eligibleTranscripts.push({
@@ -1356,8 +1755,10 @@ export const make = Effect.gen(function* () {
     let bytesRemaining = MAX_IMPORT_BYTES;
     let transcriptsRemaining = MAX_IMPORT_TRANSCRIPTS;
     let recordsRemaining = MAX_IMPORT_RECORDS;
-    return Stream.fromIteratorSucceed(eligibleTranscripts.values(), 1).pipe(
-      Stream.mapEffect(({ candidate, transcript }) =>
+    return Stream.fromIterable(
+      eligibleTranscripts.map((entry, index) => ({ ...entry, index })).slice(input.cursor ?? 0),
+    ).pipe(
+      Stream.mapEffect(({ candidate, transcript, index }) =>
         Effect.gen(function* () {
           const completed = completedByFile.get(
             `${candidate.providerInstanceId}\0${transcript.filePath}`,
@@ -1366,70 +1767,264 @@ export const make = Effect.gen(function* () {
             completed === undefined &&
             (transcriptsRemaining === 0 || bytesRemaining === 0 || recordsRemaining === 0)
           ) {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            return Option.some<AgentSessionRecentThread>({
+              _tag: "Skipped",
+              reason: "deferred",
+              cursor: index,
+            });
           }
           const stats = yield* statOption(transcript.filePath);
           if (Option.isNone(stats) || stats.value.type !== "File") {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
           }
-          const identity = transcriptIdentity(transcript.filePath, stats.value);
+          const fileIdentity = transcriptIdentity(transcript.filePath, stats.value);
+          const identity =
+            transcript.t3Code || transcript.external?.format === "opencode-sqlite"
+              ? {
+                  ...fileIdentity,
+                  mtimeMs: transcript.t3Code?.mtimeMs ?? transcript.external!.mtimeMs,
+                }
+              : fileIdentity;
           const completedSource = completed?.find(
             (source) =>
-              source.provider === candidate.source && sameTranscriptIdentity(source, identity),
+              source.provider === candidate.source &&
+              (transcript.external === undefined ||
+                source.providerSessionId === transcript.external.sessionId) &&
+              (transcript.t3Code === undefined ||
+                source.providerSessionId === transcript.t3Code.sessionId) &&
+              sameTranscriptIdentity(source, identity),
           );
           if (completedSource !== undefined) {
             const sessionKey = `${completedSource.providerInstanceId}\0${completedSource.providerSessionId}`;
             if (importedSessions.has(sessionKey)) return Option.none<AgentSessionRecentThread>();
             importedSessions.add(sessionKey);
+            const recoveredTitle =
+              candidate.source === "codex" &&
+              !transcript.nativeTitle &&
+              titleRepairs.has(
+                ThreadId.make(
+                  `import:${completedSource.providerInstanceId}:${completedSource.providerSessionId}`,
+                ),
+              )
+                ? yield* readCodexRequestTitle(transcript.filePath, identity)
+                : transcript.nativeTitle;
             return Option.some<AgentSessionRecentThread>({
+              ...threadProvenance(transcript.preview),
               _tag: "AlreadyImported",
               source: completedSource,
+              title: recoveredTitle ?? transcript.preview.title,
+              ...(recoveredTitle ? { nativeTitle: recoveredTitle } : {}),
+              ...(transcript.preview.sourceSection
+                ? { sourceSection: transcript.preview.sourceSection }
+                : {}),
             });
           }
           if (
             transcriptsRemaining === 0 ||
             recordsRemaining === 0 ||
-            identity.size > MAX_IMPORTED_TRANSCRIPT_BYTES ||
-            identity.size > bytesRemaining
+            (identity.size > bytesRemaining && transcriptsRemaining < MAX_IMPORT_TRANSCRIPTS)
           ) {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            return Option.some<AgentSessionRecentThread>({
+              _tag: "Skipped",
+              reason: "deferred",
+              cursor: index,
+            });
           }
           transcriptsRemaining -= 1;
-          bytesRemaining -= identity.size;
-          const snapshot = yield* readTranscript(
-            transcript.filePath,
-            identity,
-            recordsRemaining,
-            candidate.source,
-          );
+          bytesRemaining = Math.max(0, bytesRemaining - identity.size);
+          if (transcript.t3Code) {
+            const loaded = yield* loadT3CodeSession(transcript.t3Code).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(ServerConfig.ServerConfig, serverConfig),
+              Effect.orElseSucceed(() => null),
+            );
+            if (!loaded)
+              return Option.some<AgentSessionRecentThread>({
+                _tag: "Skipped",
+                reason: "unavailable",
+              });
+            const source: AgentSessionImportSource = {
+              ...identity,
+              provider: "t3code",
+              providerInstanceId: candidate.providerInstanceId,
+              providerSessionId: transcript.t3Code.sessionId,
+            };
+            const sessionKey = `${source.providerInstanceId}\0${source.providerSessionId}`;
+            if (importedSessions.has(sessionKey))
+              return Option.some<AgentSessionRecentThread>({ _tag: "Duplicate", source });
+            importedSessions.add(sessionKey);
+            const archiveAttachments = yield* archiveSession(
+              source,
+              ThreadId.make(`import:${source.providerInstanceId}:${source.providerSessionId}`),
+              fileSystem.stream(loaded.archiveFilePath),
+            ).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(ServerConfig.ServerConfig, serverConfig),
+              Effect.orElseSucceed(() => []),
+            );
+            return Option.some<AgentSessionRecentThread>({
+              _tag: "Importable",
+              source,
+              thread: {
+                ...loaded.thread,
+                archiveAttachments,
+                nativeContinuation: false,
+                partial: loaded.thread.partial || archiveAttachments.length === 0,
+              },
+            });
+          }
+          if (transcript.external !== undefined) {
+            const parsedThread = yield* loadExternalSession(transcript.external).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.orElseSucceed(() => null),
+            );
+            if (parsedThread === null)
+              return Option.some<AgentSessionRecentThread>({
+                _tag: "Skipped",
+                reason: "unavailable",
+              });
+            const source = {
+              ...identity,
+              provider: parsedThread.source,
+              providerInstanceId: parsedThread.providerInstanceId,
+              providerSessionId: parsedThread.providerSessionId,
+            };
+            const sessionKey = `${parsedThread.providerInstanceId}\0${parsedThread.providerSessionId}`;
+            if (importedSessions.has(sessionKey))
+              return Option.some<AgentSessionRecentThread>({ _tag: "Duplicate", source });
+            importedSessions.add(sessionKey);
+            const archiveAttachments = yield* archiveSession(
+              source,
+              ThreadId.make(`import:${source.providerInstanceId}:${source.providerSessionId}`),
+              transcript.external.format === "opencode-sqlite"
+                ? externalSessionArchive(transcript.external)
+                : undefined,
+            ).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(ServerConfig.ServerConfig, serverConfig),
+              Effect.orElseSucceed(() => []),
+            );
+            return Option.some<AgentSessionRecentThread>({
+              _tag: "Importable",
+              thread: {
+                ...parsedThread,
+                ...(input.sourceWorkspaceRoot ? { nativeContinuation: false } : {}),
+                archiveAttachments,
+                partial: parsedThread.partial || archiveAttachments.length === 0,
+              },
+              source,
+            });
+          }
+          const snapshot = yield* readTranscript(transcript.filePath, identity, recordsRemaining, {
+            source: candidate.source,
+            providerInstanceId: candidate.providerInstanceId,
+            fallbackSessionId: path.basename(transcript.filePath, ".jsonl"),
+            lastActiveAtMs: transcript.mtimeMs,
+          });
           if (snapshot === null) {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            const current = yield* statOption(transcript.filePath);
+            if (
+              Option.isNone(current) ||
+              !sameTranscriptIdentity(
+                identity,
+                transcriptIdentity(transcript.filePath, current.value),
+              )
+            )
+              return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
+            const prefix = yield* Effect.scoped(
+              fileSystem.open(transcript.filePath, { flag: "r" }).pipe(
+                Effect.flatMap((file) => file.readAlloc(TRANSCRIPT_PREFIX_BYTES)),
+                Effect.map((bytes) =>
+                  Option.isSome(bytes) ? new TextDecoder().decode(bytes.value) : "",
+                ),
+              ),
+            ).pipe(Effect.orElseSucceed(() => ""));
+            const metadata = prefix
+              .split("\n")
+              .flatMap((line) => Option.toArray(decodeTranscriptRecord(line)));
+            const nativeId =
+              metadata.find((record) => record.type === "session_meta")?.payload?.id ??
+              metadata.find((record) => record.sessionId)?.sessionId;
+            const providerSessionId = nativeId ?? `archive:${path.basename(transcript.filePath)}`;
+            const source = {
+              ...identity,
+              provider: candidate.source,
+              providerInstanceId: candidate.providerInstanceId,
+              providerSessionId,
+            };
+            const archiveAttachments = yield* archiveSession(
+              source,
+              ThreadId.make(`import:${source.providerInstanceId}:${source.providerSessionId}`),
+            ).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(ServerConfig.ServerConfig, serverConfig),
+              Effect.orElseSucceed(() => []),
+            );
+            if (archiveAttachments.length === 0)
+              return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
+            const timestamp = DateTime.formatIso(DateTime.makeUnsafe(transcript.mtimeMs));
+            return Option.some<AgentSessionRecentThread>({
+              _tag: "Importable",
+              source,
+              thread: {
+                ...threadProvenance(transcript.preview),
+                source: candidate.source,
+                providerInstanceId: candidate.providerInstanceId,
+                providerSessionId,
+                title: transcript.preview.title,
+                ...(transcript.preview.sourceSection
+                  ? { sourceSection: transcript.preview.sourceSection }
+                  : {}),
+                model: null,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                messages: [],
+                archiveAttachments,
+                partial: true,
+                nativeContinuation:
+                  transcript.preview.kind !== "subagent" &&
+                  nativeId !== undefined &&
+                  input.sourceWorkspaceRoot === undefined,
+              },
+            });
           }
           recordsRemaining -= snapshot.recordCount;
 
           if (Option.isNone(snapshot.cwd)) {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
           }
           const expandedCwd = expandHomePath(snapshot.cwd.value.trim(), homeDir);
           if (
             !path.isAbsolute(expandedCwd) ||
             (yield* directoryIdentity(path.resolve(expandedCwd))) !== rootIdentity
           ) {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
           }
 
-          const parsedThread = parseAgentSessionRecords(
-            {
-              source: candidate.source,
-              providerInstanceId: candidate.providerInstanceId,
-              fallbackSessionId: path.basename(transcript.filePath, ".jsonl"),
-              lastActiveAtMs: transcript.mtimeMs,
-            },
-            snapshot.records,
-            snapshot.claudeFields,
-          );
+          const parsedThread: AgentSessionThread | null =
+            snapshot.projectedThread === null
+              ? parseAgentSessionRecords(
+                  {
+                    source: candidate.source,
+                    providerInstanceId: candidate.providerInstanceId,
+                    fallbackSessionId: path.basename(transcript.filePath, ".jsonl"),
+                    lastActiveAtMs: transcript.mtimeMs,
+                  },
+                  snapshot.records,
+                  snapshot.claudeFields,
+                )
+              : {
+                  ...snapshot.projectedThread,
+                  projectionFiles: snapshot.projectionFiles,
+                  messageCount: snapshot.messageCount,
+                };
           if (parsedThread === null) {
-            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
           }
 
           const source: AgentSessionImportSource = {
@@ -1443,9 +2038,45 @@ export const make = Effect.gen(function* () {
             return Option.some<AgentSessionRecentThread>({ _tag: "Duplicate", source });
           }
           importedSessions.add(sessionKey);
+          const archiveAttachments = yield* archiveSession(
+            source,
+            ThreadId.make(`import:${source.providerInstanceId}:${source.providerSessionId}`),
+            undefined,
+            snapshot.referenceFile,
+          ).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.provideService(ServerConfig.ServerConfig, serverConfig),
+            Effect.orElseSucceed(() => []),
+          );
+          const archivedStats = yield* statOption(transcript.filePath);
+          if (
+            Option.isNone(archivedStats) ||
+            !sameTranscriptIdentity(
+              identity,
+              transcriptIdentity(transcript.filePath, archivedStats.value),
+            )
+          )
+            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped", reason: "failed" });
+          if (snapshot.referenceFile && archiveAttachments.length > 0)
+            yield* fileSystem.remove(snapshot.referenceFile).pipe(Effect.ignore);
           return Option.some<AgentSessionRecentThread>({
             _tag: "Importable",
-            thread: parsedThread,
+            thread: {
+              ...parsedThread,
+              ...threadProvenance(transcript.preview),
+              ...(transcript.preview.sourceSection
+                ? { sourceSection: transcript.preview.sourceSection }
+                : {}),
+              ...(transcript.nativeTitle ? { title: transcript.nativeTitle } : {}),
+              ...(input.sourceWorkspaceRoot ? { nativeContinuation: false } : {}),
+              ...(transcript.preview.kind === "subagent" ? { nativeContinuation: false } : {}),
+              archiveAttachments,
+              partial:
+                parsedThread.partial ||
+                snapshot.referenceFile !== undefined ||
+                archiveAttachments.length === 0,
+            },
             source,
           });
         }).pipe(importReadLock.withPermits(1)),
@@ -1458,9 +2089,54 @@ export const make = Effect.gen(function* () {
   const recentThreads: AgentSessionScanner["Service"]["recentThreads"] = (
     workspaceRoot,
     completedSources = [],
-  ) => Stream.unwrap(prepareRecentThreads(workspaceRoot, completedSources));
+    input = {},
+    titleRepairThreadIds = [],
+  ) =>
+    Stream.unwrap(
+      prepareRecentThreads(workspaceRoot, completedSources, input, titleRepairThreadIds),
+    );
 
-  return AgentSessionScanner.of({ scan, recentThreads });
+  const projectSourceSection = Effect.fn("AgentSessionScanner.projectSourceSection")(function* (
+    workspaceRoot: string,
+    input: AgentSessionScanInput = {},
+  ) {
+    const root = path.resolve(expandHomePath(input.sourceWorkspaceRoot ?? workspaceRoot, homeDir));
+    const rootIdentity = yield* directoryIdentity(root);
+    const sections = new Map<string, AgentSessionSourceSection>();
+    const key = encodeScanInput({ sources: input.sources, exportPaths: input.exportPaths });
+    for (const candidate of cachedCandidates?.key === key ? cachedCandidates.candidates : []) {
+      if (!candidate.sourceSection || (input.sources && !input.sources.includes(candidate.source)))
+        continue;
+      const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
+      if (!path.isAbsolute(expanded) || (yield* directoryIdentity(expanded)) !== rootIdentity)
+        continue;
+      sections.set(candidate.sourceSection.id, candidate.sourceSection);
+    }
+    if (sections.size > 0) return sections.size === 1 ? sections.values().next().value : undefined;
+    if (input.sources && !input.sources.includes("codex")) return undefined;
+    if (cachedCodexCatalogKey !== key) return undefined;
+    for (const catalog of cachedCodexCatalogs.values()) {
+      const section = catalog.resolve(root, "").projectSection;
+      if (section) sections.set(section.id, section);
+    }
+    return sections.size === 1 ? sections.values().next().value : undefined;
+  });
+
+  const streamMessages: AgentSessionScanner["Service"]["streamMessages"] = (thread) =>
+    thread.projectionFiles
+      ? Stream.fromIterable(thread.projectionFiles).pipe(
+          Stream.mapEffect((file) =>
+            fileSystem.readFileString(file).pipe(
+              Effect.flatMap(decodeMessages),
+              Effect.mapError(
+                (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
+              ),
+            ),
+          ),
+          Stream.flattenIterable,
+        )
+      : Stream.fromIterable(thread.messages);
+  return AgentSessionScanner.of({ scan, recentThreads, projectSourceSection, streamMessages });
 });
 
 export const layer = Layer.effect(AgentSessionScanner, make);

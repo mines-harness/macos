@@ -36,7 +36,7 @@ export const agentDeviceConfigPath = (
   );
 
 export const agentDeviceSession = (threadId: string, hostId: string, deviceId: string) =>
-  key(JSON.stringify([threadId, hostId, deviceId])).pipe(Effect.map((hash) => `t3-${hash}`));
+  key(JSON.stringify([threadId, hostId, deviceId])).pipe(Effect.map((hash) => `mines-${hash}`));
 
 export const writeAgentDeviceConfig = Effect.fn("AgentDeviceTarget.writeConfig")(function* (
   file: string,

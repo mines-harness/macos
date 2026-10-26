@@ -266,7 +266,7 @@ function PreviewStreamDocumentView({
   const controlChanged = useEffectEvent((next: PreviewStreamControl | null) => onControl?.(next));
   const command = (input: PreviewStreamInput) =>
     webView.current?.injectJavaScript(
-      `window.T3PreviewStream?.command(${JSON.stringify(input)}); true;`,
+      `window.MinesPreviewStream?.command(${JSON.stringify(input)}); true;`,
     );
   // Reads here rather than in the screen: a tab switch during the iOS paste prompt unmounts
   // this view and nulls its WebView ref, so the text can never type into another tab.
@@ -280,7 +280,7 @@ function PreviewStreamDocumentView({
   const fail = (message: string) => {
     if (!active.current || failed.current) return;
     failed.current = true;
-    webView.current?.injectJavaScript("window.T3PreviewStream?.stop(); true;");
+    webView.current?.injectJavaScript("window.MinesPreviewStream?.stop(); true;");
     onStreamingChange?.(false);
     setControl(null);
     setFileChooser(null);
@@ -307,14 +307,14 @@ function PreviewStreamDocumentView({
     command,
     paste,
     togglePictureInPicture: () =>
-      webView.current?.injectJavaScript("window.T3PreviewStream?.pictureInPicture(); true;"),
+      webView.current?.injectJavaScript("window.MinesPreviewStream?.pictureInPicture(); true;"),
   }));
   useLayoutEffect(() => {
     active.current = true;
     const view = webView.current;
     return () => {
       active.current = false;
-      view?.injectJavaScript("window.T3PreviewStream?.stop(); true;");
+      view?.injectJavaScript("window.MinesPreviewStream?.stop(); true;");
     };
   }, []);
   useEffect(() => () => onStreamingChange?.(false), [onStreamingChange]);

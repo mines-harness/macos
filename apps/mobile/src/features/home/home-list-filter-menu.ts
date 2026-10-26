@@ -46,7 +46,7 @@ export function buildHomeListFilterMenu(props: {
       {
         type: "action",
         title: "All environments",
-        subtitle: "Show threads from every environment",
+        subtitle: "Show mines from every environment",
         state: props.selectedEnvironmentId === null ? "on" : "off",
         onPress: () => props.onEnvironmentChange(null),
       },
@@ -70,7 +70,7 @@ export function buildHomeListFilterMenu(props: {
         {
           type: "action",
           title: "All projects",
-          subtitle: "Show threads from every project",
+          subtitle: "Show mines from every project",
           state: props.selectedProjectKey === null ? "on" : "off",
           onPress: () => props.onProjectChange(null),
         },
@@ -85,7 +85,7 @@ export function buildHomeListFilterMenu(props: {
   }
 
   return {
-    title: "Thread list options",
+    title: "Mine list options",
     items,
   };
 }

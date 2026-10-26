@@ -1,141 +1,43 @@
-# T3 Code
+# mines
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+An AI workspace for continuing useful work across your computers and phones. Mines builds on [t3code at `375da0f`](https://github.com/pingdotgg/t3code/tree/375da0fb9a20dfdbd2eb2db99050341fc30f3a23), retaining its Electron desktop, React Native companions, native provider adapters, and durable orchestration.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+The interface uses a true-black canvas, restrained motion, and original mine/flag icons. Minesweeper tiles are not part of the interface.
 
-## "Wait, what are you selling me?"
+## Develop locally
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+Use the versions pinned in `package.json` (Node 26.12.1 and pnpm 12.14.0).
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
-
-## Installation
-
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
-
-### Command line
-
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
+```sh
+pnpm install
+pnpm dev --home-dir /absolute/path/to/mines-dev
 ```
 
-On Windows, in PowerShell:
+The dev runner prints a local pairing URL. `pnpm dev:desktop` starts the Electron application. Mobile development lives in `apps/mobile`; the WebRTC module requires a native development build, not Expo Go. App identifiers, data directories, account configuration, icons, and distribution feeds are isolated from upstream.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
+Configure a dedicated Clerk application and your own device service using `.env.example`. Local work remains useful before phone setup. No upstream Clerk application, relay, telemetry destination, or release feed is enabled by default. Updates stay disabled until an explicit mines release source is configured.
+
+## Workspace
+
+- Library hierarchy: optional sections, projects, conversations and groups, with independent ordered pins and an encrypted Yjs catalog.
+- Drag mines, projects and sections to arrange the Library or add a shortcut to Pinned. Projects and sections have custom instructions and device-specific context files/folders; section instructions apply before project instructions. Organizing a mine never moves its files or changes its execution computer.
+- Adjacent model and device selectors, multi-model workflows, existing-mine groups, explicit mentions and bounded delegation.
+- Isolated provider profiles and fresh-evidence quota recovery. Automatic switching is gated by the adapter's supported account policy; current unverified subscription integrations remain manual.
+- Resumable, read-only history imports with provenance and explicit coverage reports.
+- Codex Cloud and Claude Cloud as subscription-backed devices, with verified native CLI controls and provider links for unavailable operations.
+- Direct WebRTC phone/computer connections, authenticated device approval, encrypted caches, recent-first history, gzip, range loading, and resumable live subscriptions.
+
+The OVH service handles identity, presence and signaling. It does not relay or queue conversations. Restrictive networks can prevent direct access: switch networks or use cached content. See the [device-service deployment guide](infra/mines-control/README.md), [remote access](docs/user/remote-access.md), and [implementation and release gates](docs/mines/STATUS.md).
+
+## Validation and release
+
+```sh
+pnpm check:changed 375da0fb9a20dfdbd2eb2db99050341fc30f3a23
+pnpm icons:check
 ```
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+Physical iOS/Android networking, live subscription integrations, signing/notarization, update delivery, accessibility and performance acceptance remain release gates. Local tests and fixtures do not certify those gates. This checkout is a development implementation, not a published or signed beta.
 
-To try it once without installing, run `npx t3@latest` instead.
+## License and attribution
 
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### Windows (`scoop`)
-
-```bash
-scoop install extras/t3code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
-
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
-
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+The upstream MIT license and copyright notices are retained in [LICENSE](LICENSE), alongside third-party notices. Internal workspace package names and compatibility command paths still use `@t3tools`/`t3`; these are not claims of affiliation. Original mines icon assets live in `assets/mines`.

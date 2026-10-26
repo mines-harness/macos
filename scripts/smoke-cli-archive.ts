@@ -66,7 +66,7 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
   const path = yield* Path.Path;
   const platform = yield* HostProcess.Platform;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const scratch = yield* fs.makeTempDirectory({ prefix: "t3-cli-smoke-" });
+  const scratch = yield* fs.makeTempDirectory({ prefix: "mines-cli-smoke-" });
   // Windows can briefly retain executable locks; cleanup retries but must not fail a successful smoke check.
   yield* Effect.addFinalizer(() =>
     fs.remove(scratch, { recursive: true }).pipe(
@@ -80,7 +80,12 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
   // Windows bsdtar reads zip; Git Bash's GNU tar does not.
   const tar = platform === "win32" ? windowsSystemTar() : "tar";
   const extract = yield* spawner
-    .spawn(ChildProcess.make(tar, ["-xf", input.archive, "-C", scratch]))
+    .spawn(
+      ChildProcess.make(tar, ["-xf", input.archive, "-C", scratch], {
+        stdout: "ignore",
+        stderr: "inherit",
+      }),
+    )
     .pipe(Effect.flatMap((child) => child.exitCode));
   if (Number(extract) !== 0) {
     return yield* new CliArchiveSmokeError({
@@ -96,7 +101,7 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
     });
   }
   const contentDir = path.join(scratch, root);
-  const executable = path.join(contentDir, platform === "win32" ? "t3.exe" : "t3");
+  const executable = path.join(contentDir, platform === "win32" ? "mines.exe" : "mines");
   for (const required of [executable, path.join(contentDir, "client/index.html")]) {
     if (!(yield* fs.exists(required))) {
       return yield* new CliArchiveSmokeError({
@@ -113,6 +118,13 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
       detail: `exit ${String(version.exitCode)}\n${version.stdout}${version.stderr}`,
     });
   }
+  const help = yield* runExecutable(executable, ["--help"], contentDir);
+  if (help.exitCode !== 0 || !help.stdout.includes("serve")) {
+    return yield* new CliArchiveSmokeError({
+      step: "running --help",
+      detail: `exit ${String(help.exitCode)}\n${help.stdout}${help.stderr}`,
+    });
+  }
 
   const net = yield* NetService.NetService;
   const port = yield* net.findAvailablePort(47700);
@@ -120,7 +132,7 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
   const server = yield* spawner.spawn(
     ChildProcess.make(
       executable,
-      ["serve", "--host", "127.0.0.1", "--port", String(port), "--no-browser"],
+      ["serve", "--base-dir", home, "--host", "127.0.0.1", "--port", String(port), "--no-browser"],
       {
         cwd: contentDir,
         env: {
@@ -129,10 +141,10 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
           USERPROFILE: home,
           TMPDIR: scratch,
           TEMP: scratch,
-          T3CODE_HOME: home,
+          MINES_HOME: home,
           // The archive has a release channel built in, so its events would
           // look like a real new install.
-          T3CODE_TELEMETRY_ENABLED: "false",
+          MINES_TELEMETRY_ENABLED: "false",
         },
         extendEnv: false,
       },
@@ -158,6 +170,34 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
     Effect.timeout(Duration.seconds(30)),
     Effect.orElseSucceed(() => false),
   );
+  const apiStatuses = ready
+    ? yield* Effect.all(
+        ["/.well-known/mines/environment", "/api/projects"].map((route) =>
+          httpClient
+            .execute(HttpClientRequest.get(`http://127.0.0.1:${String(port)}${route}`))
+            .pipe(
+              Effect.map((response) => response.status),
+              Effect.timeout(Duration.seconds(5)),
+            ),
+        ),
+      )
+    : [];
+  const transferAvailable = ready
+    ? yield* httpClient
+        .execute(
+          HttpClientRequest.get(`http://127.0.0.1:${String(port)}/.well-known/mines/environment`),
+        )
+        .pipe(
+          Effect.flatMap((response) => response.json),
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Struct({ capabilities: Schema.Struct({ mineTransfer: Schema.Boolean }) }),
+            ),
+          ),
+          Effect.map((descriptor) => descriptor.capabilities.mineTransfer),
+          Effect.timeout(Duration.seconds(5)),
+        )
+    : false;
   yield* server.kill({ killSignal: "SIGTERM" }).pipe(Effect.ignore);
   yield* server.exitCode.pipe(Effect.timeout(Duration.seconds(10)), Effect.ignore);
   const [stdout, stderr] = yield* Fiber.join(output).pipe(
@@ -170,7 +210,21 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
       detail: `no 200 from / within 30s\n${stdout}${stderr}`,
     });
   }
-  yield* Effect.log(`[cli-smoke] ${root}: --version passed and serve answered on ${String(port)}.`);
+  if (apiStatuses[0] !== 200 || apiStatuses[1] !== 401 || !transferAvailable) {
+    return yield* new CliArchiveSmokeError({
+      step: "checking API readiness and authentication",
+      detail: `descriptor ${String(apiStatuses[0])}; mineTransfer ${String(transferAvailable)}; protected projects ${String(apiStatuses[1])}`,
+    });
+  }
+  if (!(yield* fs.exists(path.join(home, "userdata/statev2.sqlite")))) {
+    return yield* new CliArchiveSmokeError({
+      step: "checking state isolation",
+      detail: "the server did not create its database in the isolated home",
+    });
+  }
+  yield* Effect.log(
+    `[cli-smoke] ${root}: --version/--help passed; isolated serve HTTP 200, descriptor 200 with mineTransfer:true, protected projects 401 on ${String(port)}.`,
+  );
 });
 
 const command = Command.make(
@@ -179,7 +233,7 @@ const command = Command.make(
     archive: Flag.String("archive"),
     expectVersion: Flag.String("expect-version"),
   },
-  (input) => smokeCliArchive(input).pipe(Effect.scoped),
+  (input) => smokeCliArchive(input).pipe(Effect.timeout(Duration.minutes(2)), Effect.scoped),
 ).pipe(Command.withDescription("Extract a CLI archive and run its executable."));
 
 if (import.meta.main) {

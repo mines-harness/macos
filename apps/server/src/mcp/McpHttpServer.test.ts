@@ -135,9 +135,9 @@ const callSnapshot = (args: Record<string, unknown>) => callTool("preview_snapsh
 const layerRecordingTools = (calls: Array<unknown>) => {
   const RecordingToolkit = Toolkit.make(
     OrchestratorToolkit.tools.delegate_task,
-    OrchestratorToolkit.tools.t3_thread_read,
-    OrchestratorToolkit.tools.t3_thread_wait,
-    ProjectToolkit.tools.t3_project_update,
+    OrchestratorToolkit.tools.mines_thread_read,
+    OrchestratorToolkit.tools.mines_thread_wait,
+    ProjectToolkit.tools.mines_project_update,
   );
   const record = McpToolAccess.reads((params: unknown) =>
     Effect.sync(() => calls.push(params)).pipe(
@@ -150,9 +150,9 @@ const layerRecordingTools = (calls: Array<unknown>) => {
     RecordingToolkit,
     McpToolAccess.toLayer(RecordingToolkit, {
       delegate_task: record,
-      t3_thread_read: record,
-      t3_thread_wait: record,
-      t3_project_update: record,
+      mines_thread_read: record,
+      mines_thread_wait: record,
+      mines_project_update: record,
     }),
   ).pipe(
     Layer.provideMerge(McpServer.McpServer.layer),
@@ -351,7 +351,7 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
       );
     expect(click.isError).toBe(true);
     expect(click.content).toEqual([
-      { type: "text", text: expect.stringContaining("needs an agent running inside T3 Code") },
+      { type: "text", text: expect.stringContaining("needs an agent running inside mines") },
     ]);
   }).pipe(Effect.provide(layerTest)),
 );
@@ -360,11 +360,11 @@ it.effect("decodes null optional arguments the way it decodes omitted ones", () 
   const calls: Array<unknown> = [];
   return Effect.gen(function* () {
     const thread = { threadId: "thread-null-arguments" };
-    yield* callTool("t3_thread_read", thread);
-    yield* callTool("t3_thread_read", { ...thread, afterPosition: null, view: null });
+    yield* callTool("mines_thread_read", thread);
+    yield* callTool("mines_thread_read", { ...thread, afterPosition: null, view: null });
     yield* callTool("delegate_task", { task: "Inspect", target: {} });
     yield* callTool("delegate_task", { task: "Inspect", title: null, target: { model: null } });
-    yield* callTool("t3_project_update", { projectId: "project-1", projectIcon: null });
+    yield* callTool("mines_project_update", { projectId: "project-1", projectIcon: null });
 
     expect(calls).toHaveLength(5);
     expect(calls[1]).toEqual(calls[0]);
@@ -374,25 +374,30 @@ it.effect("decodes null optional arguments the way it decodes omitted ones", () 
 });
 
 it.effect(
-  "clamps t3_thread_read page sizes above their maximum instead of rejecting the call",
+  "clamps mines_thread_read page sizes above their maximum instead of rejecting the call",
   () => {
     const calls: Array<unknown> = [];
     return Effect.gen(function* () {
       const thread = { threadId: "thread-clamped-arguments" };
       // Codex never shows the model these bounds, so an over-large page must still read.
-      yield* callTool("t3_thread_read", {
+      yield* callTool("mines_thread_read", {
         ...thread,
         limit: 150,
         runLimit: 80,
         maxCharsPerItem: 60_000,
       });
-      yield* callTool("t3_thread_read", {
+      yield* callTool("mines_thread_read", {
         ...thread,
         limit: 100,
         runLimit: 50,
         maxCharsPerItem: 50_000,
       });
-      yield* callTool("t3_thread_read", { ...thread, limit: 7, runLimit: 1, maxCharsPerItem: 1 });
+      yield* callTool("mines_thread_read", {
+        ...thread,
+        limit: 7,
+        runLimit: 1,
+        maxCharsPerItem: 1,
+      });
 
       expect(calls).toEqual([
         { ...thread, limit: 100, runLimit: 50, maxCharsPerItem: 50_000 },
@@ -404,12 +409,12 @@ it.effect(
 );
 
 it.effect.each(["limit", "runLimit", "maxCharsPerItem"])(
-  "still rejects a t3_thread_read %s below its minimum",
+  "still rejects a mines_thread_read %s below its minimum",
   (field) => {
     const calls: Array<unknown> = [];
     return Effect.gen(function* () {
       // Zero is a different request than one item, so it fails rather than answering another question.
-      const rejected = yield* callTool("t3_thread_read", {
+      const rejected = yield* callTool("mines_thread_read", {
         threadId: "thread-below-minimum",
         [field]: 0,
       }).pipe(Effect.flip);
@@ -420,13 +425,13 @@ it.effect.each(["limit", "runLimit", "maxCharsPerItem"])(
   },
 );
 
-it("routes same-child follow-ups to t3_thread_send and independent reviews to delegate_task", () => {
+it("routes same-child follow-ups to mines_thread_send and independent reviews to delegate_task", () => {
   const description = OrchestratorToolkit.tools.delegate_task.description ?? "";
   expect(description).toContain(
-    "For independent T3 delegated review rounds, call delegate_task again",
+    "For independent mines delegated review rounds, call delegate_task again",
   );
   expect(description).toContain(
-    "For a follow-up that needs the same child's conversation, use t3_thread_send on its childThreadId.",
+    "For a follow-up that needs the same child's conversation, use mines_thread_send on its childThreadId.",
   );
   expect(description).not.toContain("not the target for starting another");
 });

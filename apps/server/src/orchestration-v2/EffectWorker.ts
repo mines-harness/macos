@@ -8,6 +8,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import {
@@ -28,6 +29,7 @@ import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationServic
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 
 export class OrchestrationEffectExecutionError extends Schema.TaggedError<OrchestrationEffectExecutionError>()(
   "OrchestrationEffectExecutionError",
@@ -56,6 +58,17 @@ function isNonRetryableProviderTurnControlFailure(effectType: string, errorText:
   );
 }
 
+function isWorkspaceAdmissionBusy(cause: unknown): boolean {
+  const visited = new Set<unknown>();
+  while (!visited.has(cause)) {
+    if (WorkspaceRunLease.isWorkspaceRunLeaseBusy(cause)) return true;
+    visited.add(cause);
+    if (!Predicate.hasProperty(cause, "cause")) return false;
+    cause = cause.cause;
+  }
+  return false;
+}
+
 export interface OrchestrationEffectExecutorV2Shape {
   readonly execute: (
     effect: EffectOutbox.OrchestrationEffectV2,
@@ -66,7 +79,7 @@ export interface OrchestrationEffectExecutorV2Shape {
 export class OrchestrationEffectExecutorV2 extends Context.Service<
   OrchestrationEffectExecutorV2,
   OrchestrationEffectExecutorV2Shape
->()("t3/orchestration-v2/EffectWorker/OrchestrationEffectExecutorV2") {}
+>()("mines/orchestration-v2/EffectWorker/OrchestrationEffectExecutorV2") {}
 
 export const layerExecutor: Layer.Layer<
   OrchestrationEffectExecutorV2,
@@ -587,7 +600,7 @@ export interface OrchestrationEffectWorkerV2Shape {
 export class OrchestrationEffectWorkerV2 extends Context.Service<
   OrchestrationEffectWorkerV2,
   OrchestrationEffectWorkerV2Shape
->()("t3/orchestration-v2/EffectWorker/OrchestrationEffectWorkerV2") {}
+>()("mines/orchestration-v2/EffectWorker/OrchestrationEffectWorkerV2") {}
 
 export interface OrchestrationEffectWorkerOptions {
   readonly workerId?: string;
@@ -769,6 +782,23 @@ export const layerWithOptions = (
             }).pipe(Effect.onError((cause) => recoverPostSuccessSettlement(effect, cause)));
           }
 
+          // Busy starts must free worker slots so checkpoints and Stop can release their checkout.
+          if (isWorkspaceAdmissionBusy(Cause.squash(exit.cause))) {
+            const deferred = yield* outbox.retry({
+              effectId: effect.id,
+              workerId,
+              error: "Waiting for the checkout to become available.",
+              delayMs: 1_000,
+              consumeAttempt: false,
+            });
+            if (!deferred && !(yield* wasCancelled(effect.id))) {
+              return yield* new OrchestrationEffectWorkerError({
+                operation: "defer-workspace",
+                effectId: effect.id,
+              });
+            }
+            return true;
+          }
           const error = Cause.pretty(exit.cause);
           const nonRetryable = isNonRetryableProviderTurnControlFailure(effect.request.type, error);
           yield* Effect.logWarning("Orchestration effect execution failed", {

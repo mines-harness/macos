@@ -37,6 +37,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
   unavailable?: boolean;
   jumpLabel?: string | null;
   disabledReason?: string | null;
+  onToggleModel?: ((instanceId: ProviderInstanceId, slug: string) => void) | undefined;
   onToggleFavorite: (instanceId: ProviderInstanceId, slug: string) => void;
 }) {
   const model = {
@@ -59,6 +60,18 @@ export const ModelListRow = memo(function ModelListRow(props: {
           "data-disabled:pointer-events-auto data-disabled:cursor-not-allowed",
       )}
     >
+      {props.onToggleModel ? (
+        <input
+          type="checkbox"
+          checked={props.isSelected}
+          disabled={Boolean(props.disabledReason)}
+          aria-label={`Include ${props.name} in multi-model selection`}
+          className="size-4 shrink-0 accent-foreground"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          onChange={() => props.onToggleModel?.(props.instanceId, props.slug)}
+        />
+      ) : null}
       <div className="min-w-0 flex-1 text-left">
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 truncate text-xs font-medium leading-snug">

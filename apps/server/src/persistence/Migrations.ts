@@ -73,6 +73,10 @@ import Migration0067 from "./Migrations/067_WebhookDedupe.ts";
 import Migration0068 from "./Migrations/068_ShellStopRequestIndex.ts";
 import Migration0069 from "./Migrations/069_ThreadMessageSearch.ts";
 
+import Migration0070 from "./Migrations/070_MinesGroups.ts";
+import Migration0071 from "./Migrations/071_MinesGroupPeers.ts";
+import Migration0072 from "./Migrations/072_MinesRunContext.ts";
+
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
@@ -144,6 +148,9 @@ const migrationEntries = [
   [67, "WebhookDedupe", Migration0067],
   [68, "ShellStopRequestIndex", Migration0068],
   [69, "ThreadMessageSearch", Migration0069],
+  [70, "MinesGroups", Migration0070],
+  [71, "MinesGroupPeers", Migration0071],
+  [72, "MinesRunContext", Migration0072],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -50,7 +50,7 @@ describe("linked pull request thread navigation", () => {
       threadSearchItems: items,
     });
     expect(groups.flatMap((group) => group.items)).toEqual(items);
-    expect(items[0]?.description).toBe("Archived thread");
+    expect(items[0]?.description).toBe("Archived mine");
     await items[0]?.run();
     expect(runThread).toHaveBeenCalledWith({ environmentId, id });
   });
@@ -128,7 +128,7 @@ describe("buildThreadActionItems", () => {
       runThread,
     });
     expect(new Set(items.map((item) => item.value)).size).toBe(2);
-    const remoteItem = items.find((item) => item.description === "Remote project · Current thread");
+    const remoteItem = items.find((item) => item.description === "Remote project · Current mine");
     await remoteItem?.run();
     expect(runThread).toHaveBeenCalledWith(remote);
   });
@@ -182,8 +182,8 @@ describe("buildThreadActionItems", () => {
     const newThreadIn = {
       kind: "submenu" as const,
       value: "action:new-thread-in",
-      searchTerms: ["new thread"],
-      title: "New thread in...",
+      searchTerms: ["new mine"],
+      title: "New mine in...",
       icon: null,
       addonIcon: null,
       groups: [{ value: "projects", label: "Projects", items: projects }],
@@ -210,11 +210,8 @@ describe("buildThreadActionItems", () => {
         ],
       }).map((group) => [group.label, group.items.map((item) => item.title)]);
 
-    expect(search("new thread in t3code", false)[0]).toEqual([
-      "Suggestions",
-      ["New thread in t3code"],
-    ]);
-    expect(search("new thread", false).map(([label]) => label)).not.toContain("Suggestions");
+    expect(search("new mine in t3code", false)[0]).toEqual(["Suggestions", ["New mine in t3code"]]);
+    expect(search("new mine", false).map(([label]) => label)).not.toContain("Suggestions");
     expect(search("t3", true)).toEqual([["Projects", ["t3code"]]]);
     expect(search("add project", true)).toEqual([["Actions", ["Add project"]]]);
   });
@@ -243,9 +240,9 @@ describe("buildThreadActionItems", () => {
     const before = filter([]);
     // The server matched both; the title match stays where it was.
     const after = filter([items[0]!, items[1]!].toReversed());
-    expect(before).toEqual([["Threads", ["thread:environment-local:title"]]]);
+    expect(before).toEqual([["Mines", ["thread:environment-local:title"]]]);
     expect(after).toEqual([
-      ["Threads", ["thread:environment-local:title"]],
+      ["Mines", ["thread:environment-local:title"]],
       ["In messages", ["thread:environment-local:message"]],
     ]);
   });
@@ -274,13 +271,13 @@ describe("buildThreadActionItems", () => {
     const firstGroup = (query: string) =>
       filterCommandPaletteGroups({
         activeGroups: [
-          { value: "actions", label: "Actions", items: [action("action:copy", "Copy thread ID")] },
+          { value: "actions", label: "Actions", items: [action("action:copy", "Copy mine ID")] },
         ],
         query,
         isInSubmenu: false,
         projectSearchItems: [],
         settingsSearchItems: [
-          action("setting:compact", "Compact idle threads"),
+          action("setting:compact", "Compact idle mines"),
           action("setting:providers", "Providers", ["Providers", "compatibility"]),
         ],
         threadSearchItems,
@@ -288,7 +285,7 @@ describe("buildThreadActionItems", () => {
       })[0]?.label;
 
     for (const query of ["comp", "compa", "compac", "compact", "compacti", "compaction"]) {
-      expect(firstGroup(query), query).toBe("Threads");
+      expect(firstGroup(query), query).toBe("Mines");
     }
   });
 
@@ -318,7 +315,7 @@ describe("buildThreadActionItems", () => {
         threadSearchItems,
       }).map((group) => group.label);
 
-    expect(labels("upgrade")).toEqual(["Threads"]);
+    expect(labels("upgrade")).toEqual(["Mines"]);
     expect(labels("upl")).toEqual(["Actions"]);
     // A short query still finds a command by a keyword it equals.
     const prGroups = filterCommandPaletteGroups({
@@ -348,15 +345,15 @@ describe("buildThreadActionItems", () => {
       "action:open-prs",
       "action:project",
     ]);
-    expect(labels("up")).toEqual(["Actions", "Threads"]);
-    expect(labels("pnpm up")).toEqual(["Threads"]);
+    expect(labels("up")).toEqual(["Actions", "Mines"]);
+    expect(labels("pnpm up")).toEqual(["Mines"]);
   });
 
   it("runs the command for its whole name over a thread with that title, and lists the open thread last", () => {
     const threads = [
-      makeThread({ id: ThreadId.make("thread-new"), title: "New thread" }),
-      makeThread({ id: ThreadId.make("thread-open"), title: "New thread layout" }),
-      makeThread({ id: ThreadId.make("thread-other"), title: "New thread button" }),
+      makeThread({ id: ThreadId.make("thread-new"), title: "New mine" }),
+      makeThread({ id: ThreadId.make("thread-open"), title: "New mine layout" }),
+      makeThread({ id: ThreadId.make("thread-other"), title: "New mine button" }),
     ];
     const threadSearchItems = buildThreadActionItems({
       threads,
@@ -374,21 +371,21 @@ describe("buildThreadActionItems", () => {
             {
               kind: "action",
               value: "action:new-thread",
-              searchTerms: ["New thread in t3code"],
-              title: "New thread in t3code",
+              searchTerms: ["New mine in t3code"],
+              title: "New mine in t3code",
               icon: null,
               run: async () => undefined,
             },
           ],
         },
       ],
-      query: "new thread",
+      query: "new mine",
       isInSubmenu: false,
       projectSearchItems: [],
       threadSearchItems,
     });
-    expect(groups.map((group) => group.label)).toEqual(["Actions", "Threads"]);
-    expect(groups[1]?.items.at(-1)?.title).toBe("New thread layout");
+    expect(groups.map((group) => group.label)).toEqual(["Actions", "Mines"]);
+    expect(groups[1]?.items.at(-1)?.title).toBe("New mine layout");
   });
 
   it("lists a project above threads that only hold its name when the name is typed", () => {
@@ -416,8 +413,8 @@ describe("buildThreadActionItems", () => {
         projectSearchItems,
         threadSearchItems,
       }).map((group) => group.label);
-    expect(labels("lakebed")).toEqual(["Projects", "Threads"]);
-    expect(labels("lake")).toEqual(["Threads", "Projects"]);
+    expect(labels("lakebed")).toEqual(["Projects", "Mines"]);
+    expect(labels("lake")).toEqual(["Mines", "Projects"]);
   });
 
   it("keeps a command first over a thread in daily use that matches as well", () => {
@@ -443,8 +440,8 @@ describe("buildThreadActionItems", () => {
             {
               kind: "action",
               value: "action:new-thread",
-              searchTerms: ["new thread", "chat"],
-              title: "New thread",
+              searchTerms: ["new mine", "chat"],
+              title: "New mine",
               icon: null,
               run: async () => undefined,
             },
@@ -457,7 +454,7 @@ describe("buildThreadActionItems", () => {
       threadSearchItems,
       now,
     });
-    expect(groups.map((group) => group.label)).toEqual(["Actions", "Threads"]);
+    expect(groups.map((group) => group.label)).toEqual(["Actions", "Mines"]);
   });
 
   it("ranks an order-independent setting title match above a split context match", () => {
@@ -507,10 +504,10 @@ describe("buildThreadActionItems", () => {
             {
               kind: "action",
               value: "action:new-thread",
-              searchTerms: ["new thread", "chat"],
+              searchTerms: ["new mine", "chat"],
               // Styled: not a string, so only `searchTitle` holds its words.
-              title: ["New thread in ", "t3code"],
-              searchTitle: "New thread in t3code",
+              title: ["New mine in ", "t3code"],
+              searchTitle: "New mine in t3code",
               icon: null,
               run: async () => undefined,
             },
@@ -596,7 +593,7 @@ describe("buildThreadActionItems", () => {
     });
     const items = buildThreadActionItems({
       threads: [idThread, titleThread],
-      projectByKey: new Map([[`${LOCAL_ENVIRONMENT_ID}:${PROJECT_ID}`, { title: "T3 Code" }]]),
+      projectByKey: new Map([[`${LOCAL_ENVIRONMENT_ID}:${PROJECT_ID}`, { title: "mines" }]]),
       icon: null,
       runThread: async (_thread) => undefined,
     });
@@ -793,7 +790,7 @@ describe("command palette search return", () => {
   const picker = { addonIcon: null, groups: [] };
 
   it("restores each parent query when backing out of nested pickers", () => {
-    let state = createCommandPaletteSearchState(">new thread");
+    let state = createCommandPaletteSearchState(">new mine");
     state = reduceCommandPaletteSearchState(state, { type: "push", view: picker });
     expect(state.query).toBe("");
     state = reduceCommandPaletteSearchState(state, { type: "query", query: "remote project" });
@@ -808,7 +805,7 @@ describe("command palette search return", () => {
     expect(state.query).toBe("remote project");
     expect(state.views).toHaveLength(1);
     state = reduceCommandPaletteSearchState(state, { type: "back" });
-    expect(state.query).toBe(">new thread");
+    expect(state.query).toBe(">new mine");
     expect(state.views).toHaveLength(0);
   });
 

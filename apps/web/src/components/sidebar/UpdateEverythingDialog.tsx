@@ -83,7 +83,7 @@ function UpdateEverythingDialogContent({
     ),
   );
   const running = stopped + continuing;
-  const threads = `${running} running ${running === 1 ? "thread" : "threads"}`;
+  const threads = `${running} running ${running === 1 ? "mine" : "mines"}`;
 
   return (
     <>

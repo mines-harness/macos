@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as CatalogRunContextService from "../catalog/CatalogRunContextService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { assert, it } from "@effect/vitest";
 import { ProjectId } from "@t3tools/contracts";
@@ -167,6 +168,11 @@ const layerRuntime = (dbPath: string) => {
     Layer.provide(
       Layer.mock(GitWorkflow.GitWorkflowService)({
         pruneWorktrees: () => Effect.void,
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(CatalogRunContextService.CatalogRunContextService)({
+        forRun: () => Effect.succeed(""),
       }),
     ),
     Layer.provide(layerPlatform),

@@ -15,7 +15,7 @@ export function SidebarThreadUndoNotice() {
   const shortcut = shortcutLabelForCommand(keybindings, "thread.undo");
   const undoLabel = shortcut ? `${shortcut} to undo` : "Undo";
   const summary = notice
-    ? `${notice.action} ${notice.count} ${notice.action === "Discarded" ? "draft" : "thread"}${notice.count === 1 ? "" : "s"}`
+    ? `${notice.action} ${notice.count} ${notice.action === "Discarded" ? "draft" : "mine"}${notice.count === 1 ? "" : "s"}`
     : null;
 
   // A live region that mounts already filled is skipped by screen readers, and settling

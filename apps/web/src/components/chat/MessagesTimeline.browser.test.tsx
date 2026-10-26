@@ -131,6 +131,27 @@ const TASK_ID = ScheduledTaskId.make("task-1");
 const AUTOMATION_PROMPT = "Triage the inbox\n\nLabel every new issue and close duplicates.";
 
 describe("MessagesTimeline messages", () => {
+  it("decorates the boundary between imported history and later messages without adding a message", async () => {
+    setup();
+    const fixture = makeStreamingTimelineFixture();
+    const retained = fixture.visibleTurnItems[2]!;
+    const entries = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems: [retained, fixture.visibleTurnItems[3]!],
+      optimisticMessages: [],
+    });
+    await using screen = await renderTimeline(entries, {
+      importedHistory: {
+        sourceItemId: retained.sourceItemId,
+        label: "Thread imported",
+      },
+    });
+    await expect.element(screen.getByText("Thread imported")).toBeVisible();
+    const text = screen.text();
+    expect(text.indexOf("Done")).toBeLessThan(text.indexOf("Thread imported"));
+    expect(text.indexOf("Thread imported")).toBeLessThan(text.indexOf("Continue"));
+    expect(screen.container.querySelectorAll("[data-message-role]")).toHaveLength(2);
+  });
+
   it("settles when equally long messages have very different rendered heights", async () => {
     const props = baseProps();
     const tall = message("a\n\n".repeat(6000), { role: "assistant" }, "tall");
@@ -327,18 +348,18 @@ describe("MessagesTimeline agent messages", () => {
     expect(row.textContent).toContain("Review finished");
     expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(screen.text()).not.toContain("drops the index");
-    expect(screen.buttons("Open thread")).toHaveLength(0);
+    expect(screen.buttons("Open mine")).toHaveLength(0);
 
     await click(row);
     expect(screen.text()).toContain("The migration drops the index before backfilling it.");
-    await click(screen.button("Open thread"));
+    await click(screen.button("Open mine"));
     expect(onOpenThread).toHaveBeenCalledWith(SENDER_THREAD_ID);
 
     await click(screen.button(/^Agent/));
     expect(screen.text()).not.toContain("drops the index");
   });
 
-  it("leaves messages sent by T3 Code as full bubbles", async () => {
+  it("leaves messages sent by mines as full bubbles", async () => {
     setup();
     await using screen = await renderTimeline([
       message(AGENT_MESSAGE, { createdBy: "agent", creationSource: "server" }),

@@ -80,7 +80,7 @@ export function ThreadListToolbar(props: {
   const searchField = (
     <SearchField
       inputRef={searchRef}
-      accessibilityLabel="Search threads"
+      accessibilityLabel="Search mines"
       clearAccessibilityLabel="Clear search"
       placeholder="Search"
       value={props.searchQuery}
@@ -91,7 +91,7 @@ export function ThreadListToolbar(props: {
     <AndroidAnchoredMenu actions={props.filterActions} onPressAction={props.onFilterAction}>
       {(open) => (
         <AndroidHeaderIconButton
-          accessibilityLabel="Filter threads"
+          accessibilityLabel="Filter mines"
           icon={filterIcon}
           onPress={open}
         />
@@ -110,8 +110,8 @@ export function ThreadListToolbar(props: {
         searchField={searchField}
         onCloseSearch={closeSearch}
         onOpenSearch={openSearch}
-        searchAccessibilityLabel="Search threads"
-        titleAccessibilityLabel="T3 Code, Threads"
+        searchAccessibilityLabel="Search mines"
+        titleAccessibilityLabel="mines workspace"
         onOpenEnvironments={props.onOpenEnvironments}
         filter={filterButton}
       />

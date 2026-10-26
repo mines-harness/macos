@@ -1,19 +1,25 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   AuthProvidersManageScope,
-  type AuthSessionState,
   type EnvironmentId,
   type ProjectId,
   type ProjectSettingsOverrides,
   type ProviderInstanceId,
   sessionGrantsScope,
   type ServerSettings,
+  type ServerProvider,
   type SessionGrantInput,
 } from "@t3tools/contracts";
 
 export interface ProviderEnvironmentOptionLike {
   readonly environmentId: EnvironmentId;
   readonly label: string;
+}
+
+export function hasDiscoveredProviderAccount(
+  provider: Pick<ServerProvider, "installed" | "auth"> | undefined,
+): boolean {
+  return provider?.installed === true && provider.auth.status === "authenticated";
 }
 
 export function isProviderSettingsEnvironmentAvailable(input: {

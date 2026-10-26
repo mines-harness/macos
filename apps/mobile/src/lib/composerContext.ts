@@ -103,7 +103,7 @@ export function createComposerContextHistory() {
 
 /** Same identity as web: one record per thread, so re-attaching reuses the chip. */
 export function threadComposerContext(ref: ScopedThreadRef, title: string): ThreadContextRecord {
-  const label = sanitizeComposerContextLabel(title, "thread");
+  const label = sanitizeComposerContextLabel(title, "mine");
   return {
     version: 1,
     kind: "thread",

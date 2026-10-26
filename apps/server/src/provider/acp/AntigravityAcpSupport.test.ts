@@ -167,7 +167,7 @@ const makeAttachmentFixture = Effect.fn("AntigravityAcpSupportTest.makeAttachmen
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const attachmentsDir = yield* fs.makeTempDirectoryScoped({
-      prefix: "t3-antigravity-attachments-",
+      prefix: "mines-antigravity-attachments-",
     });
     const write = Effect.fn("AntigravityAcpSupportTest.writeAttachment")(function* (
       attachment: ChatAttachment,

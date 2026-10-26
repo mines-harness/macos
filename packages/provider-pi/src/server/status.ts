@@ -238,7 +238,7 @@ export const buildInitialPiProviderSnapshot = Effect.fn(
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Pi is disabled in T3 Code settings.",
+        message: "Pi is disabled in mines settings.",
       },
     });
   }
@@ -264,22 +264,6 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
 ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = piModelsFromSettings(piSettings.customModels);
-
-  if (!piSettings.enabled) {
-    return buildServerProvider({
-      presentation: PI_PRESENTATION,
-      enabled: false,
-      checkedAt,
-      models: fallbackModels,
-      probe: {
-        installed: false,
-        version: null,
-        status: "warning",
-        auth: { status: "unknown" },
-        message: "Pi is disabled in T3 Code settings.",
-      },
-    });
-  }
 
   const versionResult = yield* runPiVersionCommand(piSettings, environment).pipe(
     Effect.timeoutOption(VERSION_PROBE_TIMEOUT_MS),
@@ -340,6 +324,22 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     });
   }
 
+  if (!piSettings.enabled) {
+    return buildServerProvider({
+      presentation: PI_PRESENTATION,
+      enabled: false,
+      checkedAt,
+      models: fallbackModels,
+      probe: {
+        installed: true,
+        version,
+        status: "warning",
+        auth: { status: "unknown" },
+        message: "Pi is disabled in mines settings.",
+      },
+    });
+  }
+
   if (version === null) {
     return buildServerProvider({
       presentation: PI_PRESENTATION,
@@ -351,7 +351,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
         version: null,
         status: "error",
         auth: { status: "unknown" },
-        message: `T3 Code could not determine the Pi version. Pi ${MINIMUM_PI_VERSION} or newer is required.`,
+        message: `mines could not determine the Pi version. Pi ${MINIMUM_PI_VERSION} or newer is required.`,
       },
     });
   }
@@ -410,7 +410,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
         status: "ready",
         auth: { status: "unknown" },
         message:
-          "Pi is available, but T3 Code could not refresh its models and commands. The live session will retry startup.",
+          "Pi is available, but mines could not refresh its models and commands. The live session will retry startup.",
       },
     });
   }

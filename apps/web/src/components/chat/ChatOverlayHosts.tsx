@@ -207,7 +207,7 @@ export function RevertConfirmHost(props: {
         <AlertDialogHeader>
           <AlertDialogTitle>Edit from here?</AlertDialogTitle>
           <AlertDialogDescription>
-            Rewind chat to before this message. Your prompt and attachments return to the composer.
+            Rewind mine to before this message. Your prompt and attachments return to the composer.
             “Revert files too” also undoes your own edits.
           </AlertDialogDescription>
         </AlertDialogHeader>

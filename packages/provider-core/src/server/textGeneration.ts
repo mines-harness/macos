@@ -96,6 +96,14 @@ export type ReviewGuideGenerationResult = Omit<
 >;
 
 export interface ProviderTextGeneration {
+  readonly assessGroupRelevance?: (input: {
+    readonly cwd: string;
+    readonly modelSelection: ModelSelection;
+    readonly role: string;
+    readonly context: string;
+    readonly message: string;
+  }) => Effect.Effect<{ readonly decision: "reply" | "silent" }, TextGenerationError>;
+
   readonly generateCommitMessage: (
     input: CommitMessageGenerationInput,
   ) => Effect.Effect<CommitMessageGenerationResult, TextGenerationError>;

@@ -65,17 +65,25 @@ describe("desktop update button state", () => {
 });
 
 describe("desktop update UI helpers", () => {
-  it.each(["owner/repo/extra", "owner#notes/repo", "owner/repo?tab=notes"])(
-    "falls back to upstream for an invalid configured repository: %s",
-    (repository) => {
-      expect(getDesktopUpdateReleaseHistoryUrl(repository)).toBe(
-        "https://github.com/pingdotgg/t3code/releases",
-      );
-      expect(getDesktopUpdateReleaseUrl("1.2.3", repository)).toBe(
-        "https://github.com/pingdotgg/t3code/releases/tag/v1.2.3",
-      );
-    },
-  );
+  it.each([
+    undefined,
+    "",
+    "owner/repo/extra",
+    "owner#notes/repo",
+    "owner/repo?tab=notes",
+    "pingdotgg/t3code",
+  ])("omits release links without a valid own repository: %s", (repository) => {
+    expect(getDesktopUpdateReleaseHistoryUrl(repository)).toBeNull();
+    expect(getDesktopUpdateReleaseUrl("1.2.3", repository)).toBeNull();
+  });
+  it("links only to the configured own release repository", () => {
+    expect(getDesktopUpdateReleaseHistoryUrl(" owner/mines ")).toBe(
+      "https://github.com/owner/mines/releases",
+    );
+    expect(getDesktopUpdateReleaseUrl("1.2.3", " owner/mines ")).toBe(
+      "https://github.com/owner/mines/releases/tag/v1.2.3",
+    );
+  });
 });
 
 describe("canCheckForUpdate", () => {

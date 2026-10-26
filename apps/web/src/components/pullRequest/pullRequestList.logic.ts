@@ -583,7 +583,7 @@ export const pullRequestEnvironmentSetKey = (environmentIds: ReadonlyArray<strin
   [...environmentIds].sort((left, right) => left.localeCompare(right)).join(",");
 
 const snapshotStorageKey = (environmentSetKey: string) =>
-  `t3.pullRequests.list:${environmentSetKey}`;
+  `mines.pullRequests.list:${environmentSetKey}`;
 
 export interface PullRequestPartitionsSnapshot {
   readonly authored: ReadonlyArray<EnvironmentPullRequestEntry>;

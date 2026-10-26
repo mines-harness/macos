@@ -49,16 +49,16 @@ const serveFakeRelease = Effect.fn("test.serveFakeRelease")(function* (root: str
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const key = `${yield* HostProcess.Platform}-${yield* HostProcess.Architecture}`;
-  const stem = `t3-${VERSION}-${key}`;
+  const stem = `mines-${VERSION}-${key}`;
   const archiveName = `${stem}.tar.gz`;
   yield* fs.makeDirectory(path.join(root, "release", stem, "node_modules/native"), {
     recursive: true,
   });
   yield* fs.writeFileString(
-    path.join(root, "release", stem, "t3"),
-    '#!/bin/sh\necho "stub $* launcher=$T3CODE_NPM_LAUNCHER_PATH"\nexit 7\n',
+    path.join(root, "release", stem, "mines"),
+    '#!/bin/sh\necho "stub $* launcher=$MINES_NPM_LAUNCHER_PATH"\nexit 7\n',
   );
-  yield* fs.chmod(path.join(root, "release", stem, "t3"), 0o755);
+  yield* fs.chmod(path.join(root, "release", stem, "mines"), 0o755);
   const tar = yield* run("tar", ["-czf", archiveName, stem], {
     cwd: path.join(root, "release"),
     env: { PATH: process.env.PATH },
@@ -104,7 +104,7 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-npm-launcher-test-" });
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "mines-npm-launcher-test-" });
         const output = yield* buildNpmLauncher({
           version: VERSION,
           outputDir: path.join(root, "out"),
@@ -113,9 +113,9 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
         const manifest = yield* decodeManifest(
           yield* fs.readFileString(path.join(output.packageDir, "package.json")),
         );
-        assert.equal(manifest.name, "t3");
+        assert.equal(manifest.name, "mines");
         assert.equal(manifest.version, VERSION);
-        assert.deepStrictEqual(manifest.bin, { t3: "./bin/t3.mjs" });
+        assert.deepStrictEqual(manifest.bin, { mines: "./bin/mines.mjs" });
         assert.isUndefined(manifest.dependencies);
         assert.isUndefined(manifest.optionalDependencies);
 
@@ -128,19 +128,39 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
         assert.equal(unpack.exitCode, 0, unpack.stderr);
         const packageDir = path.join(installed, "package");
 
+        const unconfigured = yield* run(
+          process.execPath,
+          [path.join(packageDir, "bin/mines.mjs"), "--version"],
+          {
+            cwd: root,
+            env: {
+              PATH: process.env.PATH,
+              MINES_HOME: path.join(root, "unconfigured"),
+              T3CODE_CLI_RELEASE_BASE_URL: "https://old.example.test",
+            },
+          },
+        );
+        assert.equal(unconfigured.exitCode, 1);
+        assert.include(unconfigured.stderr, "MINES_CLI_UPDATE_REPOSITORY");
+        assert.isFalse(yield* fs.exists(path.join(root, "unconfigured")));
+
         const release = yield* serveFakeRelease(root);
         const home = path.join(root, "home");
         const env = {
           PATH: process.env.PATH,
-          T3CODE_HOME: home,
-          T3CODE_RELEASE_BASE_URL: release.baseUrl,
+          MINES_HOME: home,
+          MINES_CLI_RELEASE_BASE_URL: release.baseUrl,
         };
-        const launcher = path.join(packageDir, "bin/t3.mjs");
+        const launcher = path.join(packageDir, "bin/mines.mjs");
         const first = yield* run(process.execPath, [launcher, "serve", "a b"], {
           cwd: root,
           env,
         });
-        assert.equal(first.stdout.trim(), `stub serve a b launcher=${launcher}`, first.stderr);
+        assert.equal(
+          first.stdout.trim(),
+          `stub serve a b launcher=${yield* fs.realPath(launcher)}`,
+          first.stderr,
+        );
         assert.equal(first.exitCode, 7);
         const versionDir = path.join(home, "runtime/versions", VERSION);
         assert.equal(
@@ -158,32 +178,31 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
         assert.equal(second.exitCode, 7);
         assert.equal(release.requests.length, requestsAfterFirst);
 
-        const ipcServer = path.join(home, "runtime/versions", VERSION, "t3");
+        const ipcServer = path.join(home, "runtime/versions", VERSION, "mines");
         yield* fs.writeFileString(
           ipcServer,
           `#!${process.execPath}\nprocess.on("SIGTERM", () => process.exit(23));\nprocess.on("message", (m) => process.send({ reply: m }));\nprocess.send({ args: process.argv.slice(2) });\n`,
         );
-        const legacy = NodeChildProcess.fork(
-          path.join(packageDir, "dist/bin.mjs"),
-          ["__service-preflight", "a b"],
-          { env, silent: true },
-        );
+        const service = NodeChildProcess.fork(launcher, ["__service-preflight", "a b"], {
+          env,
+          silent: true,
+        });
         yield* Effect.promise(async () => {
-          assert.deepStrictEqual((await NodeEvents.EventEmitter.once(legacy, "message"))[0], {
+          assert.deepStrictEqual((await NodeEvents.EventEmitter.once(service, "message"))[0], {
             args: ["__service-preflight", "a b"],
           });
-          const reply = NodeEvents.EventEmitter.once(legacy, "message");
-          legacy.send({ type: "trial-accepted" });
+          const reply = NodeEvents.EventEmitter.once(service, "message");
+          service.send({ type: "trial-accepted" });
           assert.deepStrictEqual((await reply)[0], { reply: { type: "trial-accepted" } });
-          const exit = NodeEvents.EventEmitter.once(legacy, "exit");
-          legacy.kill("SIGTERM");
+          const exit = NodeEvents.EventEmitter.once(service, "exit");
+          service.kill("SIGTERM");
           assert.deepStrictEqual(await exit, [23, null]);
         });
 
         const raceHome = path.join(root, "race-home");
         const launch = run(process.execPath, [launcher, "--version"], {
           cwd: root,
-          env: { ...env, T3CODE_HOME: raceHome },
+          env: { ...env, MINES_HOME: raceHome },
         });
         const [one, two] = yield* Effect.all([launch, launch], { concurrency: "unbounded" });
         assert.equal(one.exitCode, 7, one.stderr);
@@ -195,7 +214,7 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
         release.corruptChecksum();
         const corrupt = yield* run(process.execPath, [launcher, "--version"], {
           cwd: root,
-          env: { ...env, T3CODE_HOME: path.join(root, "other-home") },
+          env: { ...env, MINES_HOME: path.join(root, "other-home") },
         });
         assert.equal(corrupt.exitCode, 1);
         assert.include(corrupt.stderr, "checksum mismatch");

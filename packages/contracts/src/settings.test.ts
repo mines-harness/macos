@@ -211,6 +211,19 @@ describe("ClientSettings quit confirmation", () => {
 });
 
 describe("provider enabled defaults", () => {
+  it("keeps unconfigured Claude disabled and preserves explicit choices", () => {
+    expect(decodeClaudeSettings({}).enabled).toBe(false);
+    expect(resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("claudeAgent") })).toBe(
+      false,
+    );
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: ProviderDriverKind.make("claudeAgent"),
+        enabled: true,
+      }),
+    ).toBe(true);
+  });
+
   it("resolves instance enabled state with explicit false winning", () => {
     const grok = ProviderDriverKind.make("grok");
     const codex = ProviderDriverKind.make("codex");

@@ -94,6 +94,47 @@ describe("MCP app asset responses", () => {
 });
 
 describe("browser API CORS", () => {
+  it("permits credentialed mines desktop preflights and rejects foreign app origins", async () => {
+    const layerConfig = Layer.effect(
+      ServerConfig.ServerConfig,
+      Effect.map(ServerConfig.ServerConfig, (config) => ({
+        ...config,
+        devUrl: new URL("http://localhost:5733"),
+      })),
+    ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "mines-cors-test-" })));
+    const { handler, dispose } = HttpRouter.toWebHandler(
+      ServerHttp.layerBrowserApiCors.pipe(
+        Layer.provide(layerConfig),
+        Layer.provide(NodeServices.layer),
+      ),
+      { disableLogger: true },
+    );
+    try {
+      for (const origin of [
+        "mines://app",
+        "mines-dev://app",
+        "t3code://app",
+        "mines-dev://other",
+      ]) {
+        const response = await handler(
+          new Request("http://127.0.0.1:18431/api/auth/session", {
+            method: "OPTIONS",
+            headers: {
+              origin,
+              "access-control-request-method": "GET",
+              "access-control-request-headers": "authorization,content-type",
+            },
+          }),
+        );
+        const accepted = origin === "mines://app" || origin === "mines-dev://app";
+        expect(response.headers.get("access-control-allow-origin")).toBe(accepted ? origin : null);
+        if (accepted) expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   it("accepts protocol negotiation with authenticated browser headers", async () => {
     const layerRoute = Layer.effectDiscard(
       Effect.gen(function* () {

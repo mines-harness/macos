@@ -28,7 +28,7 @@ export function ThreadHeader(
     const actions: AppBarAction[] = [];
     if (props.onReturnToThread) {
       actions.push({
-        accessibilityLabel: "Return to chat",
+        accessibilityLabel: "Return to mine",
         icon: "chevron.left",
         onPress: props.onReturnToThread,
       });
@@ -54,6 +54,16 @@ export function ThreadHeader(
       icon: "point.topleft.down.curvedto.point.bottomright.up",
       onPress: props.onOpenGitInspector,
     });
+    if (props.gitControls.onTransferMine) {
+      actions.push({
+        accessibilityLabel: props.gitControls.mineTransferNeedsUpdate
+          ? "Transfer mine, device update required"
+          : "Transfer mine",
+        icon: "arrow.left.arrow.right",
+        disabled: props.gitControls.canTransferMine === false,
+        onPress: props.gitControls.onTransferMine,
+      });
+    }
     if (onMergeBack) {
       actions.push({
         accessibilityLabel: "Merge back to source",
@@ -74,6 +84,9 @@ export function ThreadHeader(
     props.hasThreadCwd,
     props.hasWorkspaceRoot,
     props.gitControls.canOpenTerminal,
+    props.gitControls.canTransferMine,
+    props.gitControls.mineTransferNeedsUpdate,
+    props.gitControls.onTransferMine,
   ]);
 
   return (

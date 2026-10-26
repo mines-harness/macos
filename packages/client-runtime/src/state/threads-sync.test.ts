@@ -107,6 +107,7 @@ function awaitThreadState(
 }
 
 const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (options?: {
+  readonly captureOwner?: () => () => boolean;
   readonly cached?: OrchestrationV2ThreadProjection;
   readonly cachedHistory?: {
     readonly historyCursor: string | null;
@@ -194,6 +195,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     retryNow: Ref.update(retryCount, (count) => count + 1),
   } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
   const cache = Persistence.EnvironmentCacheStore.of({
+    ...(options?.captureOwner ? { captureOwner: options.captureOwner } : {}),
     loadShell: () => Effect.succeedNone,
     saveShell: () => Effect.void,
     loadThread: (_environmentId, threadId) =>
@@ -334,6 +336,28 @@ const deleted = (sequence = 3): OrchestrationV2ThreadStreamItem => {
 };
 
 describe("EnvironmentThreads", () => {
+  it.effect("never flushes queued old-account history into a new account cache", () =>
+    Effect.gen(function* () {
+      let sameOwner = true;
+      const scope = yield* Scope.make();
+      const harness = yield* makeHarness({ captureOwner: () => () => sameOwner }).pipe(
+        Effect.provideService(Scope.Scope, scope),
+      );
+      yield* Queue.offer(harness.inputs, snapshot(BASE_PROJECTION));
+      yield* awaitThreadState(harness.observed, (value) => value.status === "live");
+      sameOwner = false;
+      yield* Queue.offer(harness.inputs, titleUpdated("Old account update"));
+      yield* awaitThreadState(
+        harness.observed,
+        (value) =>
+          Option.isSome(value.data) && value.data.value.thread.title === "Old account update",
+      );
+      yield* Scope.close(scope, Exit.void);
+      expect(yield* Ref.get(harness.savedThreads)).toEqual([]);
+      expect(yield* Ref.get(harness.removedThreads)).toEqual([]);
+    }),
+  );
+
   it.effect("discards an oversized version-4 cache and requests a fresh bounded snapshot", () =>
     Effect.gen(function* () {
       const item: OrchestrationV2TurnItem = {
@@ -1117,6 +1141,7 @@ describe("EnvironmentThreads", () => {
         output: "older history",
         exitCode: 0,
       };
+      const scope = yield* Scope.make();
       const harness = yield* makeHarness({
         historyHttpClient: HttpClient.make((request, url) => {
           expect(url.searchParams.get("cursor")).toBe("socket-history-cursor");
@@ -1141,7 +1166,7 @@ describe("EnvironmentThreads", () => {
             ),
           );
         }),
-      });
+      }).pipe(Effect.provideService(Scope.Scope, scope));
       yield* Queue.offer(harness.inputs, {
         kind: "snapshot",
         snapshotSequence: 14,
@@ -1181,6 +1206,18 @@ describe("EnvironmentThreads", () => {
         Option.getOrThrow(expanded.data).turnItems.some((item) => item.id === olderItem.id),
       ).toBe(true);
       expect(expanded.history.hasMoreHistory).toBe(false);
+      yield* Queue.offer(harness.inputs, titleUpdated("Updated after paging", 15));
+      yield* awaitThreadState(
+        harness.observed,
+        (value) =>
+          Option.isSome(value.data) && value.data.value.thread.title === "Updated after paging",
+      );
+      yield* Scope.close(scope, Exit.void);
+      const saved = (yield* Ref.get(harness.savedThreads)).at(-1)!;
+      expect(saved.snapshotSequence).toBe(15);
+      expect(saved.projection.thread.title).toBe("Updated after paging");
+      expect(saved.historyCursor).toBe("socket-history-cursor");
+      expect(saved.projection.turnItems.some((item) => item.id === olderItem.id)).toBe(false);
     }),
   );
 

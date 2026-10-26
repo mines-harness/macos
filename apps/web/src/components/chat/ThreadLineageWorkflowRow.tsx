@@ -73,7 +73,7 @@ function WorkflowMemberRow({
           render={
             <ThreadDetailsControl
               part="row"
-              aria-label={`Open ${member.title} chat`}
+              aria-label={`Open ${member.title} mine`}
               disabled={!canOpen}
               onClick={() => canOpen && onOpen(threadId)}
             />

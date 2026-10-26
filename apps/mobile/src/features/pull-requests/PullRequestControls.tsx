@@ -66,8 +66,8 @@ export function PullRequestCardRow(props: {
         <Text
           className={
             props.destructive
-              ? "text-sm font-t3-medium text-danger-foreground"
-              : "text-sm font-t3-medium"
+              ? "text-sm font-mines-medium text-danger-foreground"
+              : "text-sm font-mines-medium"
           }
         >
           {props.title}
@@ -126,7 +126,7 @@ export function PullRequestActionToolbar(props: {
   const { shortLabel } = sourceControlClients.get(
     (props.pr ?? props.params.initialSummary)?.provider,
   ).changeRequest;
-  const threadLabel = agent.threads.length ? "Continue thread" : `Work on ${shortLabel}`;
+  const threadLabel = agent.threads.length ? "Continue mine" : `Work on ${shortLabel}`;
   const primaryLabel = pendingReview ? `Submit review · ${draft.comments.length}` : threadLabel;
   const chooseThread = agent.threads.length > 1;
   const agentActions = agent.actions.filter((action) => action.task !== "ask");
@@ -176,7 +176,7 @@ export function PullRequestActionToolbar(props: {
               <View className="min-w-0 shrink">
                 {!pendingReview && chooseThread ? (
                   <Menu
-                    title="Open thread"
+                    title="Open mine"
                     actions={threadMenuItems}
                     onPressAction={({ nativeEvent }) => agent.select(nativeEvent.event)}
                   >

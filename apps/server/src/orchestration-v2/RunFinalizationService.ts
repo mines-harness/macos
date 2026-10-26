@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 import * as CheckpointCapture from "./CheckpointCaptureService.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
@@ -33,7 +34,7 @@ export class RunFinalizationObserver extends Context.Reference<{
     readonly threadId: ThreadId;
     readonly runId: RunId;
   }) => Effect.Effect<void, RunFinalizationRefreshError>;
-}>("t3/orchestration-v2/RunFinalizationObserver", {
+}>("mines/orchestration-v2/RunFinalizationObserver", {
   defaultValue: () => ({ refresh: () => Effect.void, refreshAfterTurn: () => Effect.void }),
 }) {}
 
@@ -46,44 +47,51 @@ export class RunFinalizationService extends Context.Service<
       readonly scopeId: CheckpointScopeId;
     }) => Effect.Effect<void, RunFinalizationError>;
   }
->()("t3/orchestration-v2/RunFinalizationService") {}
+>()("mines/orchestration-v2/RunFinalizationService") {}
 
 const make = Effect.gen(function* () {
   const checkpointCapture = yield* CheckpointCapture.CheckpointCaptureServiceV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const observer = yield* RunFinalizationObserver;
+  const workspaceRunLeases = yield* WorkspaceRunLease.WorkspaceRunLease;
 
   const finalize: RunFinalizationService["Service"]["finalize"] = Effect.fn(
     "RunFinalizationService.finalize",
-  )(function* (input) {
-    yield* checkpointCapture
-      .execute(input)
-      .pipe(
-        Effect.mapError(
-          (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
-        ),
-      );
-    const projection = yield* projections
-      .getCheckpointContext(input.threadId)
-      .pipe(
-        Effect.mapError(
-          (cause) => new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
-        ),
-      );
-    const cwd = projection.checkpointScopes.find((scope) => scope.id === input.scopeId)?.cwd;
-    if (cwd !== undefined) {
-      // Retrying a display refresh after the checkpoint is durable blocks the next turn.
-      yield* observer.refresh({ cwd, threadId: input.threadId, runId: input.runId }).pipe(
-        Effect.catchTags({
-          RunFinalizationRefreshError: (cause) =>
-            Effect.logWarning("Failed to refresh workspace after checkpoint capture", {
-              ...input,
-              cause,
-            }),
-        }),
-      );
-    }
-  });
+  )(
+    function* (input) {
+      yield* checkpointCapture
+        .execute(input)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
+          ),
+        );
+      const projection = yield* projections
+        .getCheckpointContext(input.threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
+          ),
+        );
+      const cwd = projection.checkpointScopes.find((scope) => scope.id === input.scopeId)?.cwd;
+      if (cwd !== undefined) {
+        // Retrying a display refresh after the checkpoint is durable blocks the next turn.
+        yield* observer.refresh({ cwd, threadId: input.threadId, runId: input.runId }).pipe(
+          Effect.catchTags({
+            RunFinalizationRefreshError: (cause) =>
+              Effect.logWarning("Failed to refresh workspace after checkpoint capture", {
+                ...input,
+                cause,
+              }),
+          }),
+        );
+      }
+    },
+    (effect, input) =>
+      effect.pipe(Effect.ensuring(workspaceRunLeases.completeCheckpoint(input.runId))),
+  );
   return RunFinalizationService.of({ finalize });
 });
 

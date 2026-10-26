@@ -49,7 +49,7 @@ const layerHelper = (input: {
   readonly capture?: (command: CapturedCommand) => void;
 }) =>
   Layer.merge(
-    Layer.succeed(LinuxBrowserSecretPath, "/bundled/browser-secret/t3-browser-secret"),
+    Layer.succeed(LinuxBrowserSecretPath, "/bundled/browser-secret/mines-browser-secret"),
     Layer.succeed(
       ChildProcessSpawner.ChildProcessSpawner,
       ChildProcessSpawner.make((command) =>

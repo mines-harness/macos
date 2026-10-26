@@ -18,6 +18,38 @@
     "./relay": {
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"
+    },
+    "./groupChat": {
+      "types": "./src/groupChat.ts",
+      "import": "./src/groupChat.ts"
+    },
+    "./sharedGroups": {
+      "types": "./src/sharedGroups.ts",
+      "import": "./src/sharedGroups.ts"
+    },
+    "./contacts": {
+      "types": "./src/contacts.ts",
+      "import": "./src/contacts.ts"
+    },
+    "./minesCatalog": {
+      "types": "./src/minesCatalog.ts",
+      "import": "./src/minesCatalog.ts"
+    },
+    "./minesPeer": {
+      "types": "./src/minesPeer.ts",
+      "import": "./src/minesPeer.ts"
+    },
+    "./executionTargets": {
+      "types": "./src/executionTargets.ts",
+      "import": "./src/executionTargets.ts"
+    },
+    "./catalogRpc": {
+      "types": "./src/catalogRpc.ts",
+      "import": "./src/catalogRpc.ts"
+    },
+    "./orchestrationV2": {
+      "types": "./src/orchestrationV2.ts",
+      "import": "./src/orchestrationV2.ts"
     }
   },
   "scripts": {

@@ -1,3 +1,4 @@
+import { HistoryCacheSettings } from "./HistoryCacheSettings";
 import type {
   StorageCleanupReport,
   StorageCleanupSettings,
@@ -69,7 +70,7 @@ function WorktreesDirectoryRow() {
     <SettingsRow
       {...searchableSetting("storage-worktrees-location")}
       description={
-        "Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder."
+        "Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the mines home folder."
       }
       serverScoped
       settingKeys={["worktreesDirectory"]}
@@ -230,7 +231,7 @@ function CleanupResults({
                   )}
                   {entry.threadTitle && (
                     <>
-                      <span>Thread</span>
+                      <span>Mine</span>
                       <span>{entry.threadTitle}</span>
                     </>
                   )}
@@ -461,9 +462,12 @@ export function StorageSettingsPanel() {
     )
   ) {
     return (
-      <SettingsScopeNotice target="all">
-        Update the selected machines to configure project worktree cleanup.
-      </SettingsScopeNotice>
+      <SettingsPageContainer>
+        {!isProjectScope && <HistoryCacheSettings />}
+        <SettingsScopeNotice target="all">
+          Update the selected machines to configure project worktree cleanup.
+        </SettingsScopeNotice>
+      </SettingsPageContainer>
     );
   }
 
@@ -490,6 +494,7 @@ export function StorageSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      {!isProjectScope && <HistoryCacheSettings />}
       {!isProjectScope && (
         <DatabaseStorageNotice
           environments={connectedEnvironments.filter(
@@ -546,13 +551,13 @@ export function StorageSettingsPanel() {
         {(!isProjectScope || (!mixedModes && mode === "custom")) && (
           <>
             <SettingsRow
-              title="Delete worktrees with deleted threads"
+              title="Delete worktrees with deleted mines"
               status={ruleStatus("worktreeOnDelete")}
-              description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
+              description="Remove unused worktrees when active or archived mines are deleted. Worktrees with local changes are kept."
               serverScoped={!isProjectScope}
               control={
                 <Switch
-                  aria-label="Delete worktrees with deleted threads"
+                  aria-label="Delete worktrees with deleted mines"
                   checked={settings.worktreeOnDelete}
                   onCheckedChange={(worktreeOnDelete) => updateWorktree({ worktreeOnDelete })}
                 />
@@ -561,7 +566,7 @@ export function StorageSettingsPanel() {
             <SettingsRow
               title="Delete inactive worktrees"
               status={ruleStatus("worktreeAfterDays")}
-              description="Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept."
+              description="Remove worktrees after their mines have been inactive for this many days. Branches and mine history are kept."
               serverScoped={!isProjectScope}
               control={
                 <RetentionControl
@@ -587,7 +592,7 @@ export function StorageSettingsPanel() {
                   ]
                     .filter(Boolean)
                     .join(". ")}
-                  description="Remove worktrees this many days after their thread settles. Set 0 days to remove them at the next cleanup. Branches and thread history are kept."
+                  description="Remove worktrees this many days after their mine settles. Set 0 days to remove them at the next cleanup. Branches and mine history are kept."
                   serverScoped={!isProjectScope}
                   control={
                     <RetentionControl

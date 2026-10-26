@@ -17,7 +17,7 @@ import { ManagedEndpointZone, RelayApiZone, RelayDeploymentConfig } from "./src/
 import * as RelayWorker from "./src/worker.ts";
 
 export default Alchemy.Stack(
-  "T3CodeRelay",
+  "MinesRelay",
   {
     providers: Layer.mergeAll(
       Axiom.providers(),

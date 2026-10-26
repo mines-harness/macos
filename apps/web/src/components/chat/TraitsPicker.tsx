@@ -47,6 +47,8 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
+import { useUltraReasoningFeedback } from "./UltraReasoningFeedback";
+import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -324,7 +326,7 @@ export interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
 }
 
-export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
+const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   provider,
   instanceId,
   models,
@@ -337,6 +339,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   planModeEnabled,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
+  const celebrateUltra = useUltraReasoningFeedback();
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -389,6 +392,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       (prompt) => getTraitSelectChange(selected, descriptor, prompt, value)?.prompt ?? prompt,
     );
     if ("modelOptions" in change) updateModelOptions(change.modelOptions);
+    const option = descriptor.options.find((option) => option.id === value);
+    const previousValue =
+      ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
+        ? "ultrathink"
+        : getDescriptorStringValue(descriptor, modelSelection, reportedModelSelection);
+    if (value !== previousValue && REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id) && option) {
+      celebrateUltra?.(/^ultra/i.test(option.id) || /^ultra/i.test(option.label));
+    }
   };
 
   if (!hasAnyControls) {
@@ -555,14 +566,25 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
-  const { label: triggerLabel } = buildTraitsTriggerDisplay({
+  const displayInput = {
     provider,
     descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,
     modelSelection: instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
     reportedModelSelection,
-  });
+  };
+  const { label: triggerLabel } = buildTraitsTriggerDisplay(displayInput);
+  const speedDescriptor = descriptors.find(
+    (descriptor) => getTraitsSpeedDisplay(provider, descriptor)?.speedIcon,
+  );
+  const speed = speedDescriptor ? getTraitsSpeedDisplay(provider, speedDescriptor) : null;
+  const visibleLabel = speedDescriptor
+    ? buildTraitsTriggerDisplay({
+        ...displayInput,
+        descriptors: descriptors.filter((descriptor) => descriptor !== speedDescriptor),
+      }).label
+    : triggerLabel;
   const isCodexStyle = provider === "codex";
 
   return (
@@ -600,16 +622,22 @@ export const TraitsPicker = memo(function TraitsPicker({
                 size === "xs" ? "gap-1" : "gap-1.5",
               )}
             >
-              <ComposerControlIcon icon={BrainIcon} size={size} />
+              {visibleLabel ? <ComposerControlIcon icon={BrainIcon} size={size} /> : null}
               <span data-composer-control-label className="min-w-0 truncate">
-                {triggerLabel}
+                {visibleLabel}
               </span>
+              {speed?.speedIcon ? (
+                <TraitsSpeedIcon provider={provider} speedIcon={speed.speedIcon} size={size} />
+              ) : null}
               <ComposerControlChevron size={size} />
             </span>
           ) : (
             <>
-              <ComposerControlIcon icon={BrainIcon} size={size} />
-              <span data-composer-control-label>{triggerLabel}</span>
+              {visibleLabel ? <ComposerControlIcon icon={BrainIcon} size={size} /> : null}
+              <span data-composer-control-label>{visibleLabel}</span>
+              {speed?.speedIcon ? (
+                <TraitsSpeedIcon provider={provider} speedIcon={speed.speedIcon} size={size} />
+              ) : null}
               <ComposerControlChevron size={size} />
             </>
           )}

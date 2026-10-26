@@ -161,7 +161,7 @@ function AgentRow(props: {
   return (
     <Pressable
       accessibilityRole="link"
-      accessibilityHint="Opens this agent's thread"
+      accessibilityHint="Opens this agent's mine"
       onPress={() => props.onOpen(childThreadId)}
       className="active:opacity-70"
     >

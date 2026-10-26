@@ -1,3 +1,4 @@
+import { BodyRangeNotice } from "./BodyRangeNotice";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
@@ -36,6 +37,7 @@ import {
 } from "@t3tools/client-runtime/user-message";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
+import { threadImportBoundaryItemId } from "@t3tools/client-runtime/state/turn-item-presentation";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
@@ -351,6 +353,7 @@ export interface ThreadFeedProps {
   readonly threadTitle: string;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
+  readonly importLabel: string | null;
   readonly pendingHandoff?: HandoffEndpoints | null;
   readonly contentPresentation: ThreadContentPresentation;
   readonly agentLabel: string;
@@ -471,7 +474,7 @@ function AssistantForkButton(props: {
             if (!targetThreadReady) {
               Dialog.alert(
                 "Fork created",
-                "Its thread data did not reach this client. Reconnect and try opening it from the thread list.",
+                "Its mine data did not reach this client. Reconnect and try opening it from the mine list.",
               );
               return;
             }
@@ -743,7 +746,7 @@ function MessageAttachmentFile(props: {
             )}
           </View>
           <View className="min-w-0 flex-1 gap-1">
-            <Text className="font-t3-medium text-sm text-foreground" numberOfLines={2}>
+            <Text className="font-mines-medium text-sm text-foreground" numberOfLines={2}>
               {attachment.name}
             </Text>
             <Text className="text-xs text-foreground-muted" numberOfLines={1}>
@@ -883,7 +886,7 @@ function ArtifactTemplateCard(props: {
         </View>
       </View>
       <View className="min-w-0 flex-1">
-        <Text className="font-t3-bold text-sm text-foreground" numberOfLines={1}>
+        <Text className="font-mines-bold text-sm text-foreground" numberOfLines={1}>
           {props.template.displayName}
         </Text>
         <Text className="text-xs text-foreground-muted">
@@ -1077,7 +1080,7 @@ function AgentMessageFoldHeader(props: {
       />
       <Text
         numberOfLines={1}
-        className="max-w-[50%] shrink-0 font-t3-medium text-sm text-user-bubble-foreground-muted"
+        className="max-w-[50%] shrink-0 font-mines-medium text-sm text-user-bubble-foreground-muted"
       >
         {label}
       </Text>
@@ -1110,7 +1113,7 @@ function OpenSenderThreadButton(props: {
         })
       }
     >
-      <Text className="font-t3-medium text-xs text-foreground-secondary">Open thread</Text>
+      <Text className="font-mines-medium text-xs text-foreground-secondary">Open mine</Text>
     </Pressable>
   );
 }
@@ -1172,7 +1175,7 @@ function ThreadAutomationMessageRow(props: {
             tintColorClassName="accent-user-bubble-foreground-muted"
             type="monochrome"
           />
-          <Text className="font-t3-medium text-sm text-user-bubble-foreground-muted">
+          <Text className="font-mines-medium text-sm text-user-bubble-foreground-muted">
             Automation
           </Text>
           <Text numberOfLines={1} className="min-w-0 shrink text-sm text-user-bubble-foreground">
@@ -1210,12 +1213,12 @@ function ThreadAutomationMessageRow(props: {
               hitSlop={6}
               onPress={() => openSettings(navigation, "SettingsScheduledTasks")}
             >
-              <Text className="font-t3-medium text-xs text-foreground-secondary">
+              <Text className="font-mines-medium text-xs text-foreground-secondary">
                 Open automation
               </Text>
             </Pressable>
           ) : null}
-          <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
+          <Text className="font-mines-medium text-xs tabular-nums text-foreground-secondary">
             {props.timestampLabel}
           </Text>
           <UserMessageCopyButton
@@ -1229,7 +1232,7 @@ function ThreadAutomationMessageRow(props: {
   );
 }
 
-/** Leads with why T3 Code compacted, when it did so without being asked. */
+/** Leads with why mines compacted, when it did so without being asked. */
 function compactionLabel(label: string, title: string | undefined) {
   return title !== undefined && label.startsWith("Context compacted")
     ? title + label.slice("Context compacted".length)
@@ -1320,7 +1323,7 @@ function renderFeedEntry(
           <Text
             key={props.workRowSizing.textSizeKey}
             numberOfLines={1}
-            className="shrink font-t3-medium text-sm tabular-nums text-foreground-muted"
+            className="shrink font-mines-medium text-sm tabular-nums text-foreground-muted"
           >
             {entry.label}
           </Text>
@@ -1504,24 +1507,31 @@ function renderFeedEntry(
     if (isUser && presentation.attribution === "automation") {
       const rowId = `automation:${message.id}`;
       return (
-        <ThreadAutomationMessageRow
-          environmentId={props.environmentId}
-          text={presentation.text}
-          context={message.context}
-          scheduledTaskId={presentation.scheduledTaskId}
-          timestampLabel={timestampLabel}
-          expanded={props.expandedWorkRows[rowId] ?? false}
-          onToggle={() => props.onToggleWorkRow(rowId, entry.id)}
-          bubbleColor={userBubbleColor}
-          bubbleMaxWidth={props.duoColumns ? "85%" : props.userBubbleMaxWidth}
-          contentMaxWidth={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
-          iconSubtleColor={iconSubtleColor}
-          markdownStyles={markdownStyles.user}
-          reviewCommentColors={props.reviewCommentColors}
-          skills={props.skills}
-          linkHandlers={props.markdownLinkHandlers}
-          renderImage={props.renderMarkdownImage}
-        />
+        <View>
+          <BodyRangeNotice
+            row={message.projectedItem}
+            environmentId={props.environmentId}
+            threadId={props.threadId}
+          />
+          <ThreadAutomationMessageRow
+            environmentId={props.environmentId}
+            text={presentation.text}
+            context={message.context}
+            scheduledTaskId={presentation.scheduledTaskId}
+            timestampLabel={timestampLabel}
+            expanded={props.expandedWorkRows[rowId] ?? false}
+            onToggle={() => props.onToggleWorkRow(rowId, entry.id)}
+            bubbleColor={userBubbleColor}
+            bubbleMaxWidth={props.duoColumns ? "85%" : props.userBubbleMaxWidth}
+            contentMaxWidth={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
+            iconSubtleColor={iconSubtleColor}
+            markdownStyles={markdownStyles.user}
+            reviewCommentColors={props.reviewCommentColors}
+            skills={props.skills}
+            linkHandlers={props.markdownLinkHandlers}
+            renderImage={props.renderMarkdownImage}
+          />
+        </View>
       );
     }
     if (isUser) {
@@ -1548,9 +1558,9 @@ function renderFeedEntry(
           className="mb-5 items-end"
           {...(enterAnimated ? { entering: FadeInUp.duration(220) } : {})}
         >
-          {presentation.attribution === "t3code" ? (
-            <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
-              Sent by T3 Code
+          {presentation.attribution === "mines" ? (
+            <Text className="mb-1 pr-1 font-mines-medium text-2xs text-foreground-muted opacity-60">
+              Sent by mines
             </Text>
           ) : null}
           {presentation.guestName !== undefined ? (
@@ -1654,6 +1664,11 @@ function renderFeedEntry(
                     })}
                   </View>
                 ) : null}
+                <BodyRangeNotice
+                  row={message.projectedItem}
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
+                />
                 {message.text.trim().length > 0 ? (
                   <MarkdownImageAvailableWidthContext
                     value={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
@@ -1688,7 +1703,7 @@ function renderFeedEntry(
                   className="flex-row items-center gap-1"
                 >
                   <SymbolView name="arrow.uturn.forward" size={12} tintColor={iconSubtleColor} />
-                  <Text className="font-t3-medium text-xs text-foreground-secondary">
+                  <Text className="font-mines-medium text-xs text-foreground-secondary">
                     {intentBadge.label}
                   </Text>
                 </View>
@@ -1698,12 +1713,12 @@ function renderFeedEntry(
                   accessible={false}
                   accessibilityElementsHidden
                   importantForAccessibility="no"
-                  className="font-t3-medium text-xs text-foreground-secondary"
+                  className="font-mines-medium text-xs text-foreground-secondary"
                 >
                   ·
                 </Text>
               ) : null}
-              <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
+              <Text className="font-mines-medium text-xs tabular-nums text-foreground-secondary">
                 {entry.pendingMessage && !entry.acknowledged ? "Pending" : timestampLabel}
               </Text>
               {props.onEditPendingMessage !== null &&
@@ -1762,6 +1777,11 @@ function renderFeedEntry(
         )}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
+        <BodyRangeNotice
+          row={message.projectedItem}
+          environmentId={props.environmentId}
+          threadId={props.threadId}
+        />
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
@@ -1804,7 +1824,7 @@ function renderFeedEntry(
                 sourceTitle={props.threadTitle}
               />
             ) : null}
-            <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
+            <Text className="font-mines-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
           </View>
@@ -1815,6 +1835,7 @@ function renderFeedEntry(
 
   return (
     <ThreadWorkLog
+      threadId={props.threadId}
       key={`${entry.id}:${props.workRowSizing.textSizeKey}`}
       activities={entry.activities}
       continuesWorkLog={entry.continuesWorkLog}
@@ -1852,10 +1873,10 @@ function TurnDiffStat(props: {
       onPress={() => props.onOpenTurnDiff(props.checkpoint)}
       className="min-h-11 shrink-0 flex-row items-center gap-2 px-2 active:bg-subtle"
     >
-      <Text className="font-t3-medium text-xs tabular-nums text-adaptive-emerald-700-300">
+      <Text className="font-mines-medium text-xs tabular-nums text-adaptive-emerald-700-300">
         +{formatDiffCount(additions)}
       </Text>
-      <Text className="font-t3-medium text-xs tabular-nums text-adaptive-rose-700-300">
+      <Text className="font-mines-medium text-xs tabular-nums text-adaptive-rose-700-300">
         −{formatDiffCount(deletions)}
       </Text>
       <SymbolView name="chevron.right" size={12} tintColorClassName="accent-foreground-muted" />
@@ -1883,7 +1904,7 @@ function UserMessageContent(props: UserMessageContentProps) {
   const threadIcons = useThreadChipIcons(props.environmentId, liveText, props.context?.records);
   const text = replaceComposerContextReferences(liveText, (ref) => {
     const available = props.context?.records.some((record) => record.contextId === ref.contextId);
-    return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
+    return `[${ref.label}${available ? "" : " (unavailable)"}](mines-context://v1/${ref.kind}/${ref.contextId})`;
   });
   const onLinkPress = (href: string) => {
     const reference = parseComposerContextHref(href);
@@ -2064,7 +2085,7 @@ function ThreadFeedPlaceholder(props: {
       }}
     >
       <View className="max-w-[320px] items-center gap-2">
-        <Text className="text-center font-t3-bold text-lg text-foreground">{props.title}</Text>
+        <Text className="text-center font-mines-bold text-lg text-foreground">{props.title}</Text>
         <Text className="text-center text-sm leading-normal text-foreground-secondary">
           {props.detail}
         </Text>
@@ -2442,9 +2463,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       if (thread) {
         return {
           title:
-            appAtomRegistry.get(environmentThreadShells.threadShellAtom(thread))?.title ?? "Thread",
+            appAtomRegistry.get(environmentThreadShells.threadShellAtom(thread))?.title ?? "Mine",
           actions: [
-            { id: "open-thread", title: "Open thread" },
+            { id: "open-thread", title: "Open mine" },
             { id: "copy-thread-link", title: "Copy link" },
           ],
         };
@@ -2581,6 +2602,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     () => threadFeedCompactionLabels(props.feed),
     [props.feed],
   );
+  const importBoundaryItemId = useMemo(
+    () =>
+      props.importLabel === null
+        ? null
+        : threadImportBoundaryItemId(
+            props.feed.flatMap((entry) =>
+              entry.type === "message" && entry.message.projectedItem
+                ? [entry.message.projectedItem]
+                : [],
+            ),
+            props.threadId,
+          ),
+    [props.feed, props.importLabel, props.threadId],
+  );
   // LegendList does not invalidate visible rows when only the renderItem closure changes.
   // Include turn completion so unchanged message rows reveal their footer and spacing
   // even when the final message update arrives before the turn settles.
@@ -2602,6 +2637,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     contentWidth,
     skills: props.skills,
     workflowOpening,
+    importLabel: props.importLabel,
+    importBoundaryItemId,
   };
   const reportHeaderMaterialVisibility = (visible: boolean) => {
     if (headerMaterialVisibleRef.current === visible) {
@@ -3087,6 +3124,17 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           ) : props.setupWorkingStartedAt && info.index === setupAnchorIndex ? (
             <WorktreeWorkingHeader startedAt={props.setupWorkingStartedAt} />
           ) : null}
+          {importBoundaryItemId !== null &&
+          info.item.type === "message" &&
+          info.item.message.projectedItem?.sourceItemId === importBoundaryItemId ? (
+            <View className="my-4 flex-row items-center gap-3 px-1">
+              <View className="h-px min-w-2 flex-1 bg-separator" />
+              <Text className="shrink text-center text-xs text-foreground-muted">
+                {props.importLabel}
+              </Text>
+              <View className="h-px min-w-2 flex-1 bg-separator" />
+            </View>
+          ) : null}
         </ThreadMediaVisibility>
       </MessageImageGalleryScope>
     </Animated.View>
@@ -3108,7 +3156,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
       <View className="flex-1" onLayout={handleViewportLayout}>
         <View className="flex-1">
-          {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
+          {/* oxlint-disable-next-line mines/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
           <KeyboardAwareLegendList
             ref={listRef}
             // LegendList cannot see adjustedContentInset; remount so initial positioning waits for UIKit attachment.
@@ -3246,7 +3294,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           >
             <ThreadFeedPlaceholder
               title="No conversation yet"
-              detail="Ask the agent to inspect the repo, run a command, or continue the active thread."
+              detail="Ask the agent to inspect the repo, run a command, or continue the active mine."
               topInset={topContentInset}
               bottomInset={bottomContentInset}
               horizontalPadding={horizontalPadding}

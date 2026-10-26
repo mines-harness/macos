@@ -606,7 +606,7 @@ export function useThreadComposerState() {
       if (!readEnvironmentScope(selectedThreadShell.environmentId, AuthOrchestrationOperateScope))
         return null;
       if (thread.activeProviderThreadId === null) {
-        Dialog.alert("Start a Codex thread first", "Send a message before you submit feedback.");
+        Dialog.alert("Start a Codex mine first", "Send a message before you submit feedback.");
         return null;
       }
       const metadata = makeQueuedMessageMetadata();

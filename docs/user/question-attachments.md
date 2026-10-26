@@ -4,6 +4,6 @@ When an agent asks a question that accepts a custom answer, use **Attach files**
 
 Each question keeps its own attachments as you move between questions. Your normal prompt draft stays separate. Wait for uploads to finish before submitting; retry or remove any failed upload. A failed response keeps the draft available to try again.
 
-Files upload to the environment running the thread, including remote environments. The agent receives paths to those saved files with your answer and can open them with its available tools. Questions that only accept predefined choices do not offer attachments. Older servers need updating before this option appears.
+Files upload to the environment running the mine, including remote environments. The agent receives paths to those saved files with your answer and can open them with its available tools. Questions that only accept predefined choices do not offer attachments. Older servers need updating before this option appears.
 
-Submitted attachments remain in the thread history. Reverting a thread removes attachments belonging to discarded answers; deleting the thread uses the same file cleanup as other attachments. You can attach up to 100 files across one set of answers, using the same file and total image size limits as the normal composer.
+Submitted attachments remain in the mine history. Reverting a mine removes attachments belonging to discarded answers; deleting the mine uses the same file cleanup as other attachments. You can attach up to 100 files across one set of answers, using the same file and total image size limits as the normal composer.

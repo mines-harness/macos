@@ -212,6 +212,8 @@ import { primaryServerKeybindingsAtom, serverEnvironment } from "../state/server
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { openMineTransferDialog } from "./chat/mineTransferDialogState";
+import { canTransferMineAtom } from "./chat/mineTransferAvailability";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -554,7 +556,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Thread action failed",
+              title: "Mine action failed",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -578,7 +580,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Thread action failed",
+            title: "Mine action failed",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1002,7 +1004,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             data-thread-selection-safe
             className="flex h-8 w-full translate-x-0 items-center px-2 text-left text-xs text-sidebar-muted-foreground/75"
           >
-            <span>No threads yet</span>
+            <span>No mines yet</span>
           </div>
         </SidebarMenuSubItem>
       ) : null}
@@ -1304,7 +1306,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     onCopy: (ctx) => {
       toastManager.add({
         type: "success",
-        title: "Thread ID copied",
+        title: "Mine ID copied",
         description: ctx.threadId,
       });
     },
@@ -1312,7 +1314,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to copy thread ID",
+          title: "Failed to copy mine ID",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -1499,7 +1501,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         stackedThreadToast({
           type: "warning",
           title: "Project is not empty",
-          description: "Delete all threads in this project before removing it.",
+          description: "Delete all mines in this project before removing it.",
           actionVariant: "destructive",
           actionProps: {
             children: "Delete anyway",
@@ -1525,14 +1527,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 const confirmed = await api.dialogs.confirm(
                   threadCount > 0
                     ? [
-                        `Remove project "${member.title}" and delete its ${threadCount} thread${
+                        `Remove project "${member.title}" and delete its ${threadCount} mine${
                           threadCount === 1 ? "" : "s"
                         }?`,
                         `Path: ${member.workspaceRoot}`,
                         ...(member.environmentLabel
                           ? [`Environment: ${member.environmentLabel}`]
                           : []),
-                        "This permanently clears conversation history for those threads and any archived threads.",
+                        "This permanently clears conversation history for those mines and any archived mines.",
                         "This removes only this project entry.",
                         "This action cannot be undone.",
                       ].join("\n")
@@ -1845,7 +1847,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     if (clicked === "archive") {
       if (appSettingsConfirmThreadArchive) {
         const confirmed = await api.dialogs.confirm(
-          `Archive ${count} thread${count === 1 ? "" : "s"}?`,
+          `Archive ${count} mine${count === 1 ? "" : "s"}?`,
         );
         if (!confirmed) return;
       }
@@ -1867,7 +1869,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Thread archived, but navigation failed",
+            title: "Mine archived, but navigation failed",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1879,7 +1881,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to archive threads",
+              title: "Failed to archive mines",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -1895,8 +1897,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     if (appSettingsConfirmThreadDelete) {
       const confirmed = await api.dialogs.confirm(
         [
-          `Delete ${count} thread${count === 1 ? "" : "s"}?`,
-          "This permanently clears conversation history for these threads.",
+          `Delete ${count} mine${count === 1 ? "" : "s"}?`,
+          "This permanently clears conversation history for these mines.",
         ].join("\n"),
         { variant: "destructive" },
       );
@@ -1917,7 +1919,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to delete threads",
+          title: "Failed to delete mines",
           description: firstError instanceof Error ? firstError.message : "An error occurred.",
         }),
       );
@@ -1943,7 +1945,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not create thread",
+            title: "Could not create mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2010,7 +2012,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to archive thread",
+          title: "Failed to archive mine",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -2048,7 +2050,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     if (trimmed.length === 0) {
       toastManager.add({
         type: "warning",
-        title: "Thread title cannot be empty",
+        title: "Mine title cannot be empty",
       });
       finishRename();
       return;
@@ -2069,7 +2071,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to rename thread",
+          title: "Failed to rename mine",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -2166,15 +2168,18 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const clicked = await api.contextMenu.show(
         [
           ...(thread.branch
-            ? [{ id: "new-thread-on-branch", label: `New thread on ${thread.branch}` }]
+            ? [{ id: "new-thread-on-branch", label: `New mine on ${thread.branch}` }]
             : []),
-          { id: "rename", label: "Rename thread", disabled: !canOperateThread },
+          { id: "rename", label: "Rename mine", disabled: !canOperateThread },
+          ...(appAtomRegistry.get(canTransferMineAtom(thread.environmentId))
+            ? [{ id: "transfer-mine", label: "Transfer mine…" }]
+            : []),
           ...(appAtomRegistry.get(canShareWithGuestAtom(thread.environmentId))
             ? [{ id: "share-guest", label: "Share with guest" }]
             : []),
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
-          { id: "copy-thread-id", label: "Copy Thread ID" },
+          { id: "copy-thread-id", label: "Copy Mine ID" },
           { id: "project-settings", label: "Project settings" },
           {
             id: "delete",
@@ -2210,7 +2215,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Could not create thread",
+              title: "Could not create mine",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -2227,6 +2232,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         openGuestShareDialog(threadRef);
         return;
       }
+      if (clicked === "transfer-mine") {
+        openMineTransferDialog(threadRef);
+        return;
+      }
       if (clicked === "mark-unread") {
         markThreadUnread(threadRef);
         return;
@@ -2237,7 +2246,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             stackedThreadToast({
               type: "error",
               title: "Path unavailable",
-              description: "This thread does not have a workspace path to copy.",
+              description: "This mine does not have a workspace path to copy.",
             }),
           );
           return;
@@ -2254,8 +2263,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (appSettingsConfirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
-            `Delete thread "${thread.title}"?`,
-            "This permanently clears conversation history for this thread.",
+            `Delete mine "${thread.title}"?`,
+            "This permanently clears conversation history for this mine.",
           ].join("\n"),
           { variant: "destructive" },
         );
@@ -2270,7 +2279,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to delete thread",
+            title: "Failed to delete mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2364,7 +2373,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               <div className="pointer-events-none absolute top-[calc(50%+1px)] right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
                 <button
                   type="button"
-                  aria-label={`Create new thread in ${project.displayName}`}
+                  aria-label={`Create new mine in ${project.displayName}`}
                   data-testid="new-thread-button"
                   className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
                   onClick={handleCreateThreadClick}
@@ -2375,7 +2384,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             }
           />
           <TooltipPopup side="top">
-            {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
+            {newThreadShortcutLabel ? `New mine (${newThreadShortcutLabel})` : "New mine"}
           </TooltipPopup>
         </Tooltip>
       </div>
@@ -2686,7 +2695,7 @@ function ProjectSortMenu({
         </MenuGroup>
         <MenuGroup>
           <div className="px-2 pt-2 pb-1 sm:text-xs font-medium text-muted-foreground">
-            Sort threads
+            Sort mines
           </div>
           <MenuRadioGroup
             value={threadSortOrder}
@@ -2705,11 +2714,11 @@ function ProjectSortMenu({
         </MenuGroup>
         <MenuGroup>
           <div className="px-2 pt-2 pb-1 text-muted-foreground sm:text-xs font-medium">
-            Visible threads
+            Visible mines
           </div>
           <div className="px-2 py-1">
             <NumberField
-              aria-label="Visible thread count"
+              aria-label="Visible mine count"
               className="w-28"
               max={MAX_SIDEBAR_THREAD_PREVIEW_COUNT}
               min={MIN_SIDEBAR_THREAD_PREVIEW_COUNT}
@@ -2720,18 +2729,18 @@ function ProjectSortMenu({
             >
               <NumberFieldGroup>
                 <NumberFieldDecrement
-                  aria-label="Decrease visible thread count"
+                  aria-label="Decrease visible mine count"
                   className="[&_svg]:size-3.5"
                 />
                 <NumberFieldInput
-                  aria-label="Visible thread count"
+                  aria-label="Visible mine count"
                   inputMode="numeric"
                   onKeyDownCapture={(event) => {
                     event.stopPropagation();
                   }}
                 />
                 <NumberFieldIncrement
-                  aria-label="Increase visible thread count"
+                  aria-label="Increase visible mine count"
                   className="[&_svg]:size-3.5"
                 />
               </NumberFieldGroup>

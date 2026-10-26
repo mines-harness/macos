@@ -88,7 +88,7 @@ const disabledDefaultSlots = (
 const defaultClaudeSettings: ClaudeSettings = Schema.decodeSync(ClaudeSettings)({});
 const defaultCodexSettings: CodexSettings = Schema.decodeSync(CodexSettings)({});
 
-process.env.T3CODE_CURSOR_ENABLED = "1";
+process.env.MINES_CURSOR_ENABLED = "1";
 
 const encoder = new TextEncoder();
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
@@ -324,6 +324,40 @@ it.layer(
   Layer.mergeAll(layerTestNodeServices, ServerSettingsModule.layerTest(), layerTestHttpClient),
 )("ProviderRegistry", (it) => {
   describe("checkCodexProviderStatus", () => {
+    it.effect.each([
+      { code: 0, output: "Logged in using ChatGPT", authStatus: "authenticated" },
+      { code: 1, output: "Not logged in", authStatus: "unauthenticated" },
+      { code: 1, output: "Unable to read credential storage", authStatus: "unknown" },
+    ] as const)(
+      "discovers disabled saved Codex auth as $authStatus without starting its runtime",
+      ({ code, output, authStatus }) => {
+        const calls: Array<string> = [];
+        return Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(
+            { ...defaultCodexSettings, enabled: false },
+            () => Effect.die("Disabled discovery must not start app-server"),
+            {},
+          );
+          assert.strictEqual(status.enabled, false);
+          assert.strictEqual(status.installed, true);
+          assert.strictEqual(status.version, "0.164.0");
+          assert.strictEqual(status.auth.status, authStatus);
+          assert.deepStrictEqual(status.skills, []);
+          assert.deepStrictEqual(calls, ["--version", "login status"]);
+        }).pipe(
+          Effect.provide(
+            layerMockSpawner((args) => {
+              const command = args.join(" ");
+              calls.push(command);
+              if (command === "--version")
+                return { stdout: "codex-cli 0.164.0", stderr: "", code: 0 };
+              if (command === "login status") return { stdout: "", stderr: output, code };
+              throw new Error(`Unexpected disabled discovery command: ${command}`);
+            }),
+          ),
+        );
+      },
+    );
     it.effect("uses the app-server account and model list for provider status", () =>
       Effect.gen(function* () {
         const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
@@ -374,7 +408,7 @@ it.layer(
           },
           {
             name: "feedback",
-            description: "Send this thread and Codex logs to OpenAI",
+            description: "Send this mine and Codex logs to OpenAI",
             input: { hint: "Describe the issue (optional)" },
           },
         ]);
@@ -805,7 +839,7 @@ it.layer(
         checkedAt: "2026-10-03T00:02:00.000Z",
         status: "ready",
         version: "1.0.0",
-        message: "Pi is available, but T3 Code could not refresh its models and commands.",
+        message: "Pi is available, but mines could not refresh its models and commands.",
       } satisfies ServerProvider;
 
       it("retains Pi inventories during incomplete probes without restoring removed custom models", () => {
@@ -1046,7 +1080,7 @@ it.layer(
         }).pipe(
           Effect.provide(
             ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3-codex-retired-model-cache-",
+              prefix: "minesx-retired-model-cache-",
             }).pipe(Layer.provideMerge(NodeServices.layer)),
           ),
         ),
@@ -1859,7 +1893,9 @@ it.layer(
           Layer.updateService(ChildProcessSpawner.ChildProcessSpawner, (spawner) =>
             ChildProcessSpawner.make((command) => {
               if (command._tag !== "StandardCommand") return spawner.spawn(command);
-              spawnedCommands.push(command.command);
+              if (command.command === firstMissing || command.command === secondMissing) {
+                spawnedCommands.push(command.command);
+              }
               const beforeSpawn =
                 command.command === secondMissing
                   ? Deferred.succeed(secondProbeStarted, undefined).pipe(
@@ -2138,6 +2174,48 @@ it.layer(
   });
 
   describe("checkClaudeProviderStatus", () => {
+    it.effect.each([
+      {
+        code: 0,
+        output: '{"loggedIn":true,"authMethod":"claude.ai","email":"saved@example.test"}',
+        authStatus: "authenticated",
+      },
+      { code: 1, output: '{"loggedIn":false,"authMethod":"none"}', authStatus: "unauthenticated" },
+      { code: 2, output: "Unsupported auth command", authStatus: "unknown" },
+    ] as const)(
+      "discovers disabled saved Claude auth as $authStatus without SDK or tool discovery",
+      ({ code, output, authStatus }) => {
+        const calls: Array<string> = [];
+        return Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(
+            { ...defaultClaudeSettings, enabled: false },
+            () => Effect.die("Disabled discovery must not initialize Claude"),
+            {},
+          );
+          assert.strictEqual(status.enabled, false);
+          assert.strictEqual(status.installed, true);
+          assert.strictEqual(status.version, "2.1.268");
+          assert.strictEqual(status.auth.status, authStatus);
+          assert.strictEqual(
+            status.auth.email,
+            authStatus === "authenticated" ? "saved@example.test" : undefined,
+          );
+          assert.deepStrictEqual(status.skills, []);
+          assert.deepStrictEqual(calls, ["--version", "auth status"]);
+        }).pipe(
+          Effect.provide(
+            layerMockSpawner((args) => {
+              const command = args.join(" ");
+              calls.push(command);
+              if (command === "--version")
+                return { stdout: "2.1.268 (Claude Code)", stderr: "", code: 0 };
+              if (command === "auth status") return { stdout: output, stderr: "", code };
+              throw new Error(`Unexpected disabled discovery command: ${command}`);
+            }),
+          ),
+        );
+      },
+    );
     it.effect("reports a logged-out CLI as unauthenticated", () =>
       Effect.gen(function* () {
         const status = yield* checkClaudeProviderStatus(

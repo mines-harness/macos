@@ -5,6 +5,8 @@ import type {
   UsageDay,
   UsageResolution,
   UsageTokenTotals,
+  UsageOverview,
+  UsageOverviewDay,
 } from "@t3tools/contracts";
 
 import { EMPTY_TOTALS, type UsageRecord } from "@t3tools/provider-core/server/usage";
@@ -57,6 +59,9 @@ interface MutableBucket {
   records: number;
   unpricedRecords: number;
   providerReportedRecords: number;
+  pricedReportedRecords: number;
+  providerReportedCostUsd: number;
+  estimatedCostUsd: number;
   sessions: Set<string>;
 }
 
@@ -70,6 +75,7 @@ export interface AggregateOptions {
   readonly resolution?: UsageResolution;
   readonly sinceTimeMs?: number;
   readonly untilTimeMs?: number;
+  readonly overviewAtMs?: number;
 }
 
 export function resolveModelAliases(
@@ -92,6 +98,16 @@ export interface AggregateResult {
   readonly buckets: readonly UsageBucket[];
   readonly duplicatesDropped: number;
   readonly outOfWindow: number;
+  readonly overview?: UsageOverview;
+}
+
+type MutableOverviewDay = { -readonly [K in keyof UsageOverviewDay]: UsageOverviewDay[K] };
+interface MutableOverviewSource {
+  provider: UsageBucket["provider"];
+  sourcePath: string;
+  firstRecordedMs: number;
+  generatedTokens: { last24h: number; last7d: number; last30d: number; lifetime: number };
+  daily: Map<string, MutableOverviewDay>;
 }
 
 /** Deduplicates across the whole scan; Claude copies records into resumed/forked transcripts. */
@@ -101,6 +117,8 @@ export class UsageAggregator {
   readonly #toDay: (timestampMs: number) => string;
   readonly #hourlyWindow: { readonly sinceTimeMs: number; readonly untilTimeMs: number } | null;
   readonly #options: AggregateOptions;
+  readonly #overviewSources = new Map<string, MutableOverviewSource>();
+  readonly #overviewSinceDay: string;
   #lastBucket: {
     readonly day: string;
     readonly hourIndex: number;
@@ -115,6 +133,14 @@ export class UsageAggregator {
   constructor(options: AggregateOptions) {
     this.#options = options;
     this.#toDay = makeDayFormatter(options.timeZone);
+    this.#overviewSinceDay =
+      options.overviewAtMs === undefined
+        ? ""
+        : new Date(
+            Date.parse(`${this.#toDay(options.overviewAtMs)}T00:00:00Z`) - 364 * 24 * HOUR_MS,
+          )
+            .toISOString()
+            .slice(0, 10);
     if (options.resolution === "hour") {
       if (options.sinceTimeMs === undefined || options.untilTimeMs === undefined) {
         throw new Error("Hourly usage aggregation requires exact time bounds");
@@ -138,6 +164,14 @@ export class UsageAggregator {
       this.#seen.add(record.dedupeKey);
     }
 
+    const day = this.#toDay(record.timestampMs);
+    const reported =
+      record.reportedCostUsd !== null && Number.isFinite(record.reportedCostUsd)
+        ? record.reportedCostUsd
+        : null;
+    if (this.#options.overviewAtMs !== undefined)
+      this.#addOverview(record, sourcePath ?? "", day, reported);
+
     if (
       this.#hourlyWindow !== null &&
       (record.timestampMs < this.#hourlyWindow.sinceTimeMs ||
@@ -147,7 +181,6 @@ export class UsageAggregator {
       return false;
     }
 
-    const day = this.#toDay(record.timestampMs);
     if (
       this.#hourlyWindow === null &&
       (day < this.#options.sinceDay || day > this.#options.untilDay)
@@ -161,7 +194,6 @@ export class UsageAggregator {
         ? -1
         : Math.floor((record.timestampMs - this.#hourlyWindow.sinceTimeMs) / HOUR_MS);
     const bucket = this.#bucketFor(day, hourIndex, record.provider, record.model, sourcePath ?? "");
-
     const priced = priceUsage(this.#options.rates, record, this.#options.priceOverrides);
 
     const totals = bucket.totals;
@@ -194,9 +226,58 @@ export class UsageAggregator {
     );
     bucket.records += 1;
     if (priced.costSource === "unpriced") bucket.unpricedRecords += 1;
-    if (priced.costSource === "providerReported") bucket.providerReportedRecords += 1;
+    if (reported !== null) {
+      bucket.providerReportedCostUsd += reported;
+      bucket.providerReportedRecords += 1;
+    } else if (priced.costSource === "modelPriced") bucket.estimatedCostUsd += priced.costUsd;
+    if (priced.costSource === "providerReported") bucket.pricedReportedRecords += 1;
     if (record.sessionId.length > 0) bucket.sessions.add(record.sessionId);
     return true;
+  }
+
+  #addOverview(record: UsageRecord, sourcePath: string, day: string, reported: number | null) {
+    const now = this.#options.overviewAtMs;
+    if (now === undefined || record.timestampMs >= now) return;
+    const key = `${record.provider}\0${sourcePath}`;
+    let source = this.#overviewSources.get(key);
+    if (!source) {
+      source = {
+        provider: record.provider,
+        sourcePath,
+        firstRecordedMs: record.timestampMs,
+        generatedTokens: { last24h: 0, last7d: 0, last30d: 0, lifetime: 0 },
+        daily: new Map(),
+      };
+      this.#overviewSources.set(key, source);
+    }
+    source.firstRecordedMs = Math.min(source.firstRecordedMs, record.timestampMs);
+    const tokens = record.totals.outputTokens;
+    source.generatedTokens.lifetime += tokens;
+    if (record.timestampMs >= now - 24 * HOUR_MS) source.generatedTokens.last24h += tokens;
+    if (record.timestampMs >= now - 7 * 24 * HOUR_MS) source.generatedTokens.last7d += tokens;
+    if (record.timestampMs >= now - 30 * 24 * HOUR_MS) source.generatedTokens.last30d += tokens;
+    if (day < this.#overviewSinceDay) return;
+    const priced = priceUsage(this.#options.rates, record, this.#options.priceOverrides);
+    let daily = source.daily.get(day);
+    if (!daily) {
+      daily = {
+        day: day as UsageDay,
+        outputTokens: 0,
+        records: 0,
+        providerReportedCostUsd: 0,
+        estimatedCostUsd: 0,
+        providerReportedRecords: 0,
+        unpricedRecords: 0,
+      };
+      source.daily.set(day, daily);
+    }
+    daily.outputTokens += tokens;
+    daily.records += 1;
+    if (reported !== null) {
+      daily.providerReportedCostUsd += reported;
+      daily.providerReportedRecords += 1;
+    } else if (priced.costSource === "unpriced") daily.unpricedRecords += 1;
+    else daily.estimatedCostUsd += priced.costUsd;
   }
 
   // Aliases use the target's rate, replacing provider-specific rateModel.
@@ -243,6 +324,9 @@ export class UsageAggregator {
         records: 0,
         unpricedRecords: 0,
         providerReportedRecords: 0,
+        pricedReportedRecords: 0,
+        providerReportedCostUsd: 0,
+        estimatedCostUsd: 0,
         sessions: new Set<string>(),
       };
       this.#buckets.set(key, bucket);
@@ -268,6 +352,9 @@ export class UsageAggregator {
         ...(sourcePath === "" ? {} : { sourcePath }),
         totals: { ...bucket.totals },
         costUsd: bucket.costUsd,
+        providerReportedCostUsd: bucket.providerReportedCostUsd,
+        estimatedCostUsd: bucket.estimatedCostUsd,
+        providerReportedRecords: bucket.providerReportedRecords,
         cacheSavingsUsd: bucket.cacheSavingsUsd,
         ...(category === null
           ? {}
@@ -300,6 +387,20 @@ export class UsageAggregator {
       buckets,
       duplicatesDropped: this.#duplicatesDropped,
       outOfWindow: this.#outOfWindow,
+      ...(this.#options.overviewAtMs === undefined
+        ? {}
+        : {
+            overview: {
+              asOf: new Date(this.#options.overviewAtMs).toISOString(),
+              sources: [...this.#overviewSources.values()].map((source) => ({
+                provider: source.provider,
+                ...(source.sourcePath ? { sourcePath: source.sourcePath } : {}),
+                firstRecordedAt: new Date(source.firstRecordedMs).toISOString(),
+                generatedTokens: { ...source.generatedTokens },
+                daily: [...source.daily.values()].sort((a, b) => a.day.localeCompare(b.day)),
+              })),
+            },
+          }),
     };
   }
 }
@@ -310,6 +411,6 @@ function roundUsd(value: number): number {
 
 function resolveCostSource(bucket: MutableBucket): UsageBucket["costSource"] {
   if (bucket.unpricedRecords === bucket.records) return "unpriced";
-  if (bucket.providerReportedRecords === bucket.records) return "providerReported";
+  if (bucket.pricedReportedRecords === bucket.records) return "providerReported";
   return "modelPriced";
 }

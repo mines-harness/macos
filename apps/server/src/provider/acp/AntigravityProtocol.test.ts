@@ -188,7 +188,7 @@ describe("Antigravity permissions and questions", () => {
       { decision: "accept", label: "Allow once" },
       {
         decision: "acceptForSession",
-        label: "Allow for this thread",
+        label: "Allow for this mine",
         warning: "Untrusted files could re-run this action without asking.",
       },
       { decision: "decline", label: "Deny" },

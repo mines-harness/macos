@@ -414,7 +414,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const paired = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
         pairing.credential,
         undefined,
-        { ...requestMetadata, label: "T3 Code Desktop" },
+        { ...requestMetadata, label: "mines Desktop" },
       );
       const first = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
         "desktop-bootstrap-token",
@@ -580,7 +580,8 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         origin: "https://box.tail1234.ts.net",
         "x-forwarded-host": "box.tail1234.ts.net",
       });
-      yield* upgrade({ origin: "t3code://app" });
+      yield* upgrade({ origin: "mines://app" });
+      yield* upgrade({ origin: "mines-dev://app" });
       yield* upgrade({ origin: "http://localhost:5733" });
       yield* upgrade({});
 
@@ -588,6 +589,8 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       expect(otherPort._tag).toBe("ServerAuthInvalidCredentialError");
       const opaque = yield* Effect.flip(upgrade({ origin: "null" }));
       expect(opaque._tag).toBe("ServerAuthInvalidCredentialError");
+      const upstreamApp = yield* Effect.flip(upgrade({ origin: "t3code://app" }));
+      expect(upstreamApp._tag).toBe("ServerAuthInvalidCredentialError");
     }).pipe(
       Effect.provide(
         layerEnvironmentAuth({

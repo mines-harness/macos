@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vite-plus/test";
 
-import { resolvePierreIconForEntry, T3_PIERRE_ICONS } from "./pierre-icons";
+import { resolvePierreIconForEntry, MINES_PIERRE_ICONS } from "./pierre-icons";
 
 describe("Pierre file icons", () => {
   it("uses detected types for extensionless files while keeping known filename icons", () => {
@@ -23,12 +23,12 @@ describe("Pierre file icons", () => {
   it("ships every custom icon referenced by the extended resolver", () => {
     const customIconNames = new Set(
       [
-        ...Object.values(T3_PIERRE_ICONS.byFileName),
-        ...Object.values(T3_PIERRE_ICONS.byFileExtension),
-      ].filter((name) => name.startsWith("t3-")),
+        ...Object.values(MINES_PIERRE_ICONS.byFileName),
+        ...Object.values(MINES_PIERRE_ICONS.byFileExtension),
+      ].filter((name) => name.startsWith("mines-")),
     );
     for (const iconName of customIconNames) {
-      assert.include(T3_PIERRE_ICONS.spriteSheet, `id="${iconName}"`);
+      assert.include(MINES_PIERRE_ICONS.spriteSheet, `id="${iconName}"`);
     }
   });
 });

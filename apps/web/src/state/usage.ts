@@ -127,6 +127,16 @@ function withoutProviders(
             sources: environment.summary.sources.filter(
               (source) => !hiddenProviders.has(source.fingerprint.provider),
             ),
+            ...(environment.summary.overview
+              ? {
+                  overview: {
+                    ...environment.summary.overview,
+                    sources: environment.summary.overview.sources.filter(
+                      (source) => !hiddenProviders.has(source.provider),
+                    ),
+                  },
+                }
+              : {}),
           },
         },
   );
@@ -162,6 +172,7 @@ export function useUsage(
     resolution: input.resolution,
     sinceTime: input.sinceTime,
     untilTime: input.untilTime,
+    includeOverview: true,
   });
   const atom = usageByWindowAtom(windowKey);
   const environments = useAtomValue(atom);
@@ -192,7 +203,9 @@ export function useUsage(
             readEnvironmentScope(environment.environmentId, AuthDiagnosticsReadScope),
         )
         .map(({ environmentId }) => environmentId),
-      input: nextInput ?? (JSON.parse(windowKey) as UsageSummaryInput),
+      input: nextInput
+        ? { ...nextInput, includeOverview: true }
+        : (JSON.parse(windowKey) as UsageSummaryInput),
     });
 
   const answeredCount = selectedEnvironments.filter(

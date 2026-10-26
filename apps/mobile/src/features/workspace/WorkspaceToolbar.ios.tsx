@@ -20,7 +20,7 @@ import { useCompactWorkspaceTabs, useSidebarWorkspaceTabs } from "./useSystemWor
 import { WorkspaceTabToolbarButtons } from "./WorkspaceSectionToolbar";
 
 const SEARCH_LABELS = {
-  threads: "Search threads",
+  threads: "Search mines",
   pullRequests: "Search pull requests",
   settings: "Search settings",
 } as const;
@@ -50,7 +50,8 @@ export function WorkspaceToolbar(props: {
   // The Settings list takes the selected tab's place, so search follows it.
   const selectedTab = workspace.settingsOpen ? "settings" : workspace.state.selectedTab;
   const tab = workspace.state.tabs[selectedTab];
-  const searchLabel = SEARCH_LABELS[selectedTab === "usage" ? "threads" : selectedTab];
+  const searchLabel =
+    SEARCH_LABELS[selectedTab === "usage" || selectedTab === "contacts" ? "threads" : selectedTab];
   const { isTabActive: isListTabActive } = workspace;
   const isTabActive = useCallback(
     // A retained tab slot stays mounted while another is shown.
@@ -123,7 +124,7 @@ export function WorkspaceToolbar(props: {
   const composeButton = nativeToolbarCompose ? (
     <Toolbar.Button
       identifier="workspace-compose"
-      accessibilityLabel="New chat"
+      accessibilityLabel="New mine"
       icon="square.and.pencil"
       onPress={props.onNewTask}
       separateBackground
@@ -196,7 +197,7 @@ export function WorkspaceToolbar(props: {
           sidebarTabs === "picker" ||
           compactTabs ? null : (
             <Toolbar.Button
-              accessibilityLabel="New chat"
+              accessibilityLabel="New mine"
               icon="square.and.pencil"
               onPress={props.onNewTask}
             />

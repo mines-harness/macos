@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -101,6 +102,29 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
 });
 
 it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
+  it.effect("uses only the mines home as its default source", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "mines-dev-default-" });
+      const baseDir = path.join(root, "isolated");
+      const legacyPath = path.join(root, ".t3", "userdata", "statev2.sqlite");
+      yield* fs.makeDirectory(path.dirname(legacyPath), { recursive: true });
+      yield* fs.writeFileString(legacyPath, "legacy source is not an automatic seed");
+
+      const error = yield* runMigrateDevDb({ baseDir, projects: 5, threadsPerProject: 10 }).pipe(
+        Effect.provideService(HostProcess.HomeDirectory, root),
+        Effect.flip,
+      );
+      assert.equal(error._tag, "MigrateDevDbSourceMissingError");
+      if (error._tag === "MigrateDevDbSourceMissingError") {
+        assert.equal(error.sourcePath, path.join(root, ".mines", "userdata", "statev2.sqlite"));
+      }
+      assert.equal(yield* fs.exists(baseDir), false);
+      assert.equal(yield* fs.readFileString(legacyPath), "legacy source is not an automatic seed");
+    }),
+  );
+
   it.effect("keeps stopped and settled thread families and clears pending work", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

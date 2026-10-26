@@ -5,7 +5,7 @@ import iconStable from "../assets/icon.webp";
 import iconNightly from "../assets/icon-nightly.webp";
 import Layout from "../layouts/Layout.astro";
 import { RELEASES_URL } from "../lib/releases";
-import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
+import { MOBILE_STORE_RELEASE_STATUS } from "../lib/site";
 
 const imageProps = {
   alt: "",
@@ -16,7 +16,7 @@ const imageProps = {
 } satisfies Partial<ComponentProps<typeof Image>>;
 ---
 
-<Layout title="Download | T3 Code" description="Download T3 Code for macOS, Windows, or Linux.">
+<Layout title="Download | mines" description="Download mines for macOS, Windows, or Linux.">
   <div class="download-page" id="download-page" data-channel="stable">
     <header class="download-head">
       <div class="sky" aria-hidden="true"></div>
@@ -25,7 +25,7 @@ const imageProps = {
           <Image class="head-icon--stable" src={iconStable} width={64} height={64} loading="eager" {...imageProps} />
           <Image class="head-icon--nightly" src={iconNightly} width={64} height={64} loading="eager" {...imageProps} />
         </span>
-        <h1 class="heading">Download T3 Code</h1>
+        <h1 class="heading">Download mines</h1>
       </div>
       <div class="channel-toggle" role="tablist" aria-label="Release channel" data-rise style="--d:90ms">
         <span class="channel-thumb" aria-hidden="true"></span>
@@ -33,8 +33,8 @@ const imageProps = {
         <button type="button" role="tab" data-channel="nightly" aria-selected="false">Nightly</button>
       </div>
       <p class="head-meta" data-rise style="--d:180ms">
-        <a id="changelog-link" class="changelog-link" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
-          <span id="version-label">&nbsp;</span><span aria-hidden="true"> &#8599;</span>
+        <a id="changelog-link" class="changelog-link" href={RELEASES_URL} aria-disabled={!RELEASES_URL} target="_blank" rel="noopener noreferrer">
+          <span id="version-label">{RELEASES_URL ? "Releases" : "Release not available yet"}</span><span aria-hidden="true"> &#8599;</span>
         </a>
       </p>
     </header>
@@ -46,7 +46,7 @@ const imageProps = {
           <h2 class="platform-name">macOS</h2>
         </div>
         <div class="download-cards">
-          <a class="download-card" data-asset="arm64.dmg" href={RELEASES_URL}>
+          <a class="download-card" data-asset="arm64.dmg" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>
             <span class="card-icon">
               <Image class="card-icon--stable" src={iconStable} width={28} height={28} loading="lazy" {...imageProps} />
               <Image class="card-icon--nightly" src={iconNightly} width={28} height={28} loading="lazy" {...imageProps} />
@@ -58,7 +58,7 @@ const imageProps = {
           </a>
         </div>
         <p class="intel-note">
-          On an Intel Mac? <a data-asset="x64.dmg" href={RELEASES_URL}>Download the x64 build</a>.
+          On an Intel Mac? <a data-asset="x64.dmg" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>Download the x64 build</a>.
         </p>
       </section>
 
@@ -68,7 +68,7 @@ const imageProps = {
           <h2 class="platform-name">Windows</h2>
         </div>
         <div class="download-cards">
-          <a class="download-card" data-asset="x64.exe" href={RELEASES_URL}>
+          <a class="download-card" data-asset="x64.exe" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>
             <span class="card-icon">
               <Image class="card-icon--stable" src={iconStable} width={28} height={28} loading="lazy" {...imageProps} />
               <Image class="card-icon--nightly" src={iconNightly} width={28} height={28} loading="lazy" {...imageProps} />
@@ -87,7 +87,7 @@ const imageProps = {
           <h2 class="platform-name">Linux</h2>
         </div>
         <div class="download-cards">
-          <a class="download-card" data-asset="amd64.deb" href={RELEASES_URL}>
+          <a class="download-card" data-asset="amd64.deb" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>
             <span class="card-icon">
               <Image class="card-icon--stable" src={iconStable} width={28} height={28} loading="lazy" {...imageProps} />
               <Image class="card-icon--nightly" src={iconNightly} width={28} height={28} loading="lazy" {...imageProps} />
@@ -97,7 +97,7 @@ const imageProps = {
               <span class="card-format">.deb</span>
             </span>
           </a>
-          <a class="download-card" data-asset="x86_64.AppImage" href={RELEASES_URL}>
+          <a class="download-card" data-asset="x86_64.AppImage" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>
             <span class="card-icon">
               <Image class="card-icon--stable" src={iconStable} width={28} height={28} loading="lazy" {...imageProps} />
               <Image class="card-icon--nightly" src={iconNightly} width={28} height={28} loading="lazy" {...imageProps} />
@@ -109,8 +109,8 @@ const imageProps = {
           </a>
         </div>
         <p class="intel-note">
-          On ARM? Download the arm64 <a data-asset="arm64.deb" href={RELEASES_URL}>.deb</a> or
-          <a data-asset="arm64.AppImage" href={RELEASES_URL}>AppImage</a>.
+          On ARM? Download the arm64 <a data-asset="arm64.deb" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>.deb</a> or
+          <a data-asset="arm64.AppImage" href={RELEASES_URL} aria-disabled={!RELEASES_URL}>AppImage</a>.
         </p>
       </section>
 
@@ -121,18 +121,18 @@ const imageProps = {
           <h2 class="platform-name">Mobile</h2>
         </div>
         <div class="download-cards">
-          <a class="download-card" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">
+          <button class="download-card" type="button" disabled>
             <span class="card-text">
               <span class="card-arch">iPhone &amp; iPad</span>
-              <span class="card-format">App Store</span>
+              <span class="card-format">{MOBILE_STORE_RELEASE_STATUS}</span>
             </span>
-          </a>
-          <a class="download-card" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
+          </button>
+          <button class="download-card" type="button" disabled>
             <span class="card-text">
               <span class="card-arch">Android</span>
-              <span class="card-format">Google Play</span>
+              <span class="card-format">{MOBILE_STORE_RELEASE_STATUS}</span>
             </span>
-          </a>
+          </button>
         </div>
       </section>
 
@@ -141,19 +141,13 @@ const imageProps = {
           <svg class="platform-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 17h7"/></svg>
           <h2 class="platform-name">Terminal</h2>
         </div>
-        <code class="cli-line cli-line--stable">curl -fsSL https://t3.codes/install.sh | sh</code>
-        <code class="cli-line cli-line--stable">irm https://t3.codes/install.ps1 | iex</code>
-        <code class="cli-line cli-line--nightly">curl -fsSL https://t3.codes/install.sh | T3CODE_CHANNEL=nightly sh</code>
-        <code class="cli-line cli-line--nightly">$env:T3CODE_CHANNEL="nightly"; irm https://t3.codes/install.ps1 | iex</code>
-        <p class="cli-note">Or try it once without installing:</p>
-        <code class="cli-line cli-line--stable">npx t3@latest</code>
-        <code class="cli-line cli-line--nightly">npx t3@nightly</code>
+        <p class="cli-note">Terminal release not available yet.</p>
       </section>
     </div>
 
     <p class="releases-link" data-rise style="--d:480ms">
-      All builds are on the{" "}
-      <a id="releases-page-link" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+      <span id="releases-status">{RELEASES_URL ? "All builds are on the " : "Release not available yet"}</span>
+      <a id="releases-page-link" href={RELEASES_URL} aria-disabled={!RELEASES_URL} hidden={!RELEASES_URL} target="_blank" rel="noopener noreferrer">
         GitHub releases page<span aria-hidden="true"> &#8599;</span>
       </a>
     </p>
@@ -168,8 +162,14 @@ const imageProps = {
   const changelogLink = document.getElementById("changelog-link") as HTMLAnchorElement;
   const releasesPageLink = document.getElementById("releases-page-link") as HTMLAnchorElement;
   const tabs = page.querySelectorAll<HTMLButtonElement>(".channel-toggle button");
-  // Only release-asset links; mobile store cards have no data-asset and keep their href.
   const cards = page.querySelectorAll<HTMLAnchorElement>("a[data-asset]");
+  const releasesStatus = document.getElementById("releases-status")!;
+
+  function setDownloadTarget(link: HTMLAnchorElement, url: string | null) {
+    if (url) link.href = url;
+    else link.removeAttribute("href");
+    link.setAttribute("aria-disabled", String(!url));
+  }
 
   function readChannel(): ReleaseChannel {
     return new URLSearchParams(location.search).get("channel") === "nightly" ? "nightly" : "stable";
@@ -187,12 +187,13 @@ const imageProps = {
     const fallback = channel === "nightly" ? NIGHTLY_RELEASES_URL : RELEASES_URL;
     page.dataset.channel = channel;
     tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.channel === channel)));
-    releasesPageLink.href = fallback;
-    changelogLink.href = fallback;
-    versionLabel.textContent = "\u00a0";
-    cards.forEach((card) => {
-      card.href = fallback;
-    });
+    setDownloadTarget(releasesPageLink, fallback);
+    setDownloadTarget(changelogLink, fallback);
+    releasesPageLink.hidden = !fallback;
+    releasesStatus.textContent = fallback ? "All builds are on the " : "Release not available yet";
+    versionLabel.textContent = fallback ? "Releases" : "Release not available yet";
+    cards.forEach((card) => setDownloadTarget(card, fallback));
+    if (!fallback) return;
 
     try {
       const release = await fetchLatestRelease(channel);
@@ -478,7 +479,12 @@ const imageProps = {
     transition: background 0.45s ease, border-color 0.45s ease, transform 0.2s ease;
   }
 
-  .download-card:hover {
+  .download-card:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .download-card:not(:disabled):hover {
     background: rgba(255, 255, 255, 0.06);
     border-color: rgba(255, 255, 255, 0.15);
     transform: translateY(-1px);

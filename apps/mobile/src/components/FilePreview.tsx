@@ -29,7 +29,7 @@ function PdfDocumentPreview(props: {
         style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
       >
         <View className="flex-row items-center gap-3 border-b border-border px-4 py-2">
-          <Text className="flex-1 font-t3-semibold text-foreground" numberOfLines={1}>
+          <Text className="flex-1 font-mines-semibold text-foreground" numberOfLines={1}>
             {props.source.name ?? "PDF"}
           </Text>
           <ControlPill label="Close" variant="pill" onPress={props.onRequestClose} />
@@ -81,7 +81,7 @@ function DocumentPreview(props: {
     <Modal transparent animationType="fade" onRequestClose={props.onRequestClose}>
       <View className="flex-1 items-center justify-center bg-backdrop p-6">
         <View className="w-full max-w-sm gap-4 rounded-2xl bg-sheet-solid p-6">
-          <Text className="font-t3-semibold text-foreground">Opening document…</Text>
+          <Text className="font-mines-semibold text-foreground">Opening document…</Text>
           <Text className="text-foreground-muted" numberOfLines={2}>
             {name ?? "Document"}
           </Text>

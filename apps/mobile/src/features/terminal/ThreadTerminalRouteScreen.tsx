@@ -115,7 +115,7 @@ function TerminalHeader(props: {
       subtitle={props.subtitle}
       onBack={props.onCloseTerminal}
       backInSplitView={{
-        accessibilityLabel: "Back to chat",
+        accessibilityLabel: "Back to mine",
         icon: "chevron.left",
       }}
       menus={
@@ -1102,8 +1102,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     return (
       <View className="flex-1 bg-screen">
         <EmptyState
-          title="Thread unavailable"
-          detail="This terminal route needs an active thread and workspace."
+          title="Mine unavailable"
+          detail="This terminal route needs an active mine and workspace."
         />
       </View>
     );
@@ -1114,7 +1114,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       <View className="flex-1 bg-screen">
         <EmptyState
           title="Terminal unavailable"
-          detail="This thread does not have a workspace root yet, so there is nowhere to open a shell."
+          detail="This mine does not have a workspace root yet, so there is nowhere to open a shell."
         />
       </View>
     );

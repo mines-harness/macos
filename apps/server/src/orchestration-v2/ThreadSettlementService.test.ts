@@ -743,6 +743,69 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
 });
 
 describe("ThreadSettlementServiceV2 worker", () => {
+  it.effect.each(["inactivity", "merge"] as const)(
+    "keeps untouched imported history neutral during the %s sweep",
+    (reason) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse(NOW));
+          const pullRequests =
+            reason === "merge"
+              ? [
+                  {
+                    host: "example.test",
+                    repository: "owner/repository",
+                    number: 42,
+                    url: "https://example.test/owner/repository/pull/42",
+                    source: "manual" as const,
+                    linkedAt: "2026-08-20T00:00:00.000Z",
+                    snapshot: {
+                      state: "merged" as const,
+                      title: "Merged",
+                      headBranch: "feature",
+                      baseBranch: "main",
+                      isDraft: false,
+                      updatedAt: NOW,
+                      syncedAt: NOW,
+                      mergedAt: NOW,
+                    },
+                    stack: null,
+                  },
+                ]
+              : [];
+          const imported = makeThread("untouched-import", {
+            historyOrigin: "v1_import",
+            pullRequests,
+          });
+          const continued = makeThread("continued-import", {
+            historyOrigin: "v1_import",
+            latestRunId: RunId.make("run-after-import"),
+            latestRunRequestedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
+            latestRunCompletedAt: DateTime.makeUnsafe("2026-08-21T00:00:00.000Z"),
+            status: "completed",
+            pullRequests,
+          });
+          const ordinary = makeThread("ordinary-history", { pullRequests });
+          const native = makeThread("native-history", { historyOrigin: "native", pullRequests });
+          const fixture = yield* makeHarness({
+            snapshot: makeSnapshot([imported, continued, ordinary, native]),
+            settings: {
+              ...DEFAULT_SERVER_SETTINGS,
+              sidebarAutoSettleAfterDays: reason === "inactivity" ? 3 : null,
+              sidebarAutoSettleOnMerge: reason === "merge",
+            },
+          });
+          yield* Effect.gen(function* () {
+            const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+            yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+            expect(
+              new Set((yield* Ref.get(fixture.commands)).map((command) => command.threadId)),
+            ).toEqual(new Set([continued.id, ordinary.id, native.id]));
+          }).pipe(Effect.provide(fixture.layer));
+        }),
+      ),
+  );
+
   it.effect("settles a merged pull request stored only in the thread links", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -1271,6 +1334,27 @@ describe("ThreadSettlementServiceV2 terminals", () => {
     occurredAt: DateTime.makeUnsafe(NOW),
     payload: thread,
   });
+
+  it.effect("keeps settlement cleanup available for imported history", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const imported = {
+          ...appThread("manually-settled-import", "settled"),
+          historyOrigin: "v1_import" as const,
+        };
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([]),
+          currentThreads: [imported],
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          yield* fixture.publishEvent(settledEvent(imported));
+          assert.deepStrictEqual(yield* Queue.take(fixture.closedIdle), { threadId: imported.id });
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
 
   it.effect("keeps the terminals of a thread re-engaged before the event ran", () =>
     Effect.scoped(

@@ -5,7 +5,7 @@ export interface CommandPaletteLinkedThreads {
   readonly threads: PullRequestLinkedThreadsResult["threads"];
 }
 
-const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
+const COMMAND_PALETTE_OPEN_EVENT = "mines:open-command-palette";
 
 export interface CommandPaletteOpenDetail {
   readonly open?: "add-project" | "new-thread-in";

@@ -46,7 +46,7 @@ export const makePendingMuseProvider = Effect.fn("makePendingMuseProvider")(func
       auth: { status: "unknown" },
       message: settings.enabled
         ? "Checking Muse Code CLI availability..."
-        : "Muse Code is disabled in T3 Code settings.",
+        : "Muse Code is disabled in mines settings.",
     },
   });
 });
@@ -57,16 +57,15 @@ export const checkMuseProviderStatus = Effect.fn("checkMuseProviderStatus")(func
   cwd?: string,
   createHost: typeof createMuseSdkHost = createMuseSdkHost,
 ) {
-  if (!settings.enabled) return yield* makePendingMuseProvider(settings);
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const museEnvironment = environment ?? makeMuseEnvironment();
   const snapshot = (probe: ProviderProbeResult, models: ReadonlyArray<ServerProviderModel> = []) =>
     buildServerProvider({
       presentation: MUSE_PRESENTATION,
-      enabled: true,
+      enabled: settings.enabled,
       checkedAt,
       models: providerModelsFromSettings(models, settings.customModels, FALLBACK_CAPABILITIES),
-      slashCommands: [COMPACT_SLASH_COMMAND],
+      slashCommands: settings.enabled ? [COMPACT_SLASH_COMMAND] : [],
       probe,
     });
   const versionResult = yield* Effect.gen(function* () {
@@ -113,6 +112,16 @@ export const checkMuseProviderStatus = Effect.fn("checkMuseProviderStatus")(func
       status: "error",
       auth: { status: "unknown" },
       message: "Muse Code CLI is installed but failed to run.",
+    });
+  }
+
+  if (!settings.enabled) {
+    return snapshot({
+      installed: true,
+      version,
+      status: "warning",
+      auth: { status: "unknown" },
+      message: "Muse Code is disabled in mines settings.",
     });
   }
 

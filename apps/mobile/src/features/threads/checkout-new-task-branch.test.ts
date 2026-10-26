@@ -19,7 +19,7 @@ const environmentId = EnvironmentId.make("branch-test-environment");
 
 beforeEach(async () => {
   directory = await NodeFSP.realpath(
-    await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-branch-selection-")),
+    await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "mines-branch-selection-")),
   );
   cwd = NodePath.join(directory, "project");
   await exec("git", ["init", "-b", "main", cwd]);

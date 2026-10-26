@@ -65,11 +65,13 @@ const gemini: AcpRegistrySearchAgent = {
 
 function step(options?: {
   readonly configured?: boolean;
+  readonly initialQuery?: string;
   readonly onPrepared?: (agent: AcpRegistrySearchAgent) => void;
 }) {
   return (
     <AcpRegistrySearchStep
       environmentId={environmentId}
+      initialQuery={options?.initialQuery}
       providerInstances={
         options?.configured
           ? {
@@ -138,4 +140,13 @@ it("ignores prepare completion after unmount", async () => {
   );
 
   expect(onPrepared).not.toHaveBeenCalled();
+});
+
+it("searches the initial onboarding query immediately and displays it in the search box", async () => {
+  setup();
+  await using screen = await render(step({ initialQuery: "  Gemini  " }));
+  await expect
+    .element(screen.getByRole("searchbox", { name: "Search ACP Registry" }))
+    .toHaveValue("Gemini");
+  expect(state.search).toHaveBeenCalledWith({ environmentId, input: { query: "Gemini" } });
 });

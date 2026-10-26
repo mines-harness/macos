@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 import * as CheckpointCapture from "./CheckpointCaptureService.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as RunFinalization from "./RunFinalizationService.ts";
@@ -23,6 +24,12 @@ it.effect("completes finalization when the post-checkpoint workspace refresh fai
   const layer = RunFinalization.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(WorkspaceRunLease.WorkspaceRunLease)({
+          completeCheckpoint: () =>
+            Effect.sync(() => {
+              captured.push("release");
+            }),
+        }),
         Layer.mock(CheckpointCapture.CheckpointCaptureServiceV2)({
           execute: () =>
             Effect.sync(() => {
@@ -54,7 +61,44 @@ it.effect("completes finalization when the post-checkpoint workspace refresh fai
   return Effect.gen(function* () {
     const service = yield* RunFinalization.RunFinalizationService;
     yield* service.finalize({ threadId, runId, scopeId });
-    assert.deepEqual(captured, ["checkpoint", "refresh"]);
+    assert.deepEqual(captured, ["checkpoint", "refresh", "release"]);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("releases the workspace barrier when checkpoint finalization fails", () => {
+  const threadId = ThreadId.make("thread_checkpoint_failure");
+  const runId = RunId.make("run_checkpoint_failure");
+  const scopeId = CheckpointScopeId.make("scope_checkpoint_failure");
+  const released: string[] = [];
+  const layer = RunFinalization.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(WorkspaceRunLease.WorkspaceRunLease)({
+          completeCheckpoint: (id) =>
+            Effect.sync(() => {
+              released.push(id);
+            }),
+        }),
+        Layer.mock(CheckpointCapture.CheckpointCaptureServiceV2)({
+          execute: () =>
+            Effect.fail(
+              new CheckpointCapture.CheckpointCaptureExecutionError({
+                threadId,
+                runId,
+                scopeId,
+                cause: "checkpoint unavailable",
+              }),
+            ),
+        }),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const service = yield* RunFinalization.RunFinalizationService;
+    const error = yield* service.finalize({ threadId, runId, scopeId }).pipe(Effect.flip);
+    assert.equal(error.operation, "capture-checkpoint");
+    assert.deepEqual(released, [runId]);
   }).pipe(Effect.provide(layer));
 });
 

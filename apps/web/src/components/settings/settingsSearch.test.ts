@@ -82,7 +82,16 @@ describe("searchSettings", () => {
       searchSettings("remote pairing")
         .slice(0, 2)
         .map((item) => item.id),
-    ).toEqual(["network-access", "connections-environment"]);
+    ).toEqual(["direct-device-access", "connect-peer-computer"]);
+  });
+
+  it("finds direct device controls without offering retired transports", () => {
+    expect(searchSettings("webrtc").map((item) => item.id)).toContain("direct-device-access");
+    expect(searchSettings("connect another computer")[0]?.id).toBe("connect-peer-computer");
+    expect(searchSettings("authorized clients")[0]?.id).toBe("authorized-clients");
+    expect(searchSettings("tailscale")).toEqual([]);
+    expect(searchSettings("managed tunnel")).toEqual([]);
+    expect(searchSettings("load balancing")).toEqual([]);
   });
 
   it("hides desktop-only settings from browser search", () => {
@@ -114,7 +123,7 @@ describe("searchSettings", () => {
       "review-guide-model",
       "review-guide-instructions",
       "source-control-writing-style",
-      "t3-connect",
+      "mines-connect",
       "hold-webhooks-while-offline",
       "tailscale-https",
       "wsl-backend",

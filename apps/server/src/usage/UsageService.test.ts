@@ -21,6 +21,7 @@ import {
   type UsageSummaryInput,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
+import * as DateTime from "effect/DateTime";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -87,8 +88,8 @@ const WINDOW: UsageSummaryInput = {
 };
 
 const setup = Effect.gen(function* () {
-  const home = yield* Effect.promise(() =>
-    NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "usage-service-test-")),
+  const home = yield* Effect.promise(async () =>
+    NodeFSP.realpath(await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "usage-service-test-"))),
   );
   yield* Effect.addFinalizer(() =>
     Effect.promise(() => NodeFSP.rm(home, { recursive: true, force: true })),
@@ -465,6 +466,77 @@ describe("Codex usage history", () => {
 });
 
 describe("UsageService", () => {
+  it.live(
+    "adds retained lifetime history and archived Codex usage without changing selected-window totals",
+    () =>
+      Effect.gen(function* () {
+        const { home, settings, transcript } = yield* setup;
+        const now = yield* Clock.currentTimeMillis;
+        const oldMs = now - 400 * 86400000;
+        const old = DateTime.formatIso(DateTime.makeUnsafe(oldMs));
+        const recent = DateTime.formatIso(DateTime.makeUnsafe(now - 3600000));
+        const day = UsageDay.make(recent.slice(0, 10));
+        const oldPath = NodePath.join(NodePath.dirname(transcript), "old.jsonl");
+        yield* Effect.promise(async () => {
+          await NodeFSP.writeFile(oldPath, claudeLine(1, 100).replace("2026-08-01T10:00:00Z", old));
+          await NodeFSP.utimes(oldPath, oldMs / 1000, oldMs / 1000);
+          await NodeFSP.writeFile(
+            transcript,
+            claudeLine(2, 5).replace("2026-08-01T10:00:00Z", recent),
+          );
+          const archive = NodePath.join(home, "codex", "archived_sessions");
+          await NodeFSP.mkdir(archive, { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(archive, "archive.jsonl"),
+            [
+              { type: "session_meta", payload: { id: "archived-session" } },
+              { type: "turn_context", payload: { model: "gpt-6-astra" } },
+              {
+                type: "event_msg",
+                timestamp: old,
+                payload: {
+                  type: "token_count",
+                  info: { last_token_usage: { input_tokens: 0, output_tokens: 13 } },
+                },
+              },
+            ]
+              .map((line) => JSON.stringify(line))
+              .join("\n") + "\n",
+          );
+        });
+        using open = vi.spyOn(NodeFSP, "open");
+        const service = yield* UsageService.make.pipe(
+          Effect.provide(layerService({ prefix: "usage-overview", home, settings })),
+        );
+        const input = { timeZone: "UTC", sinceDay: day, untilDay: day };
+        const regular = yield* service.readSummary(input);
+        assert.isUndefined(regular.overview);
+        const overview = yield* service.readSummary({ ...input, includeOverview: true });
+        assert.strictEqual(totalOutputTokens(overview), 5);
+        assert.strictEqual(
+          overview.overview?.sources.reduce(
+            (sum, source) => sum + source.generatedTokens.lifetime,
+            0,
+          ),
+          118,
+        );
+        assert.strictEqual(
+          overview.overview?.sources.reduce(
+            (sum, source) => sum + source.generatedTokens.last24h,
+            0,
+          ),
+          5,
+        );
+        assert.strictEqual(
+          overview.overview?.sources.find((source) => source.provider === "claude")
+            ?.firstRecordedAt,
+          old,
+        );
+        yield* service.readSummary({ ...input, includeOverview: true });
+        assert.strictEqual(open.mock.calls.filter(([filePath]) => filePath === oldPath).length, 1);
+      }).pipe(Effect.scoped),
+  );
+
   it.live(
     "repairs initial Codex prices after unchanged-file retries, persists evidence and corrections, and honors later native tiers",
     () =>

@@ -88,6 +88,8 @@ import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
+import { UsageInsights } from "./UsageInsights";
+import { useAppActivity } from "../../usageActivity";
 import {
   costTypeSegments,
   modelShare,
@@ -177,6 +179,7 @@ function UsageModelDialogHost({
 
 export function UsagePage() {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
+  const appActivity = useAppActivity();
   useEscapeToGoBack();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const hour12 = usePrimarySettings((settings) => resolveHour12(settings.timestampFormat));
@@ -304,7 +307,7 @@ export function UsagePage() {
     if (showingLimits) {
       refreshingRef.current = true;
       setIsRefreshing(true);
-      void refreshLimits().finally(() => {
+      void Promise.all([refreshLimits(), refresh()]).finally(() => {
         refreshingRef.current = false;
         setIsRefreshing(false);
       });
@@ -512,6 +515,40 @@ export function UsagePage() {
 
         <ScrollArea className="min-h-0 flex-1">
           <WorkspacePageContainer width="wide">
+            <UsageInsights
+              overview={merged.overview}
+              activity={appActivity}
+              hiddenProviders={hiddenProviders}
+              timeZone={shownWindow.timeZone}
+              coverageMessages={[
+                ...new Set(
+                  selectedEnvironments.flatMap(
+                    (environment) =>
+                      environment.summary?.sources.flatMap((source) =>
+                        source.message &&
+                        !hiddenProviders.has(source.fingerprint.provider) &&
+                        (source.status === "partial" ||
+                          source.status === "failed" ||
+                          source.status === "missing")
+                          ? [source.message]
+                          : [],
+                      ) ?? [],
+                  ),
+                ),
+              ]}
+              partial={
+                isPartial ||
+                selectedEnvironments.some(
+                  (environment) =>
+                    environment.error !== null ||
+                    environment.summary?.sources.some(
+                      (source) =>
+                        !hiddenProviders.has(source.fingerprint.provider) &&
+                        (source.status === "partial" || source.status === "failed"),
+                    ),
+                )
+              }
+            />
             {selectedEnvironments.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {environments.length === 0

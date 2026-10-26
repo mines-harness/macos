@@ -52,20 +52,20 @@ function ArchivedThreadsHeader(props: {
   const hasCustomFilter = props.selectedEnvironmentId !== null || props.sortOrder !== "newest";
   return (
     <AppBar
-      title="Archived threads"
+      title="Archived mines"
       sidebar={false}
       onBack={() => navigation.goBack()}
       search={{
         value: props.searchQuery,
         onChangeText: props.onSearchQueryChange,
-        placeholder: "Search archived threads",
+        placeholder: "Search archived mines",
         compactPlaceholder: "Search",
         mode: "inline",
         compactToolbar: width < 700,
       }}
       menus={[
         {
-          title: "Archived thread options",
+          title: "Archived mine options",
           icon: hasCustomFilter
             ? "line.3.horizontal.decrease.circle.fill"
             : "line.3.horizontal.decrease.circle",
@@ -110,7 +110,7 @@ function ArchivedThreadsHeader(props: {
               ? [
                   {
                     id: "refresh",
-                    title: "Refresh archived threads",
+                    title: "Refresh archived mines",
                     onPress: props.onRefresh,
                   },
                 ]
@@ -155,7 +155,7 @@ function ProjectGroupLabel(props: {
         workspaceRoot={props.project.workspaceRoot}
       />
       <Text
-        className="flex-1 text-xs font-t3-medium tracking-[0.5px] uppercase text-foreground-muted"
+        className="flex-1 text-xs font-mines-medium tracking-[0.5px] uppercase text-foreground-muted"
         numberOfLines={1}
       >
         {props.project.title}
@@ -213,7 +213,7 @@ function ArchivedThreadRow(props: {
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">
           <Text
-            className="min-w-0 flex-1 text-base font-t3-bold leading-snug text-foreground"
+            className="min-w-0 flex-1 text-base font-mines-bold leading-snug text-foreground"
             numberOfLines={1}
           >
             {props.thread.title}
@@ -277,7 +277,7 @@ function ArchivedThreadRow(props: {
 function ArchiveError(props: { readonly message: string; readonly onRetry: () => void }) {
   return (
     <View className="rounded-[20px] border border-danger-border bg-danger p-4">
-      <Text className="text-base font-t3-bold text-danger-foreground">
+      <Text className="text-base font-mines-bold text-danger-foreground">
         Could not load every archive
       </Text>
       <Text className="mt-1 text-sm text-foreground-muted">{props.message}</Text>
@@ -403,11 +403,9 @@ export function ArchivedThreadsScreen(props: {
     return (
       <EmptyState
         detail={
-          isFiltered
-            ? "Try another search or environment."
-            : "Threads you archive will appear here."
+          isFiltered ? "Try another search or environment." : "Mines you archive will appear here."
         }
-        title={isFiltered ? "No matching threads" : "No archived threads"}
+        title={isFiltered ? "No matching mines" : "No archived mines"}
       />
     );
   }, [isFiltered, isInitialLoad]);

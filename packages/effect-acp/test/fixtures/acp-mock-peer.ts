@@ -97,7 +97,7 @@ const program = Effect.gen(function* () {
   yield* agent.handlePrompt(() =>
     Effect.gen(function* () {
       if (mcpOverAcp) {
-        const connected = yield* agent.client.connectMcp({ serverId: "t3-code" });
+        const connected = yield* agent.client.connectMcp({ serverId: "mines" });
         yield* agent.client.messageMcp({
           connectionId: connected.connectionId,
           method: "tools/list",

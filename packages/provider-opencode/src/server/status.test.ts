@@ -290,6 +290,11 @@ const runtimeMock = {
     runVersionError: null as Error | null,
     runVersionPending: false,
     versionStdout: DEFAULT_VERSION_STDOUT,
+    authStdout: "[]",
+    authCode: 0,
+    authCalls: [] as Array<
+      Parameters<OpenCodeRuntime.OpenCodeRuntime["Service"]["runOpenCodeCommand"]>[0]
+    >,
     inventoryError: null as Error | null,
     connectionError: null as Error | null,
     inventoryCwd: null as string | null,
@@ -310,6 +315,9 @@ const runtimeMock = {
     this.state.runVersionError = null;
     this.state.runVersionPending = false;
     this.state.versionStdout = DEFAULT_VERSION_STDOUT;
+    this.state.authStdout = "[]";
+    this.state.authCode = 0;
+    this.state.authCalls.length = 0;
     this.state.inventoryError = null;
     this.state.connectionError = null;
     this.state.inventoryCwd = null;
@@ -372,8 +380,16 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntime["Service"] = {
         external: Boolean(serverUrl),
       };
     }),
-  runOpenCodeCommand: () =>
-    runtimeMock.state.runVersionPending
+  runOpenCodeCommand: (input) => {
+    if (input.args[0] === "auth") {
+      runtimeMock.state.authCalls.push(input);
+      return Effect.succeed({
+        stdout: runtimeMock.state.authStdout,
+        stderr: "",
+        code: runtimeMock.state.authCode,
+      });
+    }
+    return runtimeMock.state.runVersionPending
       ? Effect.never
       : runtimeMock.state.runVersionError
         ? Effect.fail(
@@ -383,7 +399,8 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntime.OpenCodeRuntime["Service"] = {
               cause: runtimeMock.state.runVersionError,
             }),
           )
-        : Effect.succeed({ stdout: runtimeMock.state.versionStdout, stderr: "", code: 0 }),
+        : Effect.succeed({ stdout: runtimeMock.state.versionStdout, stderr: "", code: 0 });
+  },
   createOpenCodeSdkClient: (input) => {
     runtimeMock.state.sdkClientInputs.push(input);
     return {} as unknown as ReturnType<
@@ -456,14 +473,72 @@ const checkProvider = Effect.fn("checkProvider")(function* (
         Effect.provideService(HttpClient.HttpClient, server),
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, OpenCodeRuntimeTestDouble),
       );
-      return yield* checkOpenCodeProviderStatus(settings, cwd, probe, openCode2Models).pipe(
-        Effect.provideService(OpenCodeServerOwner.OpenCodeServerOwner, serverOwner),
-      );
+      return yield* checkOpenCodeProviderStatus(
+        settings,
+        cwd,
+        probe,
+        openCode2Models,
+        environment,
+      ).pipe(Effect.provideService(OpenCodeServerOwner.OpenCodeServerOwner, serverOwner));
     }),
   );
 });
 
 it.layer(layerTest)("checkOpenCodeProviderStatus", (it) => {
+  it.effect("discovers existing OpenCode 2 OAuth while keeping a disabled instance off", () =>
+    Effect.gen(function* () {
+      runtimeMock.state.versionStdout = "opencode v2.1.3\n";
+      runtimeMock.state.authStdout = JSON.stringify([
+        {
+          id: "openai",
+          name: "OpenAI",
+          connections: [
+            { type: "credential", id: "account-1", label: "Local account", method: "oauth" },
+          ],
+        },
+      ]);
+      const environment = { XDG_DATA_HOME: "/isolated/opencode-data" };
+      const snapshot = yield* checkProvider(
+        makeOpenCodeSettings({ enabled: false, binaryPath: "/custom/opencode" }),
+        "/workspace",
+        environment,
+      );
+      NodeAssert.equal(snapshot.enabled, false);
+      NodeAssert.equal(snapshot.status, "disabled");
+      NodeAssert.equal(snapshot.installed, true);
+      NodeAssert.equal(snapshot.version, "2.1.3");
+      NodeAssert.equal(snapshot.auth.status, "authenticated");
+      NodeAssert.equal(snapshot.auth.type, "oauth");
+      NodeAssert.deepEqual(snapshot.models, []);
+      NodeAssert.equal(runtimeMock.state.startCalls, 0);
+      NodeAssert.deepEqual(runtimeMock.state.authCalls[0], {
+        binaryPath: "/custom/opencode",
+        args: ["auth", "list", "--format", "json"],
+        cwd: "/workspace",
+        environment,
+      });
+    }),
+  );
+
+  it.effect.each(["[]", "malformed", "failed"])(
+    "does not infer an OpenCode account from free models: %s",
+    (auth) =>
+      Effect.gen(function* () {
+        runtimeMock.state.versionStdout = "opencode v2.1.3\n";
+        runtimeMock.state.authStdout = auth;
+        runtimeMock.state.authCode = auth === "failed" ? 1 : 0;
+        const snapshot = yield* checkProvider(
+          makeOpenCodeSettings(),
+          process.cwd(),
+          undefined,
+          undefined,
+          Effect.succeed([
+            { providerID: "opencode", id: "big-pickle", name: "Big Pickle", variants: [] },
+          ]),
+        );
+        NodeAssert.equal(snapshot.auth.status, auth === "[]" ? "unauthenticated" : "unknown");
+      }),
+  );
   it.effect.each(["version", "inventory", "models", "empty-v1", "empty-v2"] as const)(
     "records %s discovery failures in the existing trace and logger",
     (failure) =>

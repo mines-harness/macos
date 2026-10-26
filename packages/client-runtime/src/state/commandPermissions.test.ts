@@ -8,10 +8,13 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthOrchestrationOperateScope,
+  AuthAccessWriteScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
+  AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
   ThreadId,
   EnvironmentId,
   ScheduledTaskId,
@@ -60,6 +63,151 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect.each([
+    WS_METHODS.voiceStart,
+    WS_METHODS.voiceSubscribe,
+    WS_METHODS.voiceStop,
+    WS_METHODS.sharedGroupsSend,
+    WS_METHODS.sharedGroupsAddChats,
+    WS_METHODS.sharedGroupsRemoveChats,
+    WS_METHODS.sharedGroupsLeave,
+  ])("requires the destination operate grant for %s and observes revocation", (method) =>
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      const voice = createCommandPermissions(runtime, method);
+      const readOnly = {
+        ...grant(false),
+        scopes: [AuthOrchestrationReadScope],
+        permissions: [AuthOrchestrationReadScope],
+      };
+      registry.set(sessions(env), AsyncResult.success(readOnly));
+      expect(registry.get(voice.permissionAtom(env))).toBe(false);
+      expect(yield* voice.authorize(registry, env).pipe(Effect.flip)).toMatchObject({
+        requiredPermission: AuthOrchestrationOperateScope,
+      });
+      registry.set(sessions(env), AsyncResult.success(grant(true)));
+      expect(registry.get(voice.permissionAtom(env))).toBe(true);
+      yield* voice.authorize(registry, env);
+      registry.set(sessions(other), AsyncResult.success(readOnly));
+      yield* voice.authorize(registry, other).pipe(Effect.flip);
+      registry.set(sessions(env), AsyncResult.success({ ...grant(true), permissions: [] }));
+      expect(registry.get(voice.permissionAtom(env))).toBe(false);
+      yield* voice.authorize(registry, env).pipe(Effect.flip);
+    }).pipe(Effect.scoped),
+  );
+  it.effect("requires the destination access-management grant before probing a device", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const probe = createCommandPermissions(runtime, WS_METHODS.peerCheckDevice);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(probe.permissionAtom(env))).toBe(false);
+        yield* probe.authorize(registry, env).pipe(Effect.flip);
+        const access = {
+          ...grant(false),
+          scopes: [AuthAccessWriteScope],
+          permissions: [AuthAccessWriteScope],
+        };
+        registry.set(sessions(env), AsyncResult.success(access));
+        expect(registry.get(probe.permissionAtom(env))).toBe(true);
+        yield* probe.authorize(registry, env);
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(probe.permissionAtom(env))).toBe(false);
+        yield* probe.authorize(registry, env).pipe(Effect.flip);
+      }),
+    ),
+  );
+  it.effect("requires the destination operate grant to add group participants", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const addMembers = createCommandPermissions(runtime, WS_METHODS.groupsAddMembers);
+        const readOnly = {
+          ...grant(false),
+          scopes: [AuthOrchestrationReadScope],
+          permissions: [AuthOrchestrationReadScope],
+        };
+        registry.set(sessions(env), AsyncResult.success(readOnly));
+        expect(registry.get(addMembers.permissionAtom(env))).toBe(false);
+        expect(yield* addMembers.authorize(registry, env).pipe(Effect.flip)).toMatchObject({
+          _tag: "EnvironmentAuthorizationError",
+          requiredPermission: AuthOrchestrationOperateScope,
+        });
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(addMembers.permissionAtom(env))).toBe(true);
+        yield* addMembers.authorize(registry, env);
+        registry.set(sessions(other), AsyncResult.success(readOnly));
+        expect(registry.get(addMembers.permissionAtom(other))).toBe(false);
+        yield* addMembers.authorize(registry, other).pipe(Effect.flip);
+        registry.set(sessions(env), AsyncResult.success({ ...grant(true), permissions: [] }));
+        expect(registry.get(addMembers.permissionAtom(env))).toBe(false);
+        yield* addMembers.authorize(registry, env).pipe(Effect.flip);
+      }),
+    ),
+  );
+
+  it.effect.each([
+    { method: WS_METHODS.mineTransferPrepare, filesystemScope: AuthFilesystemReadScope },
+    { method: WS_METHODS.mineTransferReadChunk, filesystemScope: AuthFilesystemReadScope },
+    { method: WS_METHODS.mineTransferBegin, filesystemScope: AuthFilesystemWriteScope },
+    { method: WS_METHODS.mineTransferWriteChunk, filesystemScope: AuthFilesystemWriteScope },
+    { method: WS_METHODS.mineTransferAccept, filesystemScope: AuthFilesystemWriteScope },
+  ] as const)(
+    "requires destination filesystem and Git grants for $method",
+    ({ method, filesystemScope }) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const registry = yield* setup;
+          const transfer = createCommandPermissions(runtime, method);
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(transfer.permissionAtom(env))).toBe(false);
+          yield* transfer.authorize(registry, env).pipe(Effect.flip);
+          const scopes = [
+            AuthOrchestrationOperateScope,
+            filesystemScope,
+            AuthSourceControlWriteScope,
+          ];
+          registry.set(
+            sessions(env),
+            AsyncResult.success({ ...grant(true), scopes, permissions: scopes }),
+          );
+          expect(registry.get(transfer.permissionAtom(env))).toBe(true);
+          yield* transfer.authorize(registry, env);
+          registry.set(sessions(other), AsyncResult.success(grant(true)));
+          expect(registry.get(transfer.permissionAtom(other))).toBe(false);
+          yield* transfer.authorize(registry, other).pipe(Effect.flip);
+          registry.set(sessions(env), AsyncResult.success(grant(false)));
+          expect(registry.get(transfer.permissionAtom(env))).toBe(false);
+          yield* transfer.authorize(registry, env).pipe(Effect.flip);
+        }),
+      ),
+  );
+
+  it.effect("requires the destination access grant to bind its catalog identity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const binding = createCommandPermissions(runtime, WS_METHODS.catalogBindIdentity);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(binding.permissionAtom(env))).toBe(false);
+        expect((yield* binding.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthAccessWriteScope],
+            permissions: [AuthAccessWriteScope],
+          }),
+        );
+        expect(registry.get(binding.permissionAtom(env))).toBe(true);
+        yield* binding.authorize(registry, env);
+        registry.set(sessions(other), AsyncResult.success(grant(false)));
+        expect(registry.get(binding.permissionAtom(other))).toBe(false);
+      }),
+    ),
+  );
   it.effect("requires the destination preview grant to close a browser tab", () =>
     Effect.scoped(
       Effect.gen(function* () {

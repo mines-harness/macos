@@ -528,7 +528,7 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
               ? { prompt: "consent" }
               : {}),
           }
-        : { agent_name_hint: "T3 Code" }),
+        : { agent_name_hint: "mines" }),
       ext_agent_host_id: hostId,
       response_type: "code",
       redirect_uri: redirectUri,
@@ -589,6 +589,9 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
           "callback",
           "ChatGPT registration is incomplete. Start sign-in again.",
         );
+      const knownProfile = registrations.profiles.find((profile) => profile.clientId === clientId);
+      if (!registeredClientId && !knownProfile)
+        yield* withSessionLock(saveRegistration({ clientId, redirectUri }));
       yield* context.verifying;
       const tokens = yield* exchange(
         new URLSearchParams({
@@ -600,18 +603,13 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
           resource,
         }),
       ).pipe(
-        Effect.catch((error) =>
-          Effect.gen(function* () {
-            if (error.operation === "code-expired") {
-              if (!registeredClientId)
-                yield* withSessionLock(saveRegistration({ clientId, redirectUri }));
-              return yield* failure(
+        Effect.mapError((error) =>
+          error.operation === "code-expired"
+            ? failure(
                 "exchange",
                 "This sign-in code expired. Reconnect the saved ChatGPT profile to start a fresh sign-in.",
-              );
-            }
-            return yield* error;
-          }),
+              )
+            : error,
         ),
       );
       if (!tokens.id_token)
@@ -644,7 +642,6 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
           "verify",
           "This sign-in returned a different ChatGPT account. Use the different-account sign-in option instead. Your saved connection is unchanged.",
         );
-      const knownProfile = registrations.profiles.find((profile) => profile.clientId === clientId);
       if (
         knownProfile &&
         ((knownProfile.redirectUri &&

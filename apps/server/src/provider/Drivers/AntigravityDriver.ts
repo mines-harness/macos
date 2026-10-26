@@ -271,7 +271,7 @@ export const AntigravityDriver: ProviderDriver<
       input: Pick<AntigravityAcpRuntimeInput, "onAuthorizationUrl">,
     ) {
       const cwd = yield* fileSystem
-        .makeTempDirectoryScoped({ prefix: "t3-antigravity-setup-" })
+        .makeTempDirectoryScoped({ prefix: "mines-antigravity-setup-" })
         .pipe(
           Effect.mapError(
             () =>
@@ -295,7 +295,7 @@ export const AntigravityDriver: ProviderDriver<
       );
       const runtime = yield* makeRuntime({
         cwd,
-        clientInfo: { name: "t3-code-provider-setup", version: "0.0.0" },
+        clientInfo: { name: "mines-provider-setup", version: "0.0.0" },
         mcpServers: [],
         ...(input.onAuthorizationUrl ? { onAuthorizationUrl: input.onAuthorizationUrl } : {}),
       });
@@ -343,8 +343,8 @@ export const AntigravityDriver: ProviderDriver<
     // that unpacks about 1 GB per launch, and the health check runs every
     // minute.
     const probe = Effect.gen(function* () {
-      yield* modelCatalog.refreshInBackground;
-      if (authConfigIssue !== null) {
+      if (settings.enabled) yield* modelCatalog.refreshInBackground;
+      if (settings.enabled && authConfigIssue !== null) {
         return yield* new ProviderSetupError({
           instanceId,
           operation: "configure",
@@ -440,7 +440,7 @@ export const AntigravityDriver: ProviderDriver<
       makeRuntime: (cwd) =>
         makeRuntime({
           cwd,
-          clientInfo: { name: "t3-code-text", version: "0.0.0" },
+          clientInfo: { name: "mines-text", version: "0.0.0" },
           mcpServers: [],
         }),
     });

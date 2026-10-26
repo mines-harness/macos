@@ -78,7 +78,7 @@ export class ServerRuntimeStartup extends Context.Service<
       effect: Effect.Effect<A, E>,
     ) => Effect.Effect<A, E | ServerRuntimeStartupError>;
   }
->()("t3/serverRuntimeStartup") {}
+>()("mines/serverRuntimeStartup") {}
 
 interface QueuedCommand {
   readonly run: Effect.Effect<void, never>;
@@ -291,7 +291,7 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
         .launch({
           commandId: CommandId.make(yield* randomUUID),
           projectId: project.id,
-          title: "New thread",
+          title: "New mine",
           modelSelection:
             resolveProjectSettings(settings, project.id, project).settings.defaultModelSelection ??
             threadModelSelection,
@@ -347,7 +347,7 @@ const resolveStartupBrowserTarget = Effect.gen(function* () {
 
 /** Prints the one-time admin pairing URL to stdout only; logger records reach trace files and collectors. */
 export const announceStartupPairingUrl = (pairingUrl: string) =>
-  Effect.logInfo("Authentication required. Open T3 Code using the pairing URL.").pipe(
+  Effect.logInfo("Authentication required. Open mines using the pairing URL.").pipe(
     Effect.andThen(Console.log(`  pairingUrl: ${pairingUrl}`)),
   );
 

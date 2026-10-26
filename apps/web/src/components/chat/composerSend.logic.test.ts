@@ -42,7 +42,7 @@ describe("loadBalancingSendWarning", () => {
         threadContexts: [localThread, remoteThread],
         candidateEnvironmentIds: [local, remote],
       }).description,
-    ).toMatch(/No machine can read every attached thread/);
+    ).toMatch(/No machine can read every attached mine/);
   });
 
   it("blames resources when one machine can read every attached thread", () => {

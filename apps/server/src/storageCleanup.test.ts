@@ -718,7 +718,7 @@ describe("subagent worktree ownership", () => {
           scenario === "null-branch"
             ? null
             : scenario === "stale-branch"
-              ? "t3/15a6e5ae"
+              ? "mines/15a6e5ae"
               : "feature",
         worktreePath: fixture.worktree,
         lineage: {
@@ -783,11 +783,11 @@ describe("subagent worktree ownership", () => {
         reason: removed
           ? "Settled for 20 days"
           : scenario === "running" || scenario === "pending"
-            ? "Thread is running or has pending work"
+            ? "Mine is running or has pending work"
             : shared
-              ? "Shared by 2 threads"
+              ? "Shared by 2 mines"
               : scenario === "null-branch" || scenario === "stale-branch"
-                ? "A subagent thread's branch differs from this worktree's branch"
+                ? "A subagent mine's branch differs from this worktree's branch"
                 : scenario === "recent-activity"
                   ? "Settled for 2 of 8 days"
                   : scenario === "recent-inactive"
@@ -834,7 +834,7 @@ describe("subagent worktree ownership", () => {
               change === "null-branch"
                 ? null
                 : change === "stale-branch"
-                  ? "t3/15a6e5ae"
+                  ? "mines/15a6e5ae"
                   : child.branch,
             settledAt: change === "settled" ? at(-20 * DAY_MS) : child.settledAt,
             updatedAt: change === "settled" || change === "resettled" ? at(0) : child.updatedAt,
@@ -848,7 +848,7 @@ describe("subagent worktree ownership", () => {
         yield* Deferred.succeed(fixture.resume, undefined);
         expect((yield* Fiber.join(run)).entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Thread activity or shared worktree changed since check",
+          reason: "Mine activity or shared worktree changed since check",
         });
         expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
       }),
@@ -897,7 +897,7 @@ describe("deleted thread worktrees", () => {
         expect(report.entries[0]).toMatchObject({
           threadId: owner.id,
           outcome: "removed",
-          reason: "Thread was deleted",
+          reason: "Mine was deleted",
         });
         expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
       }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
@@ -1054,7 +1054,7 @@ describe("orphan worktree reports", () => {
             {
               kind: "worktree",
               outcome: "kept",
-              reason: "No thread uses this worktree",
+              reason: "No mine uses this worktree",
               path: orphan,
               projectPath: null,
               threadId: null,
@@ -1189,7 +1189,7 @@ describe("orphan worktree reports", () => {
             path: folder,
             outcome: "kept",
             bytes: yield* allocatedBytes(fixture.fs, `${folder}/payload`),
-            reason: "No thread uses this folder, and it isn't a git worktree",
+            reason: "No mine uses this folder, and it isn't a git worktree",
           }),
         ]);
         expect(report.bytesFreed).toBe(0);
@@ -1493,7 +1493,7 @@ describe("storage cleanup reports and local file policies", () => {
         const report = yield* Fiber.join(cleanup);
         expect(report.entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Thread activity or shared worktree changed since check",
+          reason: "Mine activity or shared worktree changed since check",
           bytes: null,
         });
         expect(report.bytesFreed).toBe(0);
@@ -1858,7 +1858,7 @@ describe("settled worktree rechecks", () => {
           yield* Deferred.succeed(fixture.resume, undefined);
           const report = yield* Fiber.join(run);
           expect(report.entries[0]?.reason).toBe(
-            "Thread activity or shared worktree changed since check",
+            "Mine activity or shared worktree changed since check",
           );
           expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
         }),

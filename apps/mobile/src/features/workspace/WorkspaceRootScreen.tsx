@@ -64,7 +64,7 @@ function WorkspaceRootTitle(props: {
   return (
     <View style={{ width: props.maxWidth, minHeight: 32, justifyContent: "center" }}>
       <WorkspaceConnectionTitle
-        brand={<CompactBrandTitle accessibilityLabel={`T3 Code, ${tabTitle}`} />}
+        brand={<CompactBrandTitle accessibilityLabel={`mines, ${tabTitle}`} />}
         maxWidth={props.maxWidth}
         onPress={props.onOpenEnvironments}
       />
@@ -111,7 +111,8 @@ function WorkspaceRootContent() {
   const settingsOpen = workspace.settingsOpen;
   const tab = state.tabs[settingsOpen ? "settings" : state.selectedTab];
   const bottomClearance =
-    layout.primarySidebarOverlaysContent && state.selectedTab === "usage"
+    layout.primarySidebarOverlaysContent &&
+    (state.selectedTab === "usage" || state.selectedTab === "contacts")
       ? workspaceDockBottomClearance({ bottomInset: insets.bottom, keyboardHeight })
       : Platform.OS === "ios" && isDuoDevice(deviceType)
         ? workspaceSearchBottomClearance({
@@ -168,21 +169,23 @@ function WorkspaceRootContent() {
               // Beside a detail column the tab bar names the tab and the detail header the page,
               // so the sidebar keeps the brand.
               headerTitle:
-                sidebarNavigation || (!settingsOpen && state.selectedTab !== "usage")
+                sidebarNavigation ||
+                (!settingsOpen &&
+                  (state.selectedTab === "threads" || state.selectedTab === "pullRequests"))
                   ? renderHeaderTitle
                   : undefined,
             }}
           />
         ) : (
           <AndroidScreenHeader
-            title="T3 Code"
+            title="mines"
             titleContent={renderHeaderTitle()}
             actions={[
               ...(state.selectedTab === "threads" || state.selectedTab === "pullRequests"
                 ? [
                     {
                       accessibilityLabel:
-                        state.selectedTab === "threads" ? "Search threads" : "Search pull requests",
+                        state.selectedTab === "threads" ? "Search mines" : "Search pull requests",
                       icon: "magnifyingglass" as const,
                       onPress: () => {
                         dispatchHardwareKeyboardCommand("focusSearch");

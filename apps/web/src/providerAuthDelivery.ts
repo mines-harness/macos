@@ -1,11 +1,13 @@
 import { readCodexAuthDelivery } from "@t3tools/shared/codexAuthHandoff";
 
+import { configuredHostedAppUrl } from "./hostedPairing";
+
 let pending: ReturnType<typeof readCodexAuthDelivery>;
 
 /** Remove the code before the router, tracing, or welcome screen sees the incoming address. */
 export function prepareProviderAuthDelivery() {
   if (!window.location.hash.startsWith("#codex-auth=")) return;
-  pending = readCodexAuthDelivery(window.location.href);
+  pending = readCodexAuthDelivery(window.location.href, configuredHostedAppUrl());
   window.history.replaceState(
     window.history.state,
     "",

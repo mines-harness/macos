@@ -29,7 +29,7 @@ describe("project removal confirmation", () => {
     });
     expect(plan.projectThreads).toHaveLength(1);
     expect(plan.confirmationMessage).toBe(
-      'Remove checkout "Repo" and delete its 1 thread?\nPath: /work/repo\nEnvironment: Local\nThis permanently clears conversation history for those threads and any archived threads.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.',
+      'Remove checkout "Repo" and delete its 1 mine?\nPath: /work/repo\nEnvironment: Local\nThis permanently clears conversation history for those mines and any archived mines.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.',
     );
   });
 

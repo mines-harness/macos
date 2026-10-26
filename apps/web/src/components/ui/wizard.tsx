@@ -9,15 +9,23 @@ import { ScrollArea } from "./scroll-area";
 export function WizardPopup({
   children,
   size = "default",
+  fixedFooter = false,
   ...props
 }: Omit<ComponentProps<typeof DialogPopup>, "className" | "style"> & {
   readonly size?: "default" | "wide";
+  readonly fixedFooter?: boolean;
 }) {
   return (
     <DialogPopup {...props} className={size === "wide" ? "max-w-3xl" : "max-w-xl"}>
-      <ScrollArea className="*:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4">
-        <div className="flex min-h-0 flex-col">{children}</div>
-      </ScrollArea>
+      {fixedFooter ? (
+        <div className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden max-sm:max-h-[calc(100dvh-3rem)] [&>[data-slot=dialog-header]]:shrink-0 [&>[data-slot=dialog-footer]]:shrink-0 [&>[data-slot=dialog-panel]]:min-h-0 [&>[data-slot=dialog-panel]]:overflow-y-auto [&>[data-slot=dialog-panel]]:overscroll-contain">
+          {children}
+        </div>
+      ) : (
+        <ScrollArea className="*:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4">
+          <div className="flex min-h-0 flex-col">{children}</div>
+        </ScrollArea>
+      )}
     </DialogPopup>
   );
 }
@@ -91,7 +99,7 @@ export function WizardSteps({
               ? { type: "button" as const, disabled: isStepDisabled?.(index) }
               : {})}
             className={cn(
-              "flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-sm:justify-center max-sm:px-2",
+              "flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors duration-160 motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-sm:justify-center max-sm:px-2",
               onStepChange &&
                 "cursor-pointer hover:bg-card disabled:cursor-default disabled:hover:bg-transparent",
               index === currentStep &&

@@ -1,3 +1,6 @@
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { WorkflowPicker } from "./WorkflowPicker";
+import { RetainedWorkflowLauncher } from "./RetainedWorkflowLauncher";
 import type { ChatComposerProps } from "./ChatComposer";
 import type { PromptUltrathink } from "./TraitsPicker";
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -20,11 +23,11 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
-import {
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
-} from "./composerProviderState";
+import { renderProviderTraitsPicker, withImplicitFastModeDefault } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
+import { getProviderOptionDescriptors } from "@t3tools/shared/model";
+import { getProviderModelCapabilities } from "../../providerModels";
+import { getTraitsSpeedDisplay } from "./TraitsSpeed";
 
 /**
  * The composer footer controls: model picker, traits, mode controls and the overflow menu for
@@ -35,6 +38,7 @@ export function ComposerControlsBar(props: {
   routeKind: ChatComposerProps["routeKind"];
   routeThreadRef: ChatComposerProps["routeThreadRef"];
   draftId: ChatComposerProps["draftId"];
+  composerDraftTarget: ChatComposerProps["composerDraftTarget"];
   selectedProvider: ProviderDriverKind;
   selectedInstanceId: ProviderInstanceId;
   selectedModel: string;
@@ -84,6 +88,7 @@ export function ComposerControlsBar(props: {
     routeKind,
     routeThreadRef,
     draftId,
+    composerDraftTarget,
     selectedProvider,
     selectedInstanceId,
     selectedModel,
@@ -103,7 +108,6 @@ export function ComposerControlsBar(props: {
     composerControlsHidden,
     restingHiddenBlockCount,
     iconOnlyBlockCount,
-    showInlineRestingControls,
     showLeadingSeparator,
     showProviderUnavailable,
     providerSetupInstanceId,
@@ -128,20 +132,7 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    reportedModelSelection,
-    promptUltrathink,
-    onPromptEdit,
-    planModeEnabled,
-  });
-  const providerTraitsPickerInput = {
+  const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
@@ -154,27 +145,23 @@ export function ComposerControlsBar(props: {
     onPromptEdit,
     planModeEnabled,
     isComposerOwned: true,
-  } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
-  const restingProviderTraitsPicker = renderProviderTraitsPicker({
-    ...providerTraitsPickerInput,
-    size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
+  const capabilities = getProviderModelCapabilities(
+    selectedProviderModels,
+    selectedModel,
+    selectedProvider,
+    planModeEnabled,
+  );
+  const speed = getProviderOptionDescriptors({
+    caps: capabilities,
+    selections: withImplicitFastModeDefault(
+      capabilities,
+      composerModelOptions?.[selectedInstanceId],
+    ),
+  })
+    .map((descriptor) => getTraitsSpeedDisplay(selectedProvider, descriptor))
+    .find((display) => display?.speedIcon);
   const restingBlockDefs = [
-    ...(providerTraitsPicker
-      ? [
-          {
-            id: "traits",
-            content: (
-              <>
-                <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
-              </>
-            ),
-          },
-        ]
-      : []),
     {
       id: "mode",
       content: (
@@ -221,15 +208,13 @@ export function ComposerControlsBar(props: {
       instanceEntries={providerInstanceEntries}
       keybindings={keybindings}
       modelOptionsByInstance={modelOptionsByInstance}
+      modelSettings={providerTraitsPicker}
+      modelSpeed={speed?.speedIcon ?? null}
       size={composerControlsCollapsed ? "xs" : "sm"}
       triggerClassName={
         composerControlsCollapsed
-          ? cn(
-              "min-w-13 shrink text-xs!",
-              !showInlineRestingControls &&
-                "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
-            )
-          : "-ms-2.5 min-w-13"
+          ? "min-w-28 max-w-60 shrink-0 text-xs! @max-[400px]/composer-surface:min-w-24 @max-[400px]/composer-surface:max-w-44"
+          : "-ms-2.5 min-w-32 max-w-64 shrink-0 @max-[400px]/composer-surface:min-w-28 @max-[400px]/composer-surface:max-w-48"
       }
       terminalOpen={terminalOpen}
       open={modelPickerOpen}
@@ -277,6 +262,34 @@ export function ComposerControlsBar(props: {
         />
       ) : null}
       {composerModelPicker}
+      <RetainedWorkflowLauncher
+        key={scopedThreadKey(routeThreadRef)}
+        environmentId={environmentId}
+        composerTarget={composerDraftTarget}
+        routeThreadKey={scopedThreadKey(routeThreadRef)}
+        selections={
+          multipleModelSelections?.length
+            ? multipleModelSelections.map((selection) =>
+                selection.instanceId === selectedModelSelection.instanceId &&
+                selection.model === selectedModelSelection.model
+                  ? selectedModelSelection
+                  : selection,
+              )
+            : [selectedModelSelection]
+        }
+        runtimeMode={compatibleRuntimeMode}
+        interactionMode={interactionMode}
+        size={composerControlsCollapsed ? "xs" : "sm"}
+        disabled={isSendBusy}
+      />
+
+      {multipleModelSelections && multipleModelSelections.length > 1 ? (
+        <WorkflowPicker
+          routeKey={scopedThreadKey(routeThreadRef)}
+          selections={multipleModelSelections}
+          onSelectionsChange={onMultipleModelSelectionsChange}
+        />
+      ) : null}
 
       <>
         {restingBlockDefs.map((def, index) => {
@@ -317,9 +330,6 @@ export function ComposerControlsBar(props: {
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
           />

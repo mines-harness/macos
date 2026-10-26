@@ -351,10 +351,14 @@ function makeStateValidators(
   );
 }
 
-export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): number {
+export function pruneScanCache(
+  cache: ScanCache,
+  retentionCutoffMs: number,
+  livePaths: ReadonlySet<string> = new Set(),
+): number {
   let removed = 0;
   for (const [path, entry] of cache) {
-    if (entry.mtimeMs < retentionCutoffMs) {
+    if (entry.mtimeMs < retentionCutoffMs && !livePaths.has(path)) {
       cache.delete(path);
       removed += 1;
     }

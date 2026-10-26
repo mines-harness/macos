@@ -18,7 +18,9 @@ import {
   RemoteEnvironmentAuthFetchError,
   RemoteEnvironmentAuthTimeoutError,
   type RemoteEnvironmentRequestError,
+  layerRemoteHttpClient,
 } from "../rpc/http.ts";
+import { peerFetch } from "@t3tools/shared/minesPeerAdapters";
 
 export interface EnvironmentHttpAuthHeaders {
   readonly authorization?: string;
@@ -170,7 +172,14 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
       }
 
       const requestUrl = requestUrlFor(httpBaseUrl);
-      const client = yield* makeEnvironmentHttpApiGroupClient(httpBaseUrl, input.group);
+      const makeClient = makeEnvironmentHttpApiGroupClient(httpBaseUrl, input.group);
+      const client = yield* input.prepared.peerSession
+        ? makeClient.pipe(
+            Effect.provide(
+              layerRemoteHttpClient(peerFetch(input.prepared.peerSession, httpBaseUrl)),
+            ),
+          )
+        : makeClient;
       const headers = yield* buildEnvironmentAuthHeaders(
         authorization,
         input.method,

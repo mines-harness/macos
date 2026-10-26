@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.mines.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>mines</name>
+  <summary>A workspace for AI agents across your devices</summary>
+  <description>
+    <p>Organize AI conversations, coordinate groups and continue work across approved devices using direct connections.</p>
+    <p>Built on the open-source t3code project, with its license notices retained.</p>
+  </description>
+  <launchable type="desktop-id">mines.desktop</launchable>
+  <icon type="stock">mines</icon>
+  <provides><binary>mines</binary></provides>
+  <categories><category>Development</category></categories>
+</component>

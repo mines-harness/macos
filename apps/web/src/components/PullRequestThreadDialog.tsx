@@ -163,7 +163,7 @@ export function PullRequestThreadDialog({
         setPrepareErrorMessage(
           error instanceof Error
             ? error.message
-            : `Failed to prepare ${terminology.singular} thread.`,
+            : `Failed to prepare ${terminology.singular} mine.`,
         );
       }
       return;
@@ -193,7 +193,7 @@ export function PullRequestThreadDialog({
       : preparePullRequestThreadAction.error instanceof Error
         ? preparePullRequestThreadAction.error.message
         : preparePullRequestThreadAction.error
-          ? `Failed to prepare ${terminology.singular} thread.`
+          ? `Failed to prepare ${terminology.singular} mine.`
           : null);
 
   return (
@@ -213,7 +213,7 @@ export function PullRequestThreadDialog({
           </DialogTitle>
           <DialogDescription>
             Resolve a {sourceControlPresentation.providerName} {terminology.singular}, then create
-            the draft thread in the main repo or in a dedicated worktree.
+            the draft mine in the main repo or in a dedicated worktree.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

@@ -231,6 +231,138 @@ async function setup() {
 }
 
 describe("EnvironmentProviderSettings routing", () => {
+  it("does not add an unauthenticated implicit Claude slot but retains an explicit choice", async () => {
+    await setup();
+    const claudeId = ProviderInstanceId.make("claudeAgent");
+    await setProviders([
+      {
+        ...provider(),
+        instanceId: claudeId,
+        driver: ProviderDriverKind.make("claudeAgent"),
+        auth: { status: "unauthenticated" },
+        status: "error",
+      },
+    ]);
+    await using screen = await render(panel());
+    await expect
+      .element(screen.getByRole("button", { name: "Select Claude", exact: true }))
+      .not.toBeInTheDocument();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [claudeId]: { driver: ProviderDriverKind.make("claudeAgent"), enabled: true },
+      },
+    };
+    await screen.rerender(panel());
+    await expect
+      .element(screen.getByRole("button", { name: "Select Claude", exact: true }))
+      .toBeVisible();
+  });
+
+  it("offers duplicate through the row context menu without copying redacted settings in the client", async () => {
+    await setup();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          displayName: "Work",
+          environment: [{ name: "TOKEN", value: "", sensitive: true, valueRedacted: true }],
+        },
+      },
+    };
+    await using screen = await render(panel());
+    const row = screen.getByRole("button", { name: "Select Work", exact: true }).element();
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 60,
+      clientY: 80,
+    });
+    await act(() => row.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Duplicate", exact: true }));
+    expect(state.mutateProviderInstance).toHaveBeenCalledWith({
+      operation: "duplicate",
+      sourceInstanceId: customId,
+      instanceId: "codex_work_copy",
+      displayName: "Work copy",
+    });
+    expect(state.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("removes a default provider through its actions and selects the remaining provider", async () => {
+    await setup();
+    const openCodeId = ProviderInstanceId.make("opencode");
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [openCodeId]: { driver: ProviderDriverKind.make("opencode"), enabled: true },
+      },
+    };
+    await setProviders([
+      provider(),
+      { ...provider(), instanceId: openCodeId, driver: ProviderDriverKind.make("opencode") },
+    ]);
+    state.mutateProviderInstance.mockImplementation(async (mutation) => {
+      state.settings = {
+        ...state.settings,
+        providerInstances: {
+          ...state.settings.providerInstances,
+          [mutation.instanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: false,
+            removed: true,
+          },
+        },
+      };
+      return AsyncResult.success({});
+    });
+    await using screen = await render(panel());
+    await userEvent.click(
+      screen.getByRole("button", { name: "Actions for Codex", exact: true }).first(),
+    );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Remove", exact: true }));
+    expect(state.mutateProviderInstance).toHaveBeenCalledWith({
+      operation: "remove",
+      instanceId: codexId,
+    });
+    await expect
+      .element(screen.getByRole("button", { name: "Select Codex", exact: true }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Select OpenCode", exact: true }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(state.uninstall).not.toHaveBeenCalled();
+  });
+
+  it("offers a discovered saved OpenCode account without enabling it until requested", async () => {
+    await setup();
+    const instanceId = ProviderInstanceId.make("opencode");
+    const opencode: ServerProvider = {
+      ...provider(),
+      instanceId,
+      driver: ProviderDriverKind.make("opencode"),
+      enabled: false,
+      status: "disabled",
+      version: "2.1.3",
+      auth: { status: "authenticated", type: "oauth", label: "OpenAI" },
+      models: [],
+    };
+    await setProviders([provider(), opencode]);
+    await using _screen = await render(panel());
+    const enable = page.getByRole("switch", { name: "Enable OpenCode" }).first();
+    await expect.element(enable).toBeVisible();
+    await expect.element(enable).not.toBeChecked();
+    expect(state.mutateProviderInstance).not.toHaveBeenCalled();
+    await userEvent.click(enable);
+    expect(state.mutateProviderInstance).toHaveBeenCalledWith(
+      { operation: "upsert", instanceId, instance: { driver: "opencode", enabled: true } },
+      {},
+    );
+  });
+
   it("does not substitute another account when the requested instance was removed", async () => {
     await setup();
     await setProviders([provider()]);

@@ -41,6 +41,7 @@ import {
 } from "@t3tools/client-runtime/state/filesystem";
 import {
   appendBrowsePathSegment,
+  ensureBrowseDirectoryPath,
   inferProjectTitleFromPath,
   isWindowsPlatform,
 } from "@t3tools/client-runtime/state/projects";
@@ -146,8 +147,8 @@ function SectionTitle(props: { readonly children: string }) {
     <Text
       className={
         Platform.OS === "android"
-          ? "px-4 text-sm font-t3-medium text-primary-text"
-          : "px-1 text-2xs font-t3-bold tracking-[0.7px] uppercase text-foreground-muted"
+          ? "px-4 text-sm font-mines-medium text-primary-text"
+          : "px-1 text-2xs font-mines-bold tracking-[0.7px] uppercase text-foreground-muted"
       }
     >
       {props.children}
@@ -237,7 +238,7 @@ function ListRow(props: {
           {props.icon}
         </View>
         <View className="flex-1 gap-0.5">
-          <Text className="text-base leading-snug font-t3-bold">{props.title}</Text>
+          <Text className="text-base leading-snug font-mines-bold">{props.title}</Text>
           {props.subtitle ? (
             <Text className="text-sm leading-snug text-foreground-muted" numberOfLines={2}>
               {props.subtitle}
@@ -432,7 +433,7 @@ function EmptyEnvironmentState() {
 
   return (
     <View className="items-center gap-3 rounded-2xl bg-grouped-card px-5 py-8">
-      <Text className="text-center text-lg font-t3-bold">Environment unavailable</Text>
+      <Text className="text-center text-lg font-mines-bold">Environment unavailable</Text>
       <Text className="text-center text-sm leading-normal text-foreground-muted">
         Start or reconnect an environment before adding a project.
       </Text>
@@ -838,8 +839,8 @@ export function AddProjectRepositoryScreen(props: {
   );
 }
 
-function FolderBrowser(props: {
-  readonly environment: EnvironmentOption;
+export function FolderBrowser(props: {
+  readonly environment: Pick<EnvironmentOption, "environmentId" | "platform">;
   readonly pathInput: string;
   readonly setPathInput: (path: string) => void;
   readonly navigateToBrowsePath: (input: {
@@ -847,6 +848,8 @@ function FolderBrowser(props: {
     readonly selectedDirectoryName?: string;
   }) => Promise<boolean>;
   readonly pinnedDirectoryName?: string;
+  readonly onSelectDirectory?: (path: string) => void;
+  readonly isSelectingDirectory?: boolean;
 }) {
   const browsePath = getFilesystemBrowsePath(props.pathInput, props.environment.platform);
   const browseInput =
@@ -879,6 +882,13 @@ function FolderBrowser(props: {
     browseState.data?.entries ?? [],
     browseFilterQuery,
   );
+  const navigationPath =
+    props.onSelectDirectory && browseState.data
+      ? getFilesystemBrowsePath(
+          ensureBrowseDirectoryPath(browseState.data.parentPath),
+          props.environment.platform,
+        )
+      : browsePath;
 
   return (
     <>
@@ -893,7 +903,7 @@ function FolderBrowser(props: {
             <AppActivityIndicator colorClassName="accent-icon-muted" />
           </View>
         ) : null}
-        {browsePath.canBrowseUp ? (
+        {navigationPath.canBrowseUp ? (
           <ListRow
             title=".."
             icon={
@@ -907,9 +917,9 @@ function FolderBrowser(props: {
             isFirst
             right={null}
             onPress={() => {
-              if (browsePath.parentPath) {
+              if (navigationPath.parentPath) {
                 void props.navigateToBrowsePath({
-                  browseDirectoryPath: browsePath.parentPath,
+                  browseDirectoryPath: navigationPath.parentPath,
                 });
               }
             }}
@@ -927,17 +937,40 @@ function FolderBrowser(props: {
                 type="monochrome"
               />
             }
-            isFirst={index === 0 && !browsePath.canBrowseUp}
+            isFirst={index === 0 && !navigationPath.canBrowseUp}
             right={null}
             onPress={() => {
               void props.navigateToBrowsePath({
-                browseDirectoryPath: browsePath.directoryPath,
+                browseDirectoryPath: navigationPath.directoryPath,
                 selectedDirectoryName: entry.name,
               });
             }}
           />
         ))}
       </ListSection>
+      {props.onSelectDirectory ? (
+        <>
+          {browseState.data ? (
+            <Text selectable className="text-sm text-foreground-muted">
+              {browseState.data.parentPath}
+            </Text>
+          ) : null}
+          <Button
+            label="Use this folder"
+            loading={props.isSelectingDirectory}
+            disabled={!canReadFiles || !browseState.isSuccess || browseState.isPending}
+            onPress={() => {
+              if (
+                canReadFiles &&
+                browseState.isSuccess &&
+                !browseState.isPending &&
+                browseState.data
+              )
+                props.onSelectDirectory?.(browseState.data.parentPath);
+            }}
+          />
+        </>
+      ) : null}
     </>
   );
 }
@@ -1380,7 +1413,7 @@ export function AddProjectDestinationScreen(props: {
       {error ? <ErrorBanner message={error} /> : null}
       {repositoryTitle ? (
         <View className="rounded-[24px] bg-grouped-card px-4 py-3">
-          <Text className="text-base font-t3-bold">{repositoryTitle}</Text>
+          <Text className="text-base font-mines-bold">{repositoryTitle}</Text>
           <Text className="mt-0.5 text-xs text-foreground-muted" numberOfLines={2}>
             {remoteUrl}
           </Text>

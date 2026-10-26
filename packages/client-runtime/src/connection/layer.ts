@@ -15,6 +15,7 @@ import * as PlatformConnectionSource from "../platform/source.ts";
 import * as RelayEnvironmentDiscovery from "../relay/discovery.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as RpcSession from "../rpc/session.ts";
+import * as PeerConnections from "../peer/connections.ts";
 
 export const watchDiscoveredCompatibility = Effect.fn("connection.watchDiscoveredCompatibility")(
   function* () {
@@ -98,6 +99,7 @@ export function layerWithOptions(options: RpcSession.RpcSessionOptions) {
   return layerConnectionStartup.pipe(
     Layer.provideMerge(layerConnectionServices),
     Layer.provideMerge(RemoteEnvironmentAuthorization.layer),
+    Layer.provideMerge(PeerConnections.layer),
   );
 }
 

@@ -1,6 +1,12 @@
+import { useAtomValue } from "@effect/atom-react";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { catalogHostId, minesAccountEnvironmentIdsAtom } from "@t3tools/client-runtime/catalog";
+import { useMinesCatalog } from "../catalog/useMinesCatalog";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
+import { openMineTransferDialog } from "../components/chat/mineTransferDialogState";
+import { canTransferMineAtom } from "../components/chat/mineTransferAvailability";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -27,7 +33,6 @@ import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
 import {
   readEnvironmentSupportsAutoSettleOptOut,
-  readEnvironmentSupportsPinning,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
   readEnvironmentSupportsTitleRegeneration,
@@ -66,8 +71,10 @@ export function useThreadActionMenu(input: {
 }) {
   const { threadRef, projectCwd, onStartRename, canShareWithGuest } = input;
   const router = useRouter();
+  const { catalog } = useMinesCatalog();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownedEnvironmentIds = useAtomValue(minesAccountEnvironmentIdsAtom);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const logicalProjectKeyByPhysicalKey = buildPhysicalToLogicalProjectKeyMap({
     projects,
@@ -79,8 +86,6 @@ export function useThreadActionMenu(input: {
     unsettleThread,
     snoozeThread,
     unsnoozeThread,
-    pinThread,
-    confirmAndUnpinThread,
     setThreadAutoSettle,
     archiveThread,
     deleteThread,
@@ -108,14 +113,14 @@ export function useThreadActionMenu(input: {
   });
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
     onCopy: ({ threadId }) => {
-      toastManager.add({ type: "success", title: "Thread ID copied", description: threadId });
+      toastManager.add({ type: "success", title: "Mine ID copied", description: threadId });
     },
-    onError: (error) => failureToast("Failed to copy thread ID", error),
+    onError: (error) => failureToast("Failed to copy mine ID", error),
   });
 
   const openMenu = (position: { x: number; y: number }) => {
     if (threadRef === null) return;
-    void (async () => {
+    return (async () => {
       const api = readLocalApi();
       if (!api) return;
       const thread = readThreadShell(threadRef);
@@ -125,7 +130,10 @@ export function useThreadActionMenu(input: {
         settlement: readEnvironmentSupportsSettlement(threadRef.environmentId),
         autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
         snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
-        pinning: readEnvironmentSupportsPinning(threadRef.environmentId),
+        pinning:
+          catalog !== null &&
+          (threadRef.environmentId === primaryEnvironmentId ||
+            ownedEnvironmentIds.has(threadRef.environmentId)),
         titleRegeneration: readEnvironmentSupportsTitleRegeneration(threadRef.environmentId),
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
@@ -134,7 +142,14 @@ export function useThreadActionMenu(input: {
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         branch: thread.branch ?? null,
         projectFilter: null,
-        isPinned: thread.pinnedAt != null,
+        isPinned:
+          catalog
+            ?.getSnapshot()
+            .pins.some(
+              (entry) =>
+                entry.entity.id ===
+                catalogHostId("thread", threadRef.environmentId, threadRef.threadId),
+            ) ?? false,
         isSettled: supports.settlement && thread.settledOverride === "settled",
         autoSettleEnabled: thread.autoSettleDisabledAt == null,
         isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
@@ -144,6 +159,7 @@ export function useThreadActionMenu(input: {
         supports,
         snoozePresets,
         canShareWithGuest,
+        canTransferMine: appAtomRegistry.get(canTransferMineAtom(threadRef.environmentId)),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -152,10 +168,7 @@ export function useThreadActionMenu(input: {
         threadActionRequiresOperate(action) &&
         !readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)
       ) {
-        failureToast(
-          "Thread action unavailable",
-          new Error("This connection cannot change threads."),
-        );
+        failureToast("Mine action unavailable", new Error("This connection cannot change mines."));
         return;
       }
       if (action.startsWith("snooze:")) {
@@ -166,7 +179,7 @@ export function useThreadActionMenu(input: {
         if (!preset) return;
         const result = await snoozeThread(threadRef, preset.snoozedUntil);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          failureToast("Failed to snooze thread", squashAtomCommandFailure(result));
+          failureToast("Failed to snooze mine", squashAtomCommandFailure(result));
         }
         return;
       }
@@ -205,24 +218,44 @@ export function useThreadActionMenu(input: {
             }),
           );
           if (result._tag === "Failure") {
-            failureToast("Could not create thread", squashAtomCommandFailure(result));
+            failureToast("Could not create mine", squashAtomCommandFailure(result));
           }
           return;
         }
         case "settle":
-          await reportFailure("Failed to settle thread", () => settleThread(threadRef));
+          await reportFailure("Failed to settle mine", () => settleThread(threadRef));
           return;
         case "unsettle":
-          await reportFailure("Failed to un-settle thread", () => unsettleThread(threadRef));
+          await reportFailure("Failed to un-settle mine", () => unsettleThread(threadRef));
           return;
         case "unsnooze":
-          await reportFailure("Failed to wake thread", () => unsnoozeThread(threadRef));
+          await reportFailure("Failed to wake mine", () => unsnoozeThread(threadRef));
           return;
         case "pin":
-          await reportFailure("Failed to pin thread", () => pinThread(threadRef));
-          return;
         case "unpin": {
-          await reportFailure("Failed to unpin thread", () => confirmAndUnpinThread(threadRef));
+          if (
+            !catalog ||
+            (threadRef.environmentId !== primaryEnvironmentId &&
+              !appAtomRegistry.get(minesAccountEnvironmentIdsAtom).has(threadRef.environmentId))
+          )
+            return;
+          const id = catalogHostId("thread", threadRef.environmentId, threadRef.threadId);
+          try {
+            catalog.transaction(() => {
+              if (action === "unpin") catalog.unpin(id);
+              else {
+                catalog.upsert({
+                  id,
+                  kind: "thread",
+                  title: thread.title,
+                  hostRef: { environmentId: threadRef.environmentId, entityId: threadRef.threadId },
+                });
+                catalog.pin(id);
+              }
+            });
+          } catch (error) {
+            failureToast("Could not update your library", error);
+          }
           return;
         }
         case "auto-settle:enabled":
@@ -236,7 +269,7 @@ export function useThreadActionMenu(input: {
           return;
         case "regenerate-title":
           if (isRegeneratingTitle) return;
-          await reportFailure("Failed to regenerate thread title", () =>
+          await reportFailure("Failed to regenerate mine title", () =>
             updateThreadMetadata({
               environmentId: threadRef.environmentId,
               input: { threadId: threadRef.threadId, regenerateTitle: true },
@@ -249,6 +282,9 @@ export function useThreadActionMenu(input: {
         case "share-guest":
           openGuestShareDialog(threadRef);
           return;
+        case "transfer-mine":
+          openMineTransferDialog(threadRef);
+          return;
         case "copy-path": {
           const workspacePath = thread.worktreePath ?? projectCwd;
           if (!workspacePath) {
@@ -256,7 +292,7 @@ export function useThreadActionMenu(input: {
               stackedThreadToast({
                 type: "error",
                 title: "Path unavailable",
-                description: "This thread does not have a workspace path to copy.",
+                description: "This mine does not have a workspace path to copy.",
               }),
             );
             return;
@@ -275,7 +311,7 @@ export function useThreadActionMenu(input: {
         case "archive": {
           if (confirmThreadArchive) {
             const confirmed = await settlePromise(() =>
-              api.dialogs.confirm(`Archive thread "${thread.title}"?`),
+              api.dialogs.confirm(`Archive mine "${thread.title}"?`),
             );
             if (confirmed._tag === "Failure" || !confirmed.value) return;
           }
@@ -287,7 +323,7 @@ export function useThreadActionMenu(input: {
           });
           if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
             failureToast(
-              didArchive ? "Thread archived, but navigation failed" : "Failed to archive thread",
+              didArchive ? "Mine archived, but navigation failed" : "Failed to archive mine",
               squashAtomCommandFailure(result),
             );
           }
@@ -298,8 +334,8 @@ export function useThreadActionMenu(input: {
             const confirmed = await settlePromise(() =>
               api.dialogs.confirm(
                 [
-                  `Delete thread "${thread.title}"?`,
-                  "This permanently clears conversation history for this thread.",
+                  `Delete mine "${thread.title}"?`,
+                  "This permanently clears conversation history for this mine.",
                 ].join("\n"),
                 { variant: "destructive" },
               ),
@@ -313,7 +349,7 @@ export function useThreadActionMenu(input: {
             // A missing thread means cleanup failed after deletion; deleteThread already toasted that failure.
             readThreadShell(threadRef) !== null
           ) {
-            failureToast("Failed to delete thread", squashAtomCommandFailure(deleted));
+            failureToast("Failed to delete mine", squashAtomCommandFailure(deleted));
           }
           return;
         }

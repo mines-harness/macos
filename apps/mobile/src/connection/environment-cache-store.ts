@@ -1,9 +1,13 @@
+import { appAtomRegistry } from "../state/atom-registry";
+import { minesAccountIdAtom } from "@t3tools/client-runtime/catalog";
 import {
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
   ORCHESTRATION_THREAD_CACHE_SCHEMA_VERSION,
   StoredOrchestrationThreadSnapshot,
   Persistence,
   makeStoredShellSnapshotEncoder,
+  createEncryptedHistoryCache,
+  MOBILE_HISTORY_CACHE_BYTES,
 } from "@t3tools/client-runtime/platform";
 import { type EnvironmentId, ServerConfig, VcsListRefsResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -101,7 +105,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   const database = yield* MobileDatabase.MobileDatabase;
   attachProjectFaviconDatabase(database);
   const encodeStoredShellSnapshot = makeStoredShellSnapshotEncoder();
-  return Persistence.EnvironmentCacheStore.of({
+  const base = Persistence.EnvironmentCacheStore.of({
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,
@@ -241,6 +245,31 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
       ),
     ),
   });
+  return base;
 });
 
-export const layer = Layer.effect(Persistence.EnvironmentCacheStore, make());
+export const layer = Layer.effect(
+  Persistence.EnvironmentCacheStore,
+  make().pipe(
+    Effect.map((base) =>
+      createEncryptedHistoryCache({
+        base,
+        accountId: () => appAtomRegistry.get(minesAccountIdAtom) ?? "local-device",
+        open: (accountId) =>
+          import("../catalog/encryptedStorage").then(({ openMobilePrivateStore }) =>
+            openMobilePrivateStore(accountId),
+          ),
+        budgetBytes: MOBILE_HISTORY_CACHE_BYTES,
+        unmetered: async () => {
+          const Network = await import("expo-network");
+          const state = await Network.getNetworkStateAsync();
+          return (
+            state.isConnected === true &&
+            (state.type === Network.NetworkStateType.WIFI ||
+              state.type === Network.NetworkStateType.ETHERNET)
+          );
+        },
+      }),
+    ),
+  ),
+);

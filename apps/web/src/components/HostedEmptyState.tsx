@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/react";
+import { useMinesAuth } from "../cloud/MinesAuthProvider";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { CheckIcon } from "lucide-react";
@@ -10,7 +10,7 @@ import { isElectron } from "../env";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useRelayEnvironmentDiscovery } from "../state/environments";
 import { CommandBlock } from "./CommandBlock";
-import { useT3ConnectAuthPrompt } from "./clerk/useT3ConnectAuthPrompt";
+import { useMinesAuthPrompt } from "./clerk/useMinesAuthPrompt";
 import { CloudEnvironmentConnectRows } from "./cloud/CloudEnvironmentConnectList";
 import { Button } from "./ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
@@ -43,7 +43,7 @@ export function HostedEmptyState() {
                 ? "Turn it back on, or connect a different computer."
                 : cloudEnabled
                   ? "Your agents run on your computer."
-                  : "Your agents run on your computer. Start T3 Code there first."}
+                  : "Your agents run on your computer. Start mines there first."}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -53,7 +53,7 @@ export function HostedEmptyState() {
               </Button>
             ) : (
               <ol className="w-full space-y-4 text-left">
-                {cloudEnabled ? <T3ConnectSteps /> : <PairingSteps />}
+                {cloudEnabled ? <MinesConnectSteps /> : <PairingSteps />}
               </ol>
             )}
           </EmptyContent>
@@ -63,9 +63,9 @@ export function HostedEmptyState() {
   );
 }
 
-function T3ConnectSteps() {
-  const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
-  const { openAuthPrompt } = useT3ConnectAuthPrompt();
+function MinesConnectSteps() {
+  const { isLoaded, isSignedIn } = useMinesAuth();
+  const { openAuthPrompt } = useMinesAuthPrompt();
   // Adding the first computer unmounts this screen. Wait for all health checks
   // so every compatible registration is queued before that happens.
   const [autoAddedComputers] = useState(() => new Set<EnvironmentId>());
@@ -150,14 +150,16 @@ function RunOnComputer({ command }: { readonly command: string }) {
     <>
       <p>Run on your computer:</p>
       <CommandBlock command={command} className="mt-2" />
-      <a
-        className="mt-2 inline-block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        href={DESKTOP_DOWNLOAD_URL}
-        target="_blank"
-        rel="noreferrer noopener"
-      >
-        Or download the desktop app
-      </a>
+      {DESKTOP_DOWNLOAD_URL ? (
+        <a
+          className="mt-2 inline-block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          href={DESKTOP_DOWNLOAD_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Or download the desktop app
+        </a>
+      ) : null}
     </>
   );
 }

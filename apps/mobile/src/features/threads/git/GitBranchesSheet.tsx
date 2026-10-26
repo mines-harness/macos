@@ -105,7 +105,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
           }
         >
           <View className="bg-card android:gap-3 android:rounded-[20px] android:p-4 ios:gap-2 ios:rounded-[18px] ios:border ios:border-border ios:px-4 ios:py-4">
-            <Text className="android:text-foreground android:text-base android:font-t3-medium ios:text-foreground-secondary ios:text-2xs ios:font-t3-bold ios:tracking-[1px] ios:uppercase">
+            <Text className="android:text-foreground android:text-base android:font-mines-medium ios:text-foreground-secondary ios:text-2xs ios:font-mines-bold ios:tracking-[1px] ios:uppercase">
               New branch
             </Text>
             <TextInput
@@ -133,7 +133,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
           </View>
 
           <View className="bg-card android:gap-3 android:rounded-[20px] android:p-4 ios:gap-2 ios:rounded-[18px] ios:border ios:border-border ios:px-4 ios:py-4">
-            <Text className="android:text-foreground android:text-base android:font-t3-medium ios:text-foreground-secondary ios:text-2xs ios:font-t3-bold ios:tracking-[1px] ios:uppercase">
+            <Text className="android:text-foreground android:text-base android:font-mines-medium ios:text-foreground-secondary ios:text-2xs ios:font-mines-bold ios:tracking-[1px] ios:uppercase">
               New worktree
             </Text>
             {Platform.OS === "android" ? (
@@ -182,7 +182,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
           </View>
 
           <View className="gap-2">
-            <Text className="text-foreground-secondary android:px-4 android:pb-1 android:pt-3 android:text-sm android:font-t3-medium ios:text-2xs ios:font-t3-bold ios:tracking-[1px] ios:uppercase">
+            <Text className="text-foreground-secondary android:px-4 android:pb-1 android:pt-3 android:text-sm android:font-mines-medium ios:text-2xs ios:font-mines-bold ios:tracking-[1px] ios:uppercase">
               Existing branches
             </Text>
             {branchesLoading ? (
@@ -199,7 +199,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               const disabled = disabledExistingBranches.has(branch.name);
               const subtitle = branch.worktreePath
                 ? branch.worktreePath === currentWorktreePath
-                  ? "Checked out in this thread"
+                  ? "Checked out in this mine"
                   : "Checked out in another worktree"
                 : branch.isDefault
                   ? "Default branch"
@@ -227,7 +227,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                   {Platform.OS !== "android" ? (
                     <View className="absolute inset-0 rounded-[18px] bg-card" />
                   ) : null}
-                  <Text className="text-foreground text-base android:font-t3-medium ios:font-t3-bold">
+                  <Text className="text-foreground text-base android:font-mines-medium ios:font-mines-bold">
                     {branch.name}
                   </Text>
                   <Text className="text-foreground-secondary text-xs font-medium">{subtitle}</Text>

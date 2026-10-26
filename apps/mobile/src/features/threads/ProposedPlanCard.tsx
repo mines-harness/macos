@@ -56,7 +56,10 @@ export function ProposedPlanCard(props: {
   return (
     <View className="mb-3 gap-3 rounded-[20px] border border-border bg-card-alt p-4">
       <View className="flex-row items-center gap-2">
-        <Text accessibilityRole="header" className="flex-1 font-t3-bold text-base text-foreground">
+        <Text
+          accessibilityRole="header"
+          className="flex-1 font-mines-bold text-base text-foreground"
+        >
           {proposedPlanTitle(props.markdown) ?? "Proposed plan"}
         </Text>
         <CopyTextButton accessibilityLabel="Copy plan" text={contents} />
@@ -72,7 +75,7 @@ export function ProposedPlanCard(props: {
               title: "Save plan to workspace",
               // The write replaces an existing file, and the RPC has no create-only mode.
               message:
-                "Enter a path relative to the thread's workspace. A file already at that path is replaced.",
+                "Enter a path relative to the mine's workspace. A file already at that path is replaced.",
               initialValue: lastPath,
               confirmText: "Save",
               onConfirm: (path) => void save(path),

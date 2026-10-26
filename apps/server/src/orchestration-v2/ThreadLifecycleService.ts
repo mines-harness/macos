@@ -30,7 +30,7 @@ export class ThreadLifecycleError extends Schema.TaggedError<ThreadLifecycleErro
   },
 ) {
   override get message(): string {
-    return `Thread lifecycle operation '${this.operation}' failed for ${this.threadId}.`;
+    return `Mine lifecycle operation '${this.operation}' failed for ${this.threadId}.`;
   }
 }
 
@@ -72,7 +72,7 @@ export class ThreadLifecycleService extends Context.Service<
       readonly modelSelection: ModelSelection;
     }) => Effect.Effect<Pick<OrchestrationV2ThreadProjection, "thread">, ThreadLifecycleError>;
   }
->()("t3/orchestration-v2/ThreadLifecycleService") {}
+>()("mines/orchestration-v2/ThreadLifecycleService") {}
 
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;

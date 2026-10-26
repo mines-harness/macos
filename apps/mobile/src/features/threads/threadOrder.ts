@@ -227,7 +227,7 @@ export function createPendingThreadOrder(input: {
   readonly assignments: readonly { readonly id: string; readonly orderKey: string }[];
 }): PendingThreadOrder {
   const orderedIds = threadOrderAfterMove(input.ordered.map(rowId), input.movedId, input.direction);
-  if (orderedIds === null) throw new Error("Cannot begin an invalid thread move");
+  if (orderedIds === null) throw new Error("Cannot begin an invalid mine move");
   return {
     section: input.section,
     orderedIds,

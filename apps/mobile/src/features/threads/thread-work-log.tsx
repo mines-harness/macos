@@ -1,3 +1,4 @@
+import { BodyRangeNotice } from "./BodyRangeNotice";
 import { Button } from "../../components/ui/Button";
 import { SubagentStatusDot } from "./SubagentStatusDot";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
@@ -61,7 +62,7 @@ import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 
 import { AppText as Text } from "../../components/ui/AppText";
-import { T3Wordmark } from "../../components/T3Wordmark";
+import { MinesWordmark } from "../../components/MinesWordmark";
 import { BrowserAppIcon } from "./BrowserAppIcon";
 import { cn } from "../../lib/cn";
 import { THREAD_WORK_ROW_MIN_HEIGHT, type deriveThreadWorkLogSizing } from "../../lib/layout";
@@ -114,13 +115,7 @@ export const THREAD_DISCLOSURE_TRANSITION_MS = 180;
 const WORK_LOG_LAYOUT_TRANSITION = LinearTransition.duration(THREAD_DISCLOSURE_TRANSITION_MS);
 const WORK_LOG_DETAIL_ENTER_TRANSITION = FadeIn.duration(140);
 const WORK_LOG_DETAIL_EXIT_TRANSITION = FadeOut.duration(120);
-type WorkContentIcon =
-  | AppSymbolName
-  | "browser"
-  | "computer"
-  | "device"
-  | "t3-code"
-  | "pull-request";
+type WorkContentIcon = AppSymbolName | "browser" | "computer" | "device" | "mines" | "pull-request";
 
 function WorkLogIcon(props: {
   readonly icon: WorkContentIcon;
@@ -129,9 +124,12 @@ function WorkLogIcon(props: {
   readonly highlighted?: boolean;
 }) {
   const colorClassName = props.highlighted ? "accent-foreground" : props.colorClassName;
-  if (props.icon === "t3-code") {
+  if (props.icon === "mines") {
     return (
-      <T3Wordmark height={10} {...(colorClassName ? { colorClassName } : { color: props.color })} />
+      <MinesWordmark
+        height={10}
+        {...(colorClassName ? { colorClassName } : { color: props.color })}
+      />
     );
   }
   if (props.icon === "computer") {
@@ -478,6 +476,7 @@ export function collapsedWorkLogHeight(
 }
 
 interface ThreadWorkLogProps {
+  readonly threadId: ThreadId;
   readonly continuesWorkLog?: boolean | undefined;
   readonly activities: ReadonlyArray<ThreadFeedActivity>;
   readonly anchorKey: string;
@@ -504,6 +503,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
       key={row.id}
       row={row}
       anchorKey={props.anchorKey}
+      threadId={props.threadId}
       copied={props.copiedRowId === row.id}
       expanded={props.expandedRows[row.id] ?? false}
       environmentId={props.environmentId}
@@ -524,12 +524,19 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
   const plan = props.activities[0]?.projectedItem.item;
   if (plan?.type === "proposed_plan") {
     return (
-      <ProposedPlanCard
-        environmentId={props.environmentId}
-        workspaceRoot={props.workspaceRoot}
-        markdown={plan.markdown}
-        renderMarkdown={props.renderReasoning}
-      />
+      <View>
+        <BodyRangeNotice
+          row={props.activities[0]?.projectedItem}
+          environmentId={props.environmentId}
+          threadId={props.threadId}
+        />
+        <ProposedPlanCard
+          environmentId={props.environmentId}
+          workspaceRoot={props.workspaceRoot}
+          markdown={plan.markdown}
+          renderMarkdown={props.renderReasoning}
+        />
+      </View>
     );
   }
 
@@ -544,7 +551,14 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
     return (
       <ScrollView nestedScrollEnabled className="ml-7 max-h-96 py-1">
         {props.activities.map((row) => (
-          <View key={row.id}>{props.renderReasoning(row.workEntry.detail ?? "")}</View>
+          <View key={row.id}>
+            <BodyRangeNotice
+              row={row.projectedItem}
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+            />
+            {props.renderReasoning(row.workEntry.detail ?? "")}
+          </View>
         ))}
       </ScrollView>
     );
@@ -705,7 +719,7 @@ function ThreadWorkGroupList(props: {
 
   return (
     <View style={{ height, overflow: "hidden" }}>
-      {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- Nested in a fixed-height card inside the thread feed, which owns the header's scroll view. */}
+      {/* oxlint-disable-next-line mines/require-registered-list-scroll -- Nested in a fixed-height card inside the thread feed, which owns the header's scroll view. */}
       <AnimatedLegendList
         ref={listRef}
         data={props.activities}
@@ -925,14 +939,14 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             <Text
               className={
                 warning
-                  ? "min-w-0 flex-1 font-t3-medium text-sm text-warning-foreground"
-                  : "min-w-0 flex-1 font-t3-medium text-sm text-adaptive-rose-600-400"
+                  ? "min-w-0 flex-1 font-mines-medium text-sm text-warning-foreground"
+                  : "min-w-0 flex-1 font-mines-medium text-sm text-adaptive-rose-600-400"
               }
             >
               {label}
             </Text>
             {props.copied ? (
-              <Text className="pr-1 font-t3-medium text-3xs text-adaptive-emerald-600-400">
+              <Text className="pr-1 font-mines-medium text-3xs text-adaptive-emerald-600-400">
                 Copied
               </Text>
             ) : null}
@@ -1048,7 +1062,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
         accessibilityLabel={failed ? `${accessiblePreview}, tool call failed` : accessiblePreview}
         accessibilityHint={
           notifiedSubagentThreadId !== undefined
-            ? "Opens this agent's thread. Long press to copy."
+            ? "Opens this agent's mine. Long press to copy."
             : canExpand
               ? `Double tap to ${expanded ? "hide" : "show"} full details. Long press to copy.`
               : "Long press to copy."
@@ -1130,7 +1144,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
 
         <View className="shrink-0 flex-row items-center gap-px">
           {props.copied ? (
-            <Text className="pr-1 font-t3-medium text-3xs text-adaptive-emerald-600-400">
+            <Text className="pr-1 font-mines-medium text-3xs text-adaptive-emerald-600-400">
               Copied
             </Text>
           ) : null}
@@ -1212,7 +1226,14 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             contentContainerStyle={{ paddingRight: 8 }}
           >
             {reasoning ? (
-              props.renderReasoning(reasoning.text)
+              <>
+                <BodyRangeNotice
+                  row={row.projectedItem}
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
+                />
+                {props.renderReasoning(reasoning.text)}
+              </>
             ) : call ? (
               [
                 call.command,
@@ -1289,7 +1310,7 @@ export function ThreadWorkGroupToggle(props: {
   readonly iconSubtleColor: import("react-native").ColorValue;
   readonly summary: string;
   readonly summaryKind: ToolGroupSummaryKind;
-  readonly summaryToolIcon?: "browser" | "device" | "t3-code" | "pull-request" | "brain";
+  readonly summaryToolIcon?: "browser" | "device" | "mines" | "pull-request" | "brain";
   readonly themeAppearance: "light" | "dark";
   readonly toolSurface?: import("@t3tools/contracts").ToolActivitySurface;
   readonly toolIcon?: ToolActivityIcon;
@@ -1426,7 +1447,7 @@ export const ThreadAgentSpawnCard = function ThreadAgentSpawnCard(props: {
           <View className="min-w-0 flex-1 gap-0.5">
             <Text
               key={props.rowSizing.textSizeKey}
-              className="font-t3-medium text-sm text-foreground"
+              className="font-mines-medium text-sm text-foreground"
               numberOfLines={1}
             >
               {summary.title}

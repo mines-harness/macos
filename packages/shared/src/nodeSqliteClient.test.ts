@@ -364,7 +364,7 @@ it.effect("finishes masked database cleanup after its caller is interrupted", ()
   }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );
 
-// oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets the worker's queued messages land, not a wait for time
+// oxlint-disable-next-line mines/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets the worker's queued messages land, not a wait for time
 const eventLoopTurn = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
 
 it.effect.each([

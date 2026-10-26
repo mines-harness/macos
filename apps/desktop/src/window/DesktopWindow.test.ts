@@ -19,7 +19,7 @@ vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
   session: {
     fromPartition: vi.fn(() => ({
-      getUserAgent: vi.fn(() => "Mozilla/5.0 Electron/41.5.0 t3code/1.2.3"),
+      getUserAgent: vi.fn(() => "Mozilla/5.0 Electron/41.5.0 mines/1.2.3"),
       setPermissionRequestHandler: vi.fn(),
       setUserAgent: vi.fn(),
     })),
@@ -45,7 +45,7 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
+import { SNAP_SHOT_EVENT_CHANNEL, STARTUP_RENDERER_READY_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -68,10 +68,12 @@ function makeFakeBrowserWindow() {
   const webContentsListeners = new Map<string, (...args: readonly unknown[]) => void>();
   let zoomLevel = 0;
   const webContents = {
+    mainFrame: {},
+    executeJavaScript: vi.fn(() => Promise.resolve()),
     copyImageAt: vi.fn(),
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
-    getURL: vi.fn(() => "t3code-dev://app/"),
+    getURL: vi.fn(() => "mines-dev://app/"),
     getZoomLevel: vi.fn(() => zoomLevel),
     getZoomFactor: vi.fn(() => 1.2 ** zoomLevel),
     setZoomLevel: vi.fn((level: number) => {
@@ -94,6 +96,7 @@ function makeFakeBrowserWindow() {
 
   const window = {
     close: vi.fn(),
+    hide: vi.fn(),
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
@@ -124,6 +127,8 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    executeJavaScript: webContents.executeJavaScript,
+    hide: window.hide,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -163,7 +168,7 @@ const layerDesktopAssets = Layer.succeed(DesktopAssets.DesktopAssets, {
     icns: Option.none<string>(),
     png: Option.none<string>(),
   }),
-  resolveResourcePath: () => Effect.succeed(Option.none<string>()),
+  resolveResourcePath: (name) => Effect.succeed(Option.some(`/repo/resources/${name}`)),
 } satisfies DesktopAssets.DesktopAssets["Service"]);
 
 const layerDesktopServerExposure = Layer.succeed(DesktopServerExposure.DesktopServerExposure, {
@@ -198,7 +203,7 @@ const layerDesktopEnvironment = DesktopEnvironment.layer(environmentInput).pipe(
     Layer.mergeAll(
       NodeServices.layer,
       DesktopConfig.layerTest({
-        T3CODE_PORT: "3773",
+        MINES_PORT: "3773",
         VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
       }),
     ),
@@ -332,8 +337,8 @@ function layerTest(input: {
           getBrowserSession: () => Effect.succeed({} as Electron.Session),
           setMainWindow: input.setPreviewMainWindow ?? (() => Effect.void),
           prepareWebview: () => Effect.void,
-          isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
-          getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
+          isBrowserPartition: (partition) => partition.startsWith("persist:mines-preview-"),
+          getBrowserPartition: () => Effect.succeed("persist:mines-preview-test"),
           reapplyZoom: () =>
             Effect.sync(() => {
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
@@ -351,6 +356,8 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     const createCalls = yield* Ref.make(0);
     const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
     const revealedWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
+    const firstReveal = yield* Deferred.make<void>();
+    const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
     const fallbackWindow = createOutcomes.find(
       (window): window is Electron.BrowserWindow => window !== null,
     );
@@ -365,8 +372,9 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     });
 
     const electronWindowShape = {
-      create: () =>
+      create: (options) =>
         Effect.gen(function* () {
+          createdWindowOptions.push(options);
           const index = yield* Ref.getAndUpdate(createCalls, (count) => count + 1);
           const outcome = createOutcomes[index] ?? null;
           if (outcome === null) {
@@ -404,7 +412,10 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
       clearMain: () => Ref.set(mainWindow, Option.none()),
       prepareReveal: () => Effect.succeed(false),
-      reveal: (window) => Ref.update(revealedWindows, (windows) => [...windows, window]),
+      reveal: (window) =>
+        Ref.update(revealedWindows, (windows) => [...windows, window]).pipe(
+          Effect.andThen(Deferred.succeed(firstReveal, undefined)),
+        ),
       sendAll: () => Effect.void,
       destroyAll: Effect.void,
       syncAllAppearance: (sync) => (fallbackWindow ? sync(fallbackWindow) : Effect.void),
@@ -441,20 +452,105 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.mock(PreviewManager.PreviewManager)({
             getBrowserSession: () => Effect.succeed({} as Electron.Session),
             setMainWindow: () => Effect.void,
-            isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
-            getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
+            isBrowserPartition: (partition) => partition.startsWith("persist:mines-preview-"),
+            getBrowserPartition: () => Effect.succeed("persist:mines-preview-test"),
           }),
         ),
       ),
     );
 
-    return { layer, createCalls, mainWindow, revealedWindows } as const;
+    return {
+      layer,
+      createCalls,
+      mainWindow,
+      revealedWindows,
+      firstReveal,
+      createdWindowOptions,
+    } as const;
   });
 
 const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111");
 const captureTwo = DesktopSnapShotId.make("22222222-2222-4222-8222-222222222222");
 
 describe("DesktopWindow", () => {
+  it.effect(
+    "keeps the transparent startup mine until the main renderer mounts, then reveals once",
+    () =>
+      Effect.gen(function* () {
+        const splash = makeFakeBrowserWindow();
+        const main = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([splash.window, main.window]);
+        yield* Effect.gen(function* () {
+          const windows = yield* DesktopWindow.DesktopWindow;
+          yield* windows.showConnectingSplash;
+          yield* windows.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          main.windowListeners.get("ready-to-show")?.();
+          yield* windows.activate;
+          assert.deepEqual(yield* Ref.get(scenario.revealedWindows), []);
+          assert.equal(scenario.createdWindowOptions[0]?.transparent, true);
+          assert.equal(scenario.createdWindowOptions[0]?.hasShadow, false);
+          assert.equal(scenario.createdWindowOptions[0]?.backgroundColor, "#00000000");
+          const receive = main.webContentsListeners.get("ipc-message");
+          if (!receive) return yield* Effect.die("startup readiness listener missing");
+          receive({ senderFrame: {} }, STARTUP_RENDERER_READY_CHANNEL, { ready: true });
+          assert.deepEqual(yield* Ref.get(scenario.revealedWindows), []);
+          receive(
+            { senderFrame: main.window.webContents.mainFrame },
+            STARTUP_RENDERER_READY_CHANNEL,
+            {
+              ready: true,
+              reducedMotion: true,
+            },
+          );
+          yield* Deferred.await(scenario.firstReveal);
+          assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [main.window]);
+          assert.equal(splash.executeJavaScript.mock.calls.length, 0);
+          receive(
+            { senderFrame: main.window.webContents.mainFrame },
+            STARTUP_RENDERER_READY_CHANNEL,
+            {
+              ready: true,
+              reducedMotion: true,
+            },
+          );
+          assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [main.window]);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+  );
+
+  it.effect("reveals the main recovery surface when renderer readiness never arrives", () =>
+    Effect.gen(function* () {
+      const splash = makeFakeBrowserWindow();
+      const main = makeFakeBrowserWindow();
+      const scenario = yield* makeSplashScenario([splash.window, main.window]);
+      yield* Effect.gen(function* () {
+        const windows = yield* DesktopWindow.DesktopWindow;
+        yield* windows.showConnectingSplash;
+        yield* windows.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* TestClock.adjust(30_000);
+        yield* Deferred.await(scenario.firstReveal);
+        assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [main.window]);
+      }).pipe(Effect.provide(scenario.layer));
+    }),
+  );
+
+  it.effect("opens a recovery window when the backend never reaches readiness", () =>
+    Effect.gen(function* () {
+      const splash = makeFakeBrowserWindow();
+      const main = makeFakeBrowserWindow();
+      const scenario = yield* makeSplashScenario([splash.window, main.window]);
+      yield* Effect.gen(function* () {
+        const windows = yield* DesktopWindow.DesktopWindow;
+        yield* windows.showConnectingSplash;
+        yield* TestClock.adjust(30_000);
+        assert.equal(yield* Ref.get(scenario.createCalls), 2);
+        main.windowListeners.get("ready-to-show")?.();
+        yield* Deferred.await(scenario.firstReveal);
+        assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [main.window]);
+        assert.equal(splash.executeJavaScript.mock.calls.length, 0);
+      }).pipe(Effect.provide(scenario.layer));
+    }),
+  );
   it("restores bounds only when the window fits within a connected display", () => {
     const persistedBounds = { x: 2040, y: 80, width: 1320, height: 880 };
     const displays = [
@@ -648,6 +744,31 @@ describe("DesktopWindow", () => {
     }),
   );
 
+  it.effect("keeps the macOS host alive on window close but allows explicit quit", () =>
+    Effect.gen(function* () {
+      const fake = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      yield* Effect.gen(function* () {
+        const windows = yield* DesktopWindow.DesktopWindow;
+        const state = yield* DesktopState.DesktopState;
+        yield* windows.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        const close = fake.windowListeners.get("close");
+        if (!close) return yield* Effect.die("window close listener was not registered");
+        const preventDefault = vi.fn();
+        close({ preventDefault });
+        assert.equal(preventDefault.mock.calls.length, 1);
+        assert.equal(fake.hide.mock.calls.length, 1);
+        assert.isTrue(Option.isSome(yield* Ref.get(mainWindow)));
+
+        yield* Ref.set(state.quitting, true);
+        close({ preventDefault });
+        assert.equal(preventDefault.mock.calls.length, 1);
+        assert.equal(fake.hide.mock.calls.length, 1);
+      }).pipe(Effect.provide(layerTest({ window: fake.window, createCount, mainWindow })));
+    }),
+  );
+
   it.effect("does not open main or splash windows once quitting has started", () =>
     Effect.gen(function* () {
       const fake = makeFakeBrowserWindow();
@@ -808,7 +929,7 @@ describe("DesktopWindow", () => {
         if (!close) {
           return yield* Effect.die("window close listener was not registered");
         }
-        close();
+        close({ preventDefault: vi.fn() });
         yield* Effect.promise(() => Promise.resolve());
 
         assert.deepEqual(mainWindowBoundsUpdates, [{ x: 220, y: 140, width: 1380, height: 920 }]);
@@ -846,7 +967,7 @@ describe("DesktopWindow", () => {
           return yield* Effect.die("window lifecycle listeners were not registered");
         }
 
-        close();
+        close({ preventDefault: vi.fn() });
         yield* Effect.promise(() => Promise.resolve());
         assert.deepEqual(mainWindowBoundsUpdates, []);
 
@@ -925,7 +1046,7 @@ describe("DesktopWindow", () => {
         if (!close) {
           return yield* Effect.die("window close listener was not registered");
         }
-        close();
+        close({ preventDefault: vi.fn() });
         yield* Deferred.await(writeStarted);
         fakeWindow.isDestroyed.mockReturnValue(true);
 
@@ -1035,7 +1156,7 @@ describe("DesktopWindow", () => {
         createCount,
         mainWindow,
         onReveal: () => {
-          foreground = "T3 Code";
+          foreground = "mines";
           operations.push("reveal");
         },
       });
@@ -1044,7 +1165,7 @@ describe("DesktopWindow", () => {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         yield* desktopWindow.dispatchSnapShotEvent({ type: "started", id: captureOne });
-        assert.equal(foreground, "T3 Code");
+        assert.equal(foreground, "mines");
         foreground = "Explorer";
         yield* desktopWindow.dispatchSnapShotEvent({ type: "ready", id: captureOne });
         yield* desktopWindow.dispatchSnapShotEvent({ type: "failed", id: captureTwo });

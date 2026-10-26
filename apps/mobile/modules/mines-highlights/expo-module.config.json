@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["MinesHighlightsModule"],
+    "podspecPath": "MinesHighlightsNative.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.mineshighlights.MinesHighlightsModule"]
+  }
+}

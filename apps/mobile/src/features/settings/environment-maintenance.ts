@@ -6,7 +6,8 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import {
-  CLI_RELEASES_PAGE_URL,
+  CliReleaseConfigurationError,
+  cliReleasesPageUrl,
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
   newestCliReleaseVersion,
@@ -59,11 +60,20 @@ async function fetchReleases(url: string, accept: string, signal: AbortSignal) {
   return response;
 }
 
-export async function findEnvironmentUpdate(currentVersion: string, signal: AbortSignal) {
+export async function findEnvironmentUpdate(
+  currentVersion: string,
+  signal: AbortSignal,
+  repository: string | undefined = process.env.EXPO_PUBLIC_MINES_CLI_UPDATE_REPOSITORY,
+) {
+  const releasesPage = cliReleasesPageUrl(repository);
+  if (releasesPage === undefined)
+    throw new CliReleaseConfigurationError({
+      reason: "mines update checks are disabled until an own release repository is configured.",
+    });
   const channel = cliReleaseChannelOf(currentVersion);
   // Public release pages avoid the anonymous API quota shared by devices on the same network.
   const response = await fetchReleases(
-    channel === "stable" ? `${CLI_RELEASES_PAGE_URL}/latest` : `${CLI_RELEASES_PAGE_URL}.atom`,
+    channel === "stable" ? `${releasesPage}/latest` : `${releasesPage}.atom`,
     channel === "stable" ? "application/json" : "application/atom+xml",
     signal,
   );
@@ -80,11 +90,10 @@ export async function findEnvironmentUpdate(currentVersion: string, signal: Abor
 
   // The feed only includes ten releases, so later nightlies can displace a published preview.
   for (let page = 1; version === undefined; page++) {
-    const response = await fetchReleases(
-      cliReleaseIndexPageUrl(page),
-      "application/vnd.github+json",
-      signal,
-    );
+    const url = cliReleaseIndexPageUrl(page, repository);
+    if (url === undefined)
+      throw new CliReleaseConfigurationError({ reason: "A mines release repository is required." });
+    const response = await fetchReleases(url, "application/vnd.github+json", signal);
     const releases = decodeReleases(await response.json());
     version = newestCliReleaseVersion(releases, channel);
     if (releases.length < 100) break;

@@ -46,8 +46,12 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+import * as GroupChatService from "../groupChat/GroupChatService.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
+  Layer.provide(
+    Layer.mock(GroupChatService.GroupChatService)({ assertDirectSendAllowed: () => Effect.void }),
+  ),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
 );
@@ -359,7 +363,7 @@ describe("orchestrator MCP toolkit", () => {
           const followupStartSequence = yield* orchestrator.getThreadEventSequence(
             delegated.childThreadId,
           );
-          const runningFollowupCall = yield* invoke("t3_thread_send", {
+          const runningFollowupCall = yield* invoke("mines_thread_send", {
             threadId: delegated.childThreadId,
             message: cancellationPrompt,
             clientRequestId: "delegated-child-replay-running-1",
@@ -387,7 +391,7 @@ describe("orchestrator MCP toolkit", () => {
               ),
             );
 
-          const queuedFollowupCall = yield* invoke("t3_thread_send", {
+          const queuedFollowupCall = yield* invoke("mines_thread_send", {
             threadId: delegated.childThreadId,
             message: queuedFollowupPrompt,
             mode: "queue",
@@ -450,7 +454,7 @@ describe("orchestrator MCP toolkit", () => {
           });
 
           const finalSequence = yield* orchestrator.getThreadEventSequence(delegated.childThreadId);
-          const interruptCall = yield* invoke("t3_thread_interrupt", {
+          const interruptCall = yield* invoke("mines_thread_interrupt", {
             threadId: delegated.childThreadId,
             runId: runningFollowup.runId,
             reason: "Allow the queued replay follow-up to run.",
@@ -566,7 +570,7 @@ describe("orchestrator MCP toolkit", () => {
           expect(finalStatus.latestTerminalResultContextTransferId).not.toBe(
             delegated.resultContextTransferId,
           );
-          const read = yield* invoke("t3_thread_read", {
+          const read = yield* invoke("mines_thread_read", {
             threadId: delegated.childThreadId,
             limit: 100,
           });

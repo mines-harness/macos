@@ -40,6 +40,12 @@ export function getOnboardingProviderState(provider: ServerProvider | undefined)
     return "checking";
   if (!provider.installed) return "install";
   if (provider.auth.status === "unauthenticated") return "signIn";
+  if (
+    provider.driver === "codex" &&
+    provider.auth.subscriptionSharing === true &&
+    provider.models.length === 0
+  )
+    return "attention";
   if (provider.status === "ready") return "ready";
   return "attention";
 }

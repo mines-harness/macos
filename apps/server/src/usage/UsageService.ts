@@ -150,7 +150,7 @@ export class UsageService extends Context.Service<
     readonly readSummary: (input: UsageSummaryInput) => Effect.Effect<UsageSummary, UsageReadError>;
     readonly refreshRates: Effect.Effect<UsagePricing>;
   }
->()("t3/usage/UsageService") {}
+>()("mines/usage/UsageService") {}
 
 const EMPTY_PRICING: UsagePricing = {
   status: "unavailable",
@@ -707,13 +707,14 @@ export const make = Effect.gen(function* () {
     }
     const windowStartMs =
       (hourlyWindow?.sinceTimeMs ?? DateTime.toEpochMillis(windowStart.value)) - MTIME_SLACK_MS;
+    const scanStartMs = input.includeOverview ? 0 : windowStartMs;
 
     const retentionCutoffMs = startedAtMs - CACHE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
     const [, scannedDirs] = yield* Effect.all(
       [
         ensureRates(false),
-        collectDirs(windowStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
+        collectDirs(scanStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
       ],
       { concurrency: 2 },
     );
@@ -727,12 +728,13 @@ export const make = Effect.gen(function* () {
       rates,
       priceOverrides: createOverrideRateTable(settings.usagePriceOverrides),
       modelAliases: resolveModelAliases(settings.usageModelAliases),
+      ...(input.includeOverview ? { overviewAtMs: startedAtMs } : {}),
     });
 
     const sources: UsageSource[] = [];
 
     // Deleted transcripts' saved usage still aggregates and deduplicates normally.
-    const retainedSinceMs = Math.max(windowStartMs, retentionCutoffMs);
+    const retainedSinceMs = Math.max(scanStartMs, retentionCutoffMs);
     const filesByDir = scannedDirs.map(({ provider, dir, files }) => {
       const retainedFiles = [...(files ?? [])];
       const livePaths = new Set(retainedFiles.map((file) => file.path));
@@ -752,9 +754,10 @@ export const make = Effect.gen(function* () {
       }
       return retainedFiles;
     });
-    const windowEndMs =
-      hourlyWindow?.untilTimeMs ??
-      Date.parse(`${input.untilDay}T00:00:00Z`) + 86400000 + MTIME_SLACK_MS;
+    const windowEndMs = input.includeOverview
+      ? startedAtMs
+      : (hourlyWindow?.untilTimeMs ??
+        Date.parse(`${input.untilDay}T00:00:00Z`) + 86400000 + MTIME_SLACK_MS);
     let resolvedAny = false;
     for (const { reader } of transcriptReaders) {
       if (reader.resolveServiceTiers === undefined) continue;
@@ -767,7 +770,10 @@ export const make = Effect.gen(function* () {
             if (
               record.provider === reader.provider &&
               record.unresolvedServiceTierTurnId !== undefined &&
-              record.timestampMs >= windowStartMs &&
+              record.timestampMs >=
+                (input.includeOverview
+                  ? Math.min(windowStartMs, startedAtMs - 366 * 86400000)
+                  : windowStartMs) &&
               record.timestampMs < windowEndMs
             ) {
               pending.add(record);
@@ -841,14 +847,23 @@ export const make = Effect.gen(function* () {
         }
       }
 
+      const historyLimited =
+        input.includeOverview && provider === "cursor" && sourceHostId === "cursor.com";
       const sourceMessage =
-        message ?? (files === null ? "No transcript directory on this environment." : null);
+        [
+          message ?? (files === null ? "No transcript directory on this environment." : null),
+          historyLimited
+            ? "Cursor account history retains up to 92 days; year and all-time totals may be incomplete."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || null;
       sources.push({
         fingerprint: { hostId: sourceHostId ?? hostId, provider, resolvedHomePath: dir, volumeId },
         status:
           files === null && scannedFiles === 0
             ? "missing"
-            : malformedRecords > 0
+            : malformedRecords > 0 || historyLimited
               ? status === undefined || status === "ok"
                 ? "partial"
                 : status
@@ -871,7 +886,11 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    const pruned = pruneScanCache(fileCache, retentionCutoffMs);
+    const pruned = pruneScanCache(
+      fileCache,
+      retentionCutoffMs,
+      new Set(scannedDirs.flatMap((dir) => dir.files?.map((file) => file.path) ?? [])),
+    );
     if (pruned > 0) cacheDirty = true;
 
     const aggregated = aggregator.finish();
@@ -888,6 +907,7 @@ export const make = Effect.gen(function* () {
       sources,
       pricing: pricing(),
       scanDurationMs: Math.max(0, finishedAtMs - startedAtMs),
+      ...(aggregated.overview === undefined ? {} : { overview: aggregated.overview }),
     } satisfies UsageSummary;
   });
 
@@ -903,6 +923,7 @@ export const make = Effect.gen(function* () {
       input.untilTime ?? null,
       settings,
       input.awaitRefresh === true,
+      input.includeOverview === true,
     ]);
 
   const readSummary = Effect.fn("UsageService.readSummary")(function* (input: UsageSummaryInput) {

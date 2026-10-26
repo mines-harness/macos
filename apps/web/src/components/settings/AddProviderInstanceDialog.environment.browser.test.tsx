@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "@t3tools/contracts";
 import { userEvent } from "vite-plus/test/browser";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -98,12 +99,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const dialog = () => (
+const dialog = (props: Partial<ComponentProps<typeof AddProviderInstanceDialog>> = {}) => (
   <AddProviderInstanceDialog
     open
     environmentId={remoteEnvironmentId}
     environmentLabel="Remote device"
     onOpenChange={actions.onOpenChange}
+    {...props}
   />
 );
 function button(label: string) {
@@ -145,6 +147,24 @@ function setup() {
 }
 
 describe("AddProviderInstanceDialog environment routing", () => {
+  it("reconnects a removed default provider using its original identity", async () => {
+    setup();
+    settingsHooks.read.mockReturnValue({
+      providerInstances: {
+        claudeAgent: { driver: "claudeAgent", enabled: false, removed: true },
+      },
+    });
+    await using _screen = await render(
+      dialog({ initialDriverKind: ProviderDriverKind.make("claudeAgent") }),
+    );
+    await click("Next");
+    await click("Next");
+    await click("Add instance");
+    expect(settingsHooks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "create", instanceId: "claudeAgent" }),
+    );
+  });
+
   it("chooses an unused identity for another account without replacing configured instances", async () => {
     setup();
     settingsHooks.read.mockReturnValue({
@@ -164,6 +184,31 @@ describe("AddProviderInstanceDialog environment routing", () => {
         config: { setupMode: "existing" },
       },
     });
+    expect(actions.onOpenChange).toHaveBeenCalledWith(false);
+    expect(signInStep()).toBeNull();
+  });
+
+  it("starts with the selected native provider and continues from save into onboarding setup", async () => {
+    setup();
+    await using screen = await render(
+      dialog({
+        initialDriverKind: ProviderDriverKind.make("antigravity"),
+        finishSetup: true,
+      }),
+    );
+    await expect.element(screen.getByRole("radio", { name: "Antigravity" })).toBeChecked();
+    await click("Next");
+    await click("Next");
+    await click("Add instance");
+    expect(settingsHooks.mutate).toHaveBeenCalledWith({
+      operation: "create",
+      instanceId: "antigravity",
+      instance: { driver: "antigravity", enabled: true, displayName: "Antigravity" },
+    });
+    expect(actions.onOpenChange).not.toHaveBeenCalled();
+    expect(signInStep()?.textContent).toContain("remote-device/antigravity");
+    await click("Finish sign-in");
+    expect(actions.onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("awaits an atomic create before closing and retains prepared ACP metadata", async () => {

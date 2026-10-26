@@ -97,7 +97,7 @@ export function antigravityApprovalOptions(
     const warning = antigravitySecurityWarning(always);
     options.push({
       decision: "acceptForSession",
-      label: "Allow for this thread",
+      label: "Allow for this mine",
       ...(warning ? { warning } : {}),
     });
   }

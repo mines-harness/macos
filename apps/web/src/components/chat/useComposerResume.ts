@@ -146,10 +146,7 @@ export function useComposerResume(input: ComposerResumeInput) {
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
-        setThreadError(
-          threadId,
-          error instanceof Error ? error.message : "Could not resume thread.",
-        );
+        setThreadError(threadId, error instanceof Error ? error.message : "Could not resume mine.");
       }
     } else {
       clearUsageLimitsFor(routeThreadKey);

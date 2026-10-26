@@ -49,7 +49,7 @@ function postTheme(view: WebView<object> | null, theme: HtmlRenderTheme) {
   );
 }
 
-const OVERFLOW_MESSAGE_TYPE = "t3-html-render-overflow";
+const OVERFLOW_MESSAGE_TYPE = "mines-html-render-overflow";
 
 const OVERFLOW_SCRIPT = `(function(){var last;function report(){var d=document.documentElement,b=document.body;var x=Math.max(d.scrollWidth,b?b.scrollWidth:0)>window.innerWidth+1,y=Math.max(d.scrollHeight,b?b.scrollHeight:0)>window.innerHeight+1,o=x+","+y;if(o===last)return;last=o;window.ReactNativeWebView.postMessage(JSON.stringify({type:${JSON.stringify(OVERFLOW_MESSAGE_TYPE)},x:x,y:y}));}report();if(window.ResizeObserver){var r=new ResizeObserver(report);r.observe(document.documentElement);if(document.body)r.observe(document.body);}window.addEventListener("resize",report);})();true;`;
 

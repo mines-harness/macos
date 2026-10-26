@@ -27,7 +27,7 @@ export function planProjectRemoval<
   const targetLabel = singleMember?.title ?? displayName;
   const confirmationMessage = [
     threadCount > 0
-      ? `Remove ${targetKind} "${targetLabel}" and delete its ${threadCount} thread${threadCount === 1 ? "" : "s"}?`
+      ? `Remove ${targetKind} "${targetLabel}" and delete its ${threadCount} mine${threadCount === 1 ? "" : "s"}?`
       : `Remove ${targetKind} "${targetLabel}"?`,
     ...(singleMember
       ? [
@@ -38,7 +38,7 @@ export function planProjectRemoval<
         ]
       : [`This removes ${members.length} grouped project entries.`]),
     ...(threadCount > 0
-      ? ["This permanently clears conversation history for those threads and any archived threads."]
+      ? ["This permanently clears conversation history for those mines and any archived mines."]
       : ["This permanently clears any archived conversation history."]),
     isWholeGroup && !hasOtherMembers
       ? "This removes only the project entries, not the files on disk."

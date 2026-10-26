@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "T3 Code",
-  "short_name": "T3 Code",
+  "name": "mines",
+  "short_name": "mines",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

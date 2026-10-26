@@ -405,9 +405,9 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
             <SafeAreaView style={{ flex: 1 }}>
               <SheetHeader
                 presentation="inline"
-                title="Arrange threads"
+                title="Arrange mines"
                 onClose={props.onClose}
-                accessibilityLabel="Close arrange threads"
+                accessibilityLabel="Close arrange mines"
               />
               <Text className="px-5 pb-3 text-sm text-foreground-muted">
                 Drag to reorder, pin, or settle. Changes save when you drop.
@@ -548,7 +548,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
                               {olderSettledShelf.loading
                                 ? "Loading"
                                 : olderSettledShelf.failed
-                                  ? "Could not load older threads. Retry"
+                                  ? "Could not load older mines. Retry"
                                   : `Show more (${settledCount - visibleSettled.length} settled hidden)`}
                             </Text>
                           </Pressable>
@@ -562,7 +562,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
                                 setExpanded((value) => ({ ...value, [section]: !value[section] }));
                             }}
                           >
-                            <Text className="text-sm font-t3-semibold text-foreground-muted">
+                            <Text className="text-sm font-mines-semibold text-foreground-muted">
                               {item.section[0]!.toUpperCase() + item.section.slice(1)} (
                               {item.section === "settled"
                                 ? settledCount
@@ -583,7 +583,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
                   >
                     <Text
                       numberOfLines={visiblePreview.destination?.section ? 1 : 2}
-                      className="text-base font-t3-medium"
+                      className="text-base font-mines-medium"
                     >
                       {visiblePreview.thread.title}
                     </Text>

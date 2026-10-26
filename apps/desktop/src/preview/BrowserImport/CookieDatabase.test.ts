@@ -20,7 +20,7 @@ describe("snapshotCookieDatabase", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const sourceDirectory = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3code-cookie-source-",
+          prefix: "mines-cookie-source-",
         });
         const source = path.join(sourceDirectory, "Cookies");
         const snapshot = yield* Effect.gen(function* () {
@@ -47,11 +47,11 @@ describe("snapshotCookieDatabase", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const sourceDirectory = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3code-cookie-invalid-source-",
+          prefix: "mines-cookie-invalid-source-",
         });
         const source = path.join(sourceDirectory, "Cookies");
         yield* fileSystem.writeFileString(source, "not a sqlite database");
-        const prefix = `t3code-cookie-failed-${process.pid}-`;
+        const prefix = `mines-cookie-failed-${process.pid}-`;
         const error = yield* snapshotCookieDatabase(source, prefix).pipe(
           Effect.scoped,
           Effect.flip,

@@ -113,7 +113,7 @@ function FileRow(props: {
     >
       <PierreEntryIcon kind="file" path={file.path} size={20} />
       <View className="min-w-0 flex-1 gap-0.5">
-        <Text textRole="footnote" className="font-t3-medium" numberOfLines={2}>
+        <Text textRole="footnote" className="font-mines-medium" numberOfLines={2}>
           {file.path.split("/").at(-1)}
         </Text>
         {props.directory ? (

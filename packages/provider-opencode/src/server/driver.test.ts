@@ -43,7 +43,23 @@ const reachedServer = (operation: string) =>
     ),
   );
 const openCode2Runtime = {
-  runOpenCodeCommand: () => Effect.succeed({ stdout: "opencode v2.0.18\n", stderr: "", code: 0 }),
+  runOpenCodeCommand: ({
+    args,
+  }: Parameters<OpenCodeRuntime.OpenCodeRuntime["Service"]["runOpenCodeCommand"]>[0]) =>
+    Effect.succeed({
+      stdout:
+        args[0] === "auth"
+          ? JSON.stringify([
+              {
+                id: "openai",
+                name: "OpenAI",
+                connections: [{ type: "credential", method: "oauth" }],
+              },
+            ])
+          : "opencode v2.0.18\n",
+      stderr: "",
+      code: 0,
+    }),
   startOpenCodeServerProcess: () => reachedServer("start"),
   connectToOpenCodeServer: () => reachedServer("connect"),
 } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"];
@@ -72,6 +88,28 @@ const create = (config: Partial<OpenCodeSettings>, http: HttpClient.HttpClient) 
 const noHttp = HttpClient.make(() => Effect.die("A local binary must not be probed over HTTP"));
 
 it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
+  it.effect(
+    "publishes native account discovery for a disabled default instance without starting a server",
+    () =>
+      Effect.gen(function* () {
+        serverStarts.length = 0;
+        const instance = yield* OpenCodeDriver.create({
+          instanceId: ProviderInstanceId.make("opencode-disabled"),
+          displayName: undefined,
+          environment: [],
+          enabled: false,
+          config: OpenCodeDriver.defaultConfig(),
+        }).pipe(Effect.provideService(HttpClient.HttpClient, noHttp));
+        const snapshot = yield* instance.snapshot.refresh;
+        assert.strictEqual(snapshot.enabled, false);
+        assert.strictEqual(snapshot.status, "disabled");
+        assert.strictEqual(snapshot.installed, true);
+        assert.strictEqual(snapshot.auth.status, "authenticated");
+        assert.strictEqual(snapshot.auth.type, "oauth");
+        assert.deepStrictEqual(serverStarts, []);
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("never starts a 1.x server for an OpenCode 2 instance", () =>
     Effect.gen(function* () {
       serverStarts.length = 0;

@@ -405,6 +405,119 @@ const waitForIdle = Effect.fn("ProviderSwitchTest.waitForIdle")(function* (
 });
 
 describe("orchestration v2 provider switching", () => {
+  it.live(
+    "account failover preserves durable lineage and rejects stale or repeated account attempts",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const cwd = yield* checkpointWorkspace("account-failover");
+          const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+          const targetSelection = {
+            ...CODEX_MODEL_SELECTION,
+            instanceId: ProviderInstanceId.make("codex-alternate"),
+          };
+          const failure = makeProviderFailure({
+            message: "Usage limit reached",
+            class: "usage_limit",
+            code: "usage_limit",
+          });
+          const adapters = [CODEX_MODEL_SELECTION, targetSelection].map((selection) =>
+            makeTestAdapter({
+              instanceId: selection.instanceId,
+              driver: CODEX_DRIVER,
+              capabilities: CodexProviderCapabilitiesV2,
+              modelSelection: selection,
+              responseByRunOrdinal: {},
+              capturedTurns,
+              failedRunOrdinals: new Set([1, 2]),
+              failure,
+            }),
+          );
+          yield* Effect.gen(function* () {
+            const orchestrator = yield* Orchestrator.OrchestratorV2;
+            const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              commandId: CommandId.make("create"),
+              threadId,
+              projectId,
+              createdBy: "user",
+              creationSource: "web",
+              title: "Account continuation",
+              modelSelection: CODEX_MODEL_SELECTION,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: cwd,
+            });
+            yield* orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make("original"),
+              messageId: MessageId.make("original"),
+              threadId,
+              text: "Original request",
+              modelSelection: CODEX_MODEL_SELECTION,
+              attachments: [],
+              createdBy: "user",
+              creationSource: "web",
+              dispatchMode: { type: "start_immediately" },
+            });
+            yield* worker.drain();
+            const source = (yield* waitForIdle(threadId)).runs[0]!;
+            assert.equal(source.status, "failed");
+            const continuation = {
+              type: "message.dispatch" as const,
+              commandId: CommandId.make("failover"),
+              messageId: MessageId.make("failover"),
+              threadId,
+              accountFailoverOfRunId: source.id,
+              modelSelection: targetSelection,
+              text: "Continue from the last confirmed state.",
+              attachments: [],
+              createdBy: "user" as const,
+              creationSource: "server" as const,
+              dispatchMode: { type: "start_immediately" as const },
+            };
+            yield* orchestrator.dispatch(continuation);
+            yield* worker.drain();
+            const after = yield* waitForIdle(threadId);
+            const next = after.runs.at(-1)!;
+            assert.equal(next.accountFailoverOriginRunId, source.id);
+            assert.equal(next.providerInstanceId, targetSelection.instanceId);
+            assert.lengthOf(after.contextHandoffs, 1);
+            const duplicate = yield* orchestrator.dispatch(continuation);
+            assert.isTrue(duplicate.replayed);
+            const stale = yield* orchestrator
+              .dispatch({
+                ...continuation,
+                commandId: CommandId.make("stale"),
+                messageId: MessageId.make("stale"),
+              })
+              .pipe(Effect.result);
+            assert.equal(stale._tag, "Failure");
+            const cycle = yield* orchestrator
+              .dispatch({
+                ...continuation,
+                commandId: CommandId.make("cycle"),
+                messageId: MessageId.make("cycle"),
+                accountFailoverOfRunId: next.id,
+                modelSelection: CODEX_MODEL_SELECTION,
+              })
+              .pipe(Effect.result);
+            assert.equal(cycle._tag, "Failure");
+            assert.lengthOf(yield* Ref.get(capturedTurns), 2);
+          }).pipe(
+            Effect.provide(
+              ProviderReplayHarness.layerWithRegistry(
+                { name: "account-failover", runtimePolicyOverride: { cwd } },
+                ProviderAdapterRegistry.layerFromAdapters(adapters),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
   it.live.each([
     "compact-native",
     "compact-legacy",

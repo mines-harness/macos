@@ -62,6 +62,7 @@ import type * as ProviderContinuationRequests from "@t3tools/provider-core/serve
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { makeReplayServerConfig, withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
 import * as CodexAdapterV2Testkit from "./CodexAdapterV2.testkit.ts";
+import * as LiveVoiceSessions from "../../provider/LiveVoiceSessions.ts";
 
 const replayTranscriptJson = Schema.fromJsonString(CodexReplay.CodexAppServerReplayTranscript);
 const encodeReplayTranscriptJson = Schema.encodeEffect(replayTranscriptJson);
@@ -135,8 +136,8 @@ describe("CodexAdapterV2 assistant message streaming", () => {
 
 describe("CodexAdapterV2 runtime policy", () => {
   it.effect.each([undefined, false, true])(
-    "selects native collaboration modes without prompt overrides with hasT3Mcp=%s",
-    (hasT3Mcp) =>
+    "selects native collaboration modes without prompt overrides with hasMinesMcp=%s",
+    (hasMinesMcp) =>
       Effect.gen(function* () {
         for (const interactionMode of ["plan", "default"] as const) {
           for (const reasoningEffort of [undefined, "high"] as const) {
@@ -151,7 +152,7 @@ describe("CodexAdapterV2 runtime policy", () => {
                   ? {}
                   : { options: [{ id: "reasoningEffort", value: reasoningEffort }] }),
               },
-              ...(hasT3Mcp === undefined ? {} : { hasT3Mcp }),
+              ...(hasMinesMcp === undefined ? {} : { hasMinesMcp }),
             });
 
             assert.deepEqual(params.collaborationMode, {
@@ -162,13 +163,13 @@ describe("CodexAdapterV2 runtime policy", () => {
               },
             });
             assert.equal(params.effort, reasoningEffort);
-            assert.equal(params.additionalContext !== undefined, hasT3Mcp === true);
+            assert.equal(params.additionalContext !== undefined, hasMinesMcp === true);
           }
         }
       }),
   );
 
-  it.effect("derives concrete Codex turn policies from every T3 runtime mode", () =>
+  it.effect("derives concrete Codex turn policies from every mines runtime mode", () =>
     Effect.gen(function* () {
       const build = (
         runtimeMode: "approval-required" | "auto-accept-edits" | "auto" | "full-access",
@@ -227,19 +228,57 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
-        hasT3Mcp: true,
+        hasMinesMcp: true,
         appContext,
       });
       assert.deepEqual(withT3.additionalContext?.["mcp_app_todos_list_todos_item-1"], {
         kind: "untrusted",
         value: "Filtered to overdue",
       });
-      assert.isDefined(withT3.additionalContext?.["t3_code_runtime"]);
+      assert.isDefined(withT3.additionalContext?.["mines_code_runtime"]);
     }),
   );
 });
 
 describe("CodexAdapterV2 native protocol logging", () => {
+  it.effect("keeps live voice offers and answers out of native logs", () =>
+    Effect.gen(function* () {
+      const writes: unknown[] = [];
+      const logger = CodexAdapterV2.makeCodexAppServerProtocolLogger({
+        threadId: ThreadId.make("voice-log-thread"),
+        providerSessionId: ProviderSessionId.make("voice-log-session"),
+        nativeEventLogger: {
+          filePath: "/tmp/voice.log",
+          write: (event) =>
+            Effect.sync(() => {
+              writes.push(event);
+            }),
+          close: () => Effect.void,
+        },
+      });
+      if (logger === undefined) return yield* Effect.die("Missing native logger.");
+      yield* logger({
+        direction: "outgoing",
+        stage: "decoded",
+        payload: {
+          method: "thread/realtime/start",
+          params: { threadId: "native", transport: { type: "webrtc", sdp: "private-offer" } },
+        },
+      });
+      yield* logger({
+        direction: "incoming",
+        stage: "decoded",
+        payload: {
+          method: "thread/realtime/sdp",
+          params: { threadId: "native", sdp: "private-answer" },
+        },
+      });
+      assert.lengthOf(writes, 2);
+      assert.notInclude(JSON.stringify(writes), "private-offer");
+      assert.notInclude(JSON.stringify(writes), "private-answer");
+    }),
+  );
+
   it.effect("logs decoded app-server frames once with credentials redacted", () =>
     Effect.gen(function* () {
       const writes: Array<{
@@ -363,6 +402,10 @@ describe("CodexAdapterV2 rollback mapping", () => {
         ...providerTurn("provider-turn-goal-command", 5, "completed"),
         nativeTurnRef: null,
       };
+      const voiceOwnerTurn = {
+        ...providerTurn("provider-turn-voice-session", 6, "interrupted"),
+        nativeTurnRef: null,
+      };
 
       const numTurns = yield* CodexAdapterV2.resolveCodexRollbackTurnCount({
         providerThread,
@@ -372,7 +415,14 @@ describe("CodexAdapterV2 rollback mapping", () => {
           appRunOrdinal: 1,
           providerTurn: firstTurn,
         },
-        providerThreadTurns: [goalCommandTurn, interruptedTurn, runningTurn, secondTurn, firstTurn],
+        providerThreadTurns: [
+          voiceOwnerTurn,
+          goalCommandTurn,
+          interruptedTurn,
+          runningTurn,
+          secondTurn,
+          firstTurn,
+        ],
       });
 
       assert.equal(numTurns, 2);
@@ -566,7 +616,7 @@ function codexReplayPreamble(input: {
         id: 1,
         method: "initialize",
         params: {
-          clientInfo: { name: "T3 Code", title: "T3 Code", version: packageJson.version },
+          clientInfo: { name: "mines", title: "mines", version: packageJson.version },
           capabilities: {
             experimentalApi: true,
             optOutNotificationMethods: ["turn/diff/updated"],
@@ -583,7 +633,7 @@ function codexReplayPreamble(input: {
       frame: {
         id: 1,
         result: {
-          userAgent: "T3 Code/0.156.1",
+          userAgent: "mines/0.156.1",
           codexHome: "/tmp/codex-home",
           platformFamily: "unix",
           platformOs: "macos",
@@ -1036,6 +1086,316 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       };
     });
 
+  it.effect.each(["completed", "inProgress"] as const)(
+    "keeps live voice and its %s backing turn owned until Stop",
+    (backingStatus) =>
+      Effect.gen(function* () {
+        const scenario = `live-voice-owned-run-${backingStatus}`;
+        const nativeThreadId = "native-live-voice";
+        const nativeTurnId = "native-voice-handoff";
+        const hub = yield* LiveVoiceSessions.LiveVoiceSessions;
+        const entries: Array<CodexReplay.CodexAppServerReplayEntry> = [
+          ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "" }).slice(0, 5),
+          {
+            type: "expect_outbound",
+            frame: { id: 3, method: "account/read", params: { refreshToken: false } },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              id: 3,
+              result: {
+                account: { type: "chatgpt", email: "voice@example.test", planType: "plus" },
+                requiresOpenaiAuth: true,
+              },
+            },
+          },
+          {
+            type: "expect_outbound",
+            frame: {
+              id: 4,
+              method: "thread/realtime/start",
+              params: {
+                threadId: nativeThreadId,
+                outputModality: "audio",
+                transport: { type: "webrtc", sdp: "test-offer" },
+              },
+            },
+          },
+          { type: "emit_inbound", frame: { id: 4, result: {} } },
+          {
+            type: "emit_inbound",
+            frame: {
+              method: "thread/realtime/started",
+              params: { threadId: nativeThreadId, version: "v3" },
+            },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              method: "thread/realtime/item/completed",
+              params: {
+                threadId: nativeThreadId,
+                item: {
+                  type: "transcriptSegment",
+                  id: "user-speech",
+                  realtimeSessionId: scenario,
+                  role: "user",
+                  text: "Hello from my voice",
+                },
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              method: "turn/started",
+              params: {
+                threadId: nativeThreadId,
+                turn: makeCodexReplayTurn({ id: `${nativeTurnId}-earlier`, status: "inProgress" }),
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              method: "turn/completed",
+              params: {
+                threadId: nativeThreadId,
+                turn: makeCodexReplayTurn({ id: `${nativeTurnId}-earlier`, status: "completed" }),
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              method: "turn/started",
+              params: {
+                threadId: nativeThreadId,
+                turn: makeCodexReplayTurn({ id: nativeTurnId, status: "inProgress" }),
+              },
+            },
+          },
+          ...(backingStatus === "completed"
+            ? [
+                {
+                  type: "emit_inbound" as const,
+                  frame: {
+                    method: "turn/completed",
+                    params: {
+                      threadId: nativeThreadId,
+                      turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                    },
+                  },
+                },
+              ]
+            : []),
+          {
+            type: "expect_outbound",
+            frame: { id: 5, method: "thread/realtime/stop", params: { threadId: nativeThreadId } },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              method: "thread/realtime/closed",
+              params: { threadId: nativeThreadId, reason: "stopped" },
+            },
+          },
+          { type: "emit_inbound", frame: { id: 5, result: {} } },
+          ...(backingStatus === "inProgress"
+            ? [
+                {
+                  type: "expect_outbound" as const,
+                  frame: {
+                    id: 6,
+                    method: "turn/interrupt",
+                    params: { threadId: nativeThreadId, turnId: nativeTurnId },
+                  },
+                },
+                {
+                  type: "emit_inbound" as const,
+                  frame: {
+                    method: "turn/started",
+                    params: {
+                      threadId: nativeThreadId,
+                      turn: makeCodexReplayTurn({
+                        id: `${nativeTurnId}-late`,
+                        status: "inProgress",
+                      }),
+                    },
+                  },
+                },
+                {
+                  type: "emit_inbound" as const,
+                  frame: {
+                    method: "turn/completed",
+                    params: {
+                      threadId: nativeThreadId,
+                      turn: makeCodexReplayTurn({ id: nativeTurnId, status: "interrupted" }),
+                    },
+                  },
+                },
+                { type: "emit_inbound" as const, frame: { id: 6, result: {} } },
+                {
+                  type: "expect_outbound" as const,
+                  frame: {
+                    id: 7,
+                    method: "turn/interrupt",
+                    params: { threadId: nativeThreadId, turnId: `${nativeTurnId}-late` },
+                  },
+                },
+                {
+                  type: "emit_inbound" as const,
+                  frame: {
+                    method: "turn/completed",
+                    params: {
+                      threadId: nativeThreadId,
+                      turn: makeCodexReplayTurn({
+                        id: `${nativeTurnId}-late`,
+                        status: "interrupted",
+                      }),
+                    },
+                  },
+                },
+                { type: "emit_inbound" as const, frame: { id: 7, result: {} } },
+              ]
+            : []),
+        ];
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({ scenario, entries }),
+        );
+        yield* hub.offer({ sessionId: scenario, threadId: harness.threadId, sdp: "test-offer" });
+        const turnInput = {
+          ...makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("voice-attempt"),
+            text: "",
+          }),
+          liveVoice: { sessionId: scenario },
+        };
+        yield* harness.runtime.startTurn(turnInput);
+        yield* harness.until(() =>
+          harness.events.some(
+            (event) =>
+              event.type === "provider_turn.updated" &&
+              event.providerTurn.nativeTurnRef?.nativeId === nativeTurnId &&
+              event.providerTurn.status ===
+                (backingStatus === "completed" ? "completed" : "running"),
+          ),
+        );
+        assert.lengthOf(harness.terminalEvents(), 0);
+        const backing = harness.events.find(
+          (event) =>
+            event.type === "provider_turn.updated" &&
+            event.providerTurn.nativeTurnRef?.nativeId === nativeTurnId,
+        );
+        assert.equal(
+          backing?.type === "provider_turn.updated" ? backing.providerTurn.runAttemptId : null,
+          turnInput.attemptId,
+        );
+        assert.isTrue(yield* harness.hasPendingBackgroundWork);
+        assert.isTrue(
+          harness.events.some(
+            (event) =>
+              event.type === "message.updated" &&
+              event.message.role === "user" &&
+              event.message.text === "Hello from my voice" &&
+              event.message.id === turnInput.message.messageId &&
+              event.message.runId === turnInput.runId,
+          ),
+        );
+        if (backing?.type !== "provider_turn.updated")
+          return yield* Effect.die("Missing voice backing turn.");
+        yield* harness.runtime.interruptTurn({
+          providerThread: harness.providerThread,
+          providerTurnId: backing.providerTurn.id,
+        });
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "interrupted");
+        if (backingStatus === "inProgress") {
+          const lateTerminal = harness.events.findIndex(
+            (event) =>
+              event.type === "provider_turn.updated" &&
+              event.providerTurn.nativeTurnRef?.nativeId === `${nativeTurnId}-late` &&
+              event.providerTurn.status === "interrupted",
+          );
+          assert.isAtLeast(lateTerminal, 0);
+          assert.isBelow(
+            lateTerminal,
+            harness.events.findIndex((event) => event.type === "turn.terminal"),
+          );
+        }
+        assert.isFalse(yield* harness.hasPendingBackgroundWork);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            LiveVoiceSessions.layer,
+          ),
+        ),
+      ),
+  );
+
+  it.effect("rejects native API-key voice before starting a realtime call", () =>
+    Effect.gen(function* () {
+      const nativeThreadId = "native-api-key-voice";
+      const harness = yield* makeCodexReplayHarness(
+        makeCodexReplayTranscript({
+          scenario: "api-key-voice",
+          entries: [
+            ...codexReplayPreamble({ nativeThreadId, nativeTurnId: "unused", prompt: "" }).slice(
+              0,
+              5,
+            ),
+            {
+              type: "expect_outbound",
+              frame: { id: 3, method: "account/read", params: { refreshToken: false } },
+            },
+            {
+              type: "emit_inbound",
+              frame: { id: 3, result: { account: { type: "apiKey" }, requiresOpenaiAuth: true } },
+            },
+          ],
+        }),
+      );
+      const result = yield* harness.runtime
+        .startTurn({
+          ...makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("api-key-voice-attempt"),
+            text: "",
+          }),
+          liveVoice: { sessionId: "api-key-voice" },
+        })
+        .pipe(Effect.result);
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure")
+        assert.propertyVal(
+          result.failure.cause,
+          "detail",
+          "Live voice requires a connected Codex ChatGPT account.",
+        );
+      assert.lengthOf(harness.events, 0);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          LiveVoiceSessions.layer,
+        ),
+      ),
+    ),
+  );
+
   it.effect.each(["supported", "unsupported", "invalid"] as const)(
     "delivers native history with %s app-server protocol",
     (response) =>
@@ -1181,7 +1541,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           config: {
             "tools.update_plan.enabled": true,
             mcp_optional_startup_grace_ms: 10_000,
-            "mcp_servers.t3-code": {
+            "mcp_servers.mines": {
               url: "http://127.0.0.1:43123/mcp",
               tool_timeout_sec: 3_900,
               http_headers: { Authorization: "Bearer secret-codex-token" },
@@ -1197,7 +1557,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
-  // regression: #15839 launch-arg MCP servers survive the thread's t3-code server
+  // regression: #15839 launch-arg MCP servers survive the thread's mines server
   it.effect("replays historical and dotted MCP config while enforcing other thread config", () =>
     Effect.gen(function* () {
       const recordedServer = {
@@ -1206,15 +1566,15 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       };
       const currentConfig = {
         "tools.update_plan.enabled": true,
-        "mcp_servers.t3-code": {
+        "mcp_servers.mines": {
           url: "http://127.0.0.1:42000/mcp",
           http_headers: { Authorization: "Bearer current-token" },
         },
         "mcp_servers.extra.command": "cat",
       };
       for (const recordedMcp of [
-        { mcp_servers: { "t3-code": recordedServer } },
-        { "mcp_servers.t3-code": recordedServer, "mcp_servers.extra.command": "echo" },
+        { mcp_servers: { mines: recordedServer } },
+        { "mcp_servers.mines": recordedServer, "mcp_servers.extra.command": "echo" },
       ]) {
         const entries = codexReplayPreamble({
           nativeThreadId: "replayed-mcp-thread",
@@ -1719,7 +2079,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
-  it.effect("preserves T3 context on the wire and restores it after compaction", () =>
+  it.effect("preserves mines context on the wire and restores it after compaction", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const nativeThreadId = "context-thread";
@@ -1729,10 +2089,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           codexInput: [{ type: "text", text: "work" }],
           runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
           modelSelection: CODEX_TEST_MODEL_SELECTION,
-          hasT3Mcp: true,
+          hasMinesMcp: true,
         });
         assert.include(
-          params.additionalContext?.t3_code_orchestration_01?.value ?? "",
+          params.additionalContext?.mines_code_orchestration_01?.value ?? "",
           "delegate_task",
         );
         const entries = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "work" });
@@ -4560,8 +4920,8 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             item: {
               type: "mcpToolCall",
               id: COMPLETED_WAIT_ITEM,
-              server: "t3-code",
-              tool: "t3_thread_wait",
+              server: "mines",
+              tool: "mines_thread_wait",
               status: "inProgress",
               arguments: { threadId: "thread:completed-wait", timeoutMs: 30000 },
             },
@@ -4580,8 +4940,8 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             item: {
               type: "mcpToolCall",
               id: COMPLETED_WAIT_ITEM,
-              server: "t3-code",
-              tool: "t3_thread_wait",
+              server: "mines",
+              tool: "mines_thread_wait",
               status: "completed",
               arguments: { threadId: "thread:completed-wait", timeoutMs: 30000 },
               result: { content: [{ type: "text", text: "idle" }] },
@@ -4601,8 +4961,8 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             item: {
               type: "mcpToolCall",
               id: ORPHAN_WAIT_ITEM,
-              server: "t3-code",
-              tool: "t3_thread_wait",
+              server: "mines",
+              tool: "mines_thread_wait",
               status: "inProgress",
               arguments: {
                 threadId:

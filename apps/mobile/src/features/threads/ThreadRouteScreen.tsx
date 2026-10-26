@@ -94,6 +94,7 @@ import {
 import { threadRouteIsHydrating } from "./thread-route-hydration";
 import { useThreadPromptLink } from "../prompt-links/useThreadPromptLink";
 import { ThreadHeader } from "./ThreadHeader";
+import { ThreadMineTransferControl } from "./ThreadMineTransferControl";
 import {
   useAndroidWorkspaceBack,
   useWorkspaceBackNavigation,
@@ -126,7 +127,7 @@ function ThreadRouteFallbackLayout(props: { readonly children: ReactNode }) {
   return (
     <>
       <AppBar
-        title="Thread"
+        title="Mine"
         options={{ contentStyle: { backgroundColor: themeVariables["--color-header"] } }}
         onBack={layout.usesSplitView ? undefined : goBack}
         hideBottomBorder
@@ -140,7 +141,7 @@ function OpeningThreadLoadingScreen() {
   return (
     <ThreadRouteFallbackLayout>
       <LoadingScreen
-        message="Opening thread…"
+        message="Opening mine…"
         messagePlacement="above-spinner"
         embedded={Platform.OS === "android"}
       />
@@ -177,8 +178,8 @@ function ThreadUnavailableScreen(props: {
         className="bg-screen flex-1 android:bg-transparent"
       >
         <EmptyState
-          title="Thread unavailable"
-          detail="This thread is not available in the current mobile snapshot."
+          title="Mine unavailable"
+          detail="This mine is not available in the current mobile snapshot."
           actionLabel={props.actionLabel}
           onAction={props.onAction}
         />
@@ -308,10 +309,10 @@ function ThreadRouteContent(
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
-  const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "mine interrupt");
   const resumeThreadQueue = useAtomCommand(threadEnvironment.resumeThreadQueue, "resume queue");
   const loadEarlierHistory = useAtomCommand(threadEnvironment.loadEarlierHistory, {
-    label: "load earlier thread history",
+    label: "load earlier mine history",
     reportFailure: false,
   });
   const historyControls = (() => {
@@ -343,7 +344,7 @@ function ThreadRouteContent(
   const navigation = useNavigation();
   const selectDetail = useSelectWorkspaceDetail();
   const openPullRequest = useOpenPullRequest();
-  const mergeBack = useAtomCommand(threadEnvironment.mergeBack, "merge thread back");
+  const mergeBack = useAtomCommand(threadEnvironment.mergeBack, "merge mine back");
   const mergeBackTargetThreadId = resolveMergeBackTargetThreadId(selectedThreadDetail);
   const mergeBackRun =
     selectedThreadDetail === null ? null : resolveLatestMergeBackRun(selectedThreadDetail);
@@ -908,21 +909,30 @@ function ThreadRouteContent(
       <>
         <ThreadScreenBinding
           header={
-            <ThreadHeader
-              title={selectedThread.title}
-              subtitle={headerSubtitle}
-              headerColor={headerColor}
-              usesNativeHeaderGlass={usesNativeHeaderGlass}
-              gitControls={threadGitControlProps}
-              hasThreadCwd={selectedThreadCwd !== null}
-              hasWorkspaceRoot={Boolean(selectedThreadProject?.workspaceRoot)}
-              fileInspectorSupported={fileInspector.supported}
-              inspectorMode={inspectorMode}
-              onToggleInspector={handleToggleInspector}
-              onOpenGitInspector={handleOpenGitInspector}
-              onOpenFilesInspector={handleOpenFilesInspector}
-              onReturnToThread={props.onReturnToThread}
-            />
+            <ThreadMineTransferControl thread={selectedThread}>
+              {({ open, allowed, needsUpdate }) => (
+                <ThreadHeader
+                  title={selectedThread.title}
+                  subtitle={headerSubtitle}
+                  headerColor={headerColor}
+                  usesNativeHeaderGlass={usesNativeHeaderGlass}
+                  gitControls={{
+                    ...threadGitControlProps,
+                    onTransferMine: open,
+                    canTransferMine: allowed && selectedThreadDetailRef !== null,
+                    mineTransferNeedsUpdate: needsUpdate,
+                  }}
+                  hasThreadCwd={selectedThreadCwd !== null}
+                  hasWorkspaceRoot={Boolean(selectedThreadProject?.workspaceRoot)}
+                  fileInspectorSupported={fileInspector.supported}
+                  inspectorMode={inspectorMode}
+                  onToggleInspector={handleToggleInspector}
+                  onOpenGitInspector={handleOpenGitInspector}
+                  onOpenFilesInspector={handleOpenFilesInspector}
+                  onReturnToThread={props.onReturnToThread}
+                />
+              )}
+            </ThreadMineTransferControl>
           }
           canOperateThread={canOperateThread}
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}

@@ -10,7 +10,7 @@ export type EnvironmentIdentificationPillLabel = "Dev" | "Nightly";
 
 const STAGE_BACKDROP_VIEW_BOX = "0 0 8192 96";
 
-export function resolveSidebarStageBackdropVariant(
+function resolveSidebarStageBackdropVariant(
   stageLabel: string,
   enabled = true,
 ): SidebarStageBackdropVariant | null {
@@ -42,21 +42,6 @@ export function useEnvironmentStageLabel(): string {
 
 export function useSidebarStageBackdropVariant(enabled = true): SidebarStageBackdropVariant | null {
   return resolveSidebarStageBackdropVariant(useEnvironmentStageLabel(), enabled);
-}
-
-export function SidebarStageBackdrop({ variant }: { variant: SidebarStageBackdropVariant }) {
-  return (
-    <div
-      aria-hidden
-      className="sidebar-stage-backdrop pointer-events-none absolute inset-x-0 top-0 z-0 h-20 select-none overflow-hidden"
-    >
-      <StageBackdropArt variant={variant} />
-    </div>
-  );
-}
-
-export function StageBackdropArt({ variant }: { variant: SidebarStageBackdropVariant }) {
-  return variant === "nightly" ? <NightlySkyArt /> : <DevBlueprintArt />;
 }
 
 export function StageBackdropButtonArt({ variant }: { variant: SidebarStageBackdropVariant }) {

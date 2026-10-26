@@ -4,15 +4,20 @@ import {
   ProviderInstanceId,
   type ProviderAuthState,
   type ProviderInstallState,
+  type ProviderInstanceConfig,
   type ServerProvider,
 } from "@t3tools/contracts";
 import { userEvent } from "vite-plus/test/browser";
+import { Atom } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { act, render } from "../../../test/render";
+import { act, render, stubGlobal } from "../../../test/render";
 
 const setup = vi.hoisted(() => ({
   auth: null as ProviderAuthState | null,
+  providersAtom: null as Atom.Atom<ReadonlyArray<ServerProvider>> | null,
+  settings: null as { providerInstances: Record<string, ProviderInstanceConfig> } | null,
+  mutate: vi.fn(),
   installation: null as ProviderInstallState | null,
   authState: vi.fn(() => "auth"),
   installState: vi.fn(() => "installation"),
@@ -25,6 +30,7 @@ const setup = vi.hoisted(() => ({
   cancelInstall: vi.fn(),
   removeInstall: vi.fn(),
   confirm: vi.fn(),
+  openExternal: vi.fn(),
 }));
 
 vi.mock(import("../../state/server"), async (original) => {
@@ -33,6 +39,7 @@ vi.mock(import("../../state/server"), async (original) => {
     ...actual,
     serverEnvironment: {
       ...actual.serverEnvironment,
+      providersValueAtom: (() => setup.providersAtom) as never,
       providerAuthState: setup.authState as never,
       providerInstallState: setup.installState as never,
       startProviderAuth: setup.startAuth as never,
@@ -46,6 +53,16 @@ vi.mock(import("../../state/server"), async (original) => {
     },
   };
 });
+vi.mock(import("../../hooks/useSettings"), async (original) => ({
+  ...(await original()),
+  useEnvironmentSettings: (() => setup.settings) as never,
+  usePersistEnvironmentProviderInstanceMutation: (() => setup.mutate) as never,
+}));
+vi.mock(import("../../state/session"), async (original) => ({
+  ...(await original()),
+  useEnvironmentScope: () => true,
+  readEnvironmentScope: () => true,
+}));
 vi.mock(import("../../state/use-atom-command"), async (original) => ({
   ...(await original()),
   useAtomCommand: ((command: unknown) => command) as never,
@@ -75,10 +92,15 @@ const publish = () =>
   });
 vi.mock(import("../../localApi"), async (original) => ({
   ...(await original()),
-  ensureLocalApi: () => ({ dialogs: { confirm: setup.confirm } }) as never,
+  ensureLocalApi: () =>
+    ({
+      dialogs: { confirm: setup.confirm },
+      shell: { openExternal: setup.openExternal },
+    }) as never,
 }));
 
 import { ProviderSetupSection } from "./ProviderSetupSection";
+import { ProviderWizardAuthenticationStep } from "./ProviderWizardAuthenticationStep";
 
 const environmentId = EnvironmentId.make("remote-google");
 const instanceId = ProviderInstanceId.make("antigravity_work");
@@ -155,6 +177,11 @@ async function renderSetup(options: SectionOptions = {}) {
 function resetSetup() {
   vi.clearAllMocks();
   setup.auth = authState();
+  setup.providersAtom = Atom.make([provider]);
+  setup.settings = {
+    providerInstances: { [instanceId]: { driver: provider.driver, enabled: true } },
+  };
+  setup.mutate.mockReset().mockResolvedValue({ _tag: "Success", value: {} });
   setup.installation = {
     driver: ProviderDriverKind.make("antigravity"),
     operationId: null,
@@ -169,6 +196,7 @@ function resetSetup() {
   for (const command of [
     setup.startAuth,
     setup.completeAuth,
+    setup.respondAuth,
     setup.cancelAuth,
     setup.logoutAuth,
     setup.startInstall,
@@ -178,9 +206,203 @@ function resetSetup() {
     command.mockReset().mockResolvedValue({ _tag: "Success", value: undefined });
   }
   setup.confirm.mockReset().mockResolvedValue(false);
+  setup.openExternal.mockReset().mockResolvedValue(undefined);
 }
 
 describe("Antigravity setup", () => {
+  it("does not reopen an existing sign-in flow when the account view mounts", async () => {
+    resetSetup();
+    using _desktop = stubGlobal("desktopBridge", {});
+    await using screen = await renderSetup();
+    expect(setup.openExternal).not.toHaveBeenCalled();
+    await screen.click("Open browser");
+    expect(setup.openExternal).toHaveBeenCalledExactlyOnceWith(setup.auth?.authorizationUrl);
+  });
+
+  it("opens the browser once per requested sign-in and keeps the manual retry", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+    using _desktop = stubGlobal("desktopBridge", {});
+    await using screen = await renderSetup();
+    await screen.click("Sign in");
+    expect(setup.startAuth).toHaveBeenCalledExactlyOnceWith({
+      environmentId,
+      input: { instanceId },
+    });
+    expect(setup.openExternal).not.toHaveBeenCalled();
+
+    setup.auth = authState();
+    await publish();
+    expect(setup.openExternal).toHaveBeenCalledExactlyOnceWith(setup.auth.authorizationUrl);
+
+    setup.auth = authState({ message: "Finish signing in." });
+    await publish();
+    await screen.rerender(section());
+    expect(setup.openExternal).toHaveBeenCalledOnce();
+
+    await screen.click("Open browser");
+    expect(setup.openExternal).toHaveBeenCalledTimes(2);
+
+    setup.auth = authState({ phase: "cancelled", authorizationUrl: null });
+    await publish();
+    await screen.click("Retry sign-in");
+    setup.auth = authState({
+      flowId: "flow-2",
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=another-attempt",
+    });
+    await publish();
+    expect(setup.openExternal).toHaveBeenCalledTimes(3);
+    expect(setup.openExternal).toHaveBeenLastCalledWith(setup.auth.authorizationUrl);
+  });
+
+  it("opens a requested consent link only after the provider accepts consent", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+    let acceptConsent = () => {};
+    const consent = new Promise<{ _tag: "Success"; value: undefined }>((resolve) => {
+      acceptConsent = () => resolve({ _tag: "Success", value: undefined });
+    });
+    const url = "https://accounts.google.com/o/oauth2/v2/auth?state=consent";
+    setup.respondAuth.mockReturnValueOnce(consent);
+    using _desktop = stubGlobal("desktopBridge", {});
+    await using screen = await renderSetup();
+    await screen.click("Sign in");
+    setup.auth = authState({
+      interaction: {
+        type: "browser",
+        id: "browser-consent",
+        url,
+        requiresConsent: true,
+      },
+    });
+    await publish();
+    expect(setup.respondAuth).toHaveBeenCalledExactlyOnceWith({
+      environmentId,
+      input: {
+        instanceId,
+        flowId: "flow-1",
+        interactionId: "browser-consent",
+        response: { type: "browser", action: "accept" },
+      },
+    });
+    expect(setup.openExternal).not.toHaveBeenCalled();
+
+    await act(async () => acceptConsent());
+    expect(setup.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+  });
+
+  it("reuses the tab reserved by the sign-in click when the URL arrives", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+    await using screen = await renderSetup();
+    const tab = { opener: window, location: { href: "about:blank" }, close: vi.fn() };
+    using open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+    await screen.click("Sign in");
+    expect(open).toHaveBeenCalledExactlyOnceWith("", "_blank");
+    expect(tab.opener).toBeNull();
+    expect(tab.location.href).toBe("about:blank");
+
+    setup.auth = authState();
+    await publish();
+    expect(tab.location.href).toBe(setup.auth.authorizationUrl);
+    expect(open).toHaveBeenCalledOnce();
+    expect(setup.openExternal).not.toHaveBeenCalled();
+    await screen.unmount();
+    expect(tab.close).not.toHaveBeenCalled();
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "closes the reserved tab when sign-in is %s before producing a URL",
+    async (phase) => {
+      resetSetup();
+      setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+      await using screen = await renderSetup();
+      const tab = { opener: window, location: { href: "about:blank" }, close: vi.fn() };
+      using _open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+      await screen.click("Sign in");
+      setup.auth = authState({ phase, authorizationUrl: null });
+      await publish();
+      expect(tab.close).toHaveBeenCalledOnce();
+
+      setup.auth = authState();
+      await publish();
+      expect(tab.location.href).toBe("about:blank");
+      expect(setup.openExternal).not.toHaveBeenCalled();
+    },
+  );
+
+  it("closes the reserved tab when starting sign-in fails", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+    setup.startAuth.mockRejectedValueOnce(new Error("Provider could not start."));
+    await using screen = await renderSetup();
+    const tab = { opener: window, location: { href: "about:blank" }, close: vi.fn() };
+    using _open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+    await screen.click("Sign in");
+    expect(tab.close).toHaveBeenCalledOnce();
+    await expect
+      .element(screen.getByText("Provider sign-in failed. Try again.", { exact: true }))
+      .toBeVisible();
+  });
+
+  it("closes the reserved tab when sign-in needs credentials or the view closes", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+    await using screen = await renderSetup();
+    const tab = { opener: window, location: { href: "about:blank" }, close: vi.fn() };
+    using _open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+    await screen.click("Sign in");
+    setup.auth = authState({
+      authorizationUrl: null,
+      interaction: { type: "credentials", id: "credentials", fields: [] },
+    });
+    await publish();
+    expect(tab.close).toHaveBeenCalledOnce();
+
+    setup.auth = authState({ phase: "cancelled", authorizationUrl: null });
+    await publish();
+    await screen.click("Retry sign-in");
+    await screen.unmount();
+    expect(tab.close).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a manual browser retry when the browser blocks the reserved tab", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
+    await using screen = await renderSetup();
+    using _open = vi.spyOn(window, "open").mockReturnValue(null);
+    await screen.click("Sign in");
+    setup.auth = authState();
+    await publish();
+    await expect
+      .element(
+        screen.getByText(
+          "Could not open the sign-in page. Copy the link and open it in your browser.",
+          { exact: true },
+        ),
+      )
+      .toBeVisible();
+    await screen.click("Open browser");
+    expect(setup.openExternal).toHaveBeenCalledExactlyOnceWith(setup.auth.authorizationUrl);
+  });
+
+  it("offers the existing Antigravity installation action after onboarding creates its profile", async () => {
+    resetSetup();
+    setup.auth = authState({ phase: "idle", authorizationUrl: null });
+    setup.providersAtom = Atom.make([{ ...provider, installed: false }]);
+    await using screen = await render(
+      <ProviderWizardAuthenticationStep
+        environmentId={environmentId}
+        environmentLabel="Remote Google device"
+        instanceId={instanceId}
+        driverKind={provider.driver}
+        onFinish={vi.fn()}
+      />,
+    );
+    await screen.getByRole("button", { name: "Install Antigravity", exact: true }).click();
+    expect(setup.startInstall).toHaveBeenCalledWith({ environmentId, input: { instanceId } });
+  });
+
   it("waits for verified auth after submitting a callback to the selected environment", async () => {
     resetSetup();
     const callbackUrl = "http://127.0.0.1:5555/?state=test-only&code=test-only";
@@ -246,4 +468,46 @@ describe("Antigravity setup", () => {
     expect(screen.button("Sign in")?.disabled).toBe(true);
     expect(setup.startAuth).not.toHaveBeenCalled();
   });
+});
+
+it("prioritizes a detected account over an unavailable sign-in flow and keeps the signed-out fallback", async () => {
+  resetSetup();
+  const unavailable = "This provider does not support sign-in in mines.";
+  const detected: ServerProvider = {
+    ...provider,
+    driver: ProviderDriverKind.make("opencode"),
+    status: "ready",
+    auth: { status: "authenticated" },
+    setup: { canAuthenticate: false, canInstall: false },
+  };
+  setup.providersAtom = Atom.make([detected]);
+  setup.settings = {
+    providerInstances: { [instanceId]: { driver: detected.driver, enabled: true } },
+  };
+  setup.auth = authState({
+    phase: "failed",
+    flowId: null,
+    authorizationUrl: null,
+    methods: [],
+    message: unavailable,
+  });
+  const onFinish = vi.fn();
+  const wizard = () => (
+    <ProviderWizardAuthenticationStep
+      environmentId={environmentId}
+      environmentLabel="Remote device"
+      instanceId={instanceId}
+      onFinish={onFinish}
+    />
+  );
+  await using screen = await render(wizard());
+  await expect.element(screen.getByText("Signed in.", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText(unavailable, { exact: true })).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: "Done", exact: true }).click();
+  expect(onFinish).toHaveBeenCalledOnce();
+
+  setup.providersAtom = Atom.make([{ ...detected, auth: { status: "unauthenticated" } }]);
+  await screen.rerender(wizard());
+  await expect.element(screen.getByText(unavailable, { exact: true })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Skip for now" })).toBeEnabled();
 });

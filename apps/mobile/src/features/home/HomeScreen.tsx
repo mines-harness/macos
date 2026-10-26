@@ -1,3 +1,8 @@
+import { SharedGroupsScreen } from "../contacts/SharedGroupsScreen";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { MinesLibrary } from "../../catalog/MinesLibrary";
+import { AppText as Text } from "../../components/ui/AppText";
+import { Pressable } from "react-native";
 import { useActiveNewTask } from "../../state/active-new-task";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
@@ -190,7 +195,7 @@ function deriveEmptyState(props: {
   ) {
     return {
       title: "Connecting to environment",
-      detail: "Loading projects and threads from the saved environment.",
+      detail: "Loading projects and mines from the saved environment.",
       loading: true,
     };
   }
@@ -204,7 +209,7 @@ function deriveEmptyState(props: {
   }
 
   return {
-    title: "No threads yet",
+    title: "No mines yet",
     detail: "Create a task to start a new coding runtime in one of your connected projects.",
     loading: false,
   };
@@ -242,6 +247,54 @@ function renderHomeScrollView(props: ScrollViewProps) {
 }
 
 export function HomeScreen(props: HomeScreenProps) {
+  const [mode, setMode] = useState<"library" | "activity" | "groups">("library");
+  return (
+    <View className="flex-1 bg-background">
+      <View className="flex-row flex-wrap gap-2 px-4 py-2">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: mode === "library" }}
+          onPress={() => setMode("library")}
+          className="rounded-full bg-muted px-4 py-2"
+        >
+          <Text>Library</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: mode === "activity" }}
+          onPress={() => setMode("activity")}
+          className="rounded-full bg-muted px-4 py-2"
+        >
+          <Text>Activity</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Shared groups"
+          accessibilityState={{ selected: mode === "groups" }}
+          onPress={() => setMode("groups")}
+          className="flex-row items-center gap-2 rounded-full bg-muted px-4 py-2"
+        >
+          <SymbolView name="person.2" size={18} tintColorClassName="accent-icon" />
+          <Text>Groups</Text>
+        </Pressable>
+      </View>
+      {mode === "groups" && !props.searchQuery.trim() ? (
+        <SharedGroupsScreen />
+      ) : mode === "activity" || props.searchQuery.trim() ? (
+        <ActivityHomeScreen
+          {...props}
+          threads={props.threads.map((thread) =>
+            thread.pinnedAt == null ? thread : { ...thread, pinnedAt: null, pinOrderKey: null },
+          )}
+        />
+      ) : (
+        <MinesLibrary onNewChat={props.onStartNewTask} onSettings={props.onOpenSettings} />
+      )}
+    </View>
+  );
+}
+
+function ActivityHomeScreen(props: HomeScreenProps) {
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const workspace = useWorkspaceTabs();
   const [initialScrollOffset] = useState(() => workspace?.getScrollOffset("threads") ?? 0);
@@ -441,7 +494,6 @@ export function HomeScreen(props: HomeScreenProps) {
     machineByEnvironmentId,
     settlementEnvironmentIds,
     snoozeEnvironmentIds,
-    pinningEnvironmentIds,
     autoSettleOptOutEnvironmentIds,
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
@@ -626,13 +678,9 @@ export function HomeScreen(props: HomeScreenProps) {
         settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
         onSettleThread={handleSettleThread}
         snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
-        pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}
+        pinningSupported={false}
         autoSettleOptOutSupported={autoSettleOptOutEnvironmentIds.has(thread.environmentId)}
-        reorderSupported={
-          item.item.pinned
-            ? pinReorderEnvironmentIds.has(thread.environmentId)
-            : !workingShelfEnabled && activeReorderEnvironmentIds.has(thread.environmentId)
-        }
+        reorderSupported={false}
         canMoveUp={item.canMoveUp}
         canMoveDown={item.canMoveDown}
         onSnoozeThread={handleSnoozeThread}
@@ -746,24 +794,24 @@ export function HomeScreen(props: HomeScreenProps) {
     hasSearchQuery && threadSearch.isPending ? undefined : hasSearchQuery ? (
       <EmptyState
         title="No results"
-        detail={`No threads matching "${props.searchQuery}".`}
+        detail={`No mines matching "${props.searchQuery}".`}
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : v2ScopedProjectGroup !== null ? (
       <EmptyState
-        title={`No threads in ${v2ScopedProjectGroup.title}`}
+        title={`No mines in ${v2ScopedProjectGroup.title}`}
         detail="Choose another project or create a new task."
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : selectedEnvironmentLabel ? (
       <EmptyState
-        title={`No threads in ${selectedEnvironmentLabel}`}
+        title={`No mines in ${selectedEnvironmentLabel}`}
         detail="Choose another environment or create a new task."
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : (
       <EmptyState
-        title="No threads yet"
+        title="No mines yet"
         detail="Create a task to start a new coding session."
         variant={Platform.OS === "android" ? "plain" : undefined}
       />

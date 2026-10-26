@@ -91,7 +91,7 @@ export const buildInitialGrokProviderSnapshot = Effect.fn(
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Grok is disabled in T3 Code settings.",
+        message: "Grok is disabled in mines settings.",
       },
     });
   }
@@ -378,7 +378,7 @@ const discoverGrokMetadataViaAcpInitialize = Effect.fn(
     grokSettings,
     environment,
     cwd: process.cwd(),
-    clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
+    clientInfo: { name: "mines-provider-probe", version: "0.0.0" },
   });
   const initialized = yield* acp.initialize();
   return {
@@ -398,22 +398,6 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
 > {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = grokModelsFromSettings(grokSettings.customModels);
-
-  if (!grokSettings.enabled) {
-    return buildServerProvider({
-      presentation: GROK_PRESENTATION,
-      enabled: false,
-      checkedAt,
-      models: fallbackModels,
-      probe: {
-        installed: false,
-        version: null,
-        status: "warning",
-        auth: { status: "unknown" },
-        message: "Grok is disabled in T3 Code settings.",
-      },
-    });
-  }
 
   const probeEnvironment = grokProbeEnvironment(environment);
   const apiKey = environment[GROK_API_KEY_ENV]?.trim();
@@ -481,6 +465,22 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
         status: "error",
         auth: { status: "unknown" },
         message: "Grok CLI is installed but failed to run.",
+      },
+    });
+  }
+
+  if (!grokSettings.enabled) {
+    return buildServerProvider({
+      presentation: GROK_PRESENTATION,
+      enabled: false,
+      checkedAt,
+      models: fallbackModels,
+      probe: {
+        installed: true,
+        version,
+        status: "warning",
+        auth: { status: "unknown" },
+        message: "Grok is disabled in mines settings.",
       },
     });
   }

@@ -105,6 +105,27 @@ const settings = {
 } as const;
 
 describe("PiProvider", () => {
+  it.effect(
+    "detects disabled Pi availability without starting RPC or inferring a saved login",
+    () =>
+      Effect.gen(function* () {
+        const commands: ReadonlyArray<string>[] = [];
+        const spawner = ChildProcessSpawner.make((command) => {
+          const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+          commands.push(args);
+          return Effect.succeed(processHandle({ stdout: "pi 0.84.3\n" }));
+        });
+        const snapshot = yield* checkPiProviderStatus({ ...settings, enabled: false }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        );
+        assert.equal(snapshot.enabled, false);
+        assert.equal(snapshot.installed, true);
+        assert.equal(snapshot.version, "0.84.3");
+        assert.deepEqual(snapshot.auth, { status: "unknown" });
+        assert.deepEqual(commands, [["--version"]]);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("requires the first published Pi version with entries and settlement hooks", () =>
     Effect.gen(function* () {
       const snapshot = yield* checkPiProviderStatus(settings).pipe(

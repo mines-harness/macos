@@ -406,6 +406,123 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it.effect("removes implicit default instances without restoring them after reload", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const codex = ProviderInstanceId.make("codex");
+      yield* service.updateProviderInstance({ operation: "remove", instanceId: codex });
+      yield* service.updateSettings({ responseStreamingMode: "turn" });
+      const settings = yield* service.getSettings;
+      assert.deepEqual(settings.providerInstances[codex], {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: false,
+        removed: true,
+      });
+      assert.isFalse(resolveProviderInstanceEnabled(settings.providerInstances[codex]!));
+      yield* service.updateProviderInstance({
+        operation: "create",
+        instanceId: codex,
+        instance: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      });
+      assert.isTrue(
+        resolveProviderInstanceEnabled((yield* service.getSettings).providerInstances[codex]!),
+      );
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect(
+    "duplicates provider settings and independent secrets without exposing them on disk",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const sourceId = ProviderInstanceId.make("antigravity_source");
+        const instanceId = ProviderInstanceId.make("antigravity_copy");
+        yield* service.updateProviderInstance({
+          operation: "create",
+          instanceId: sourceId,
+          instance: {
+            driver: ProviderDriverKind.make("antigravity"),
+            displayName: "Original",
+            enabled: true,
+            environment: [
+              { name: "TOKEN", value: "duplicate-environment-secret", sensitive: true },
+            ],
+            config: { apiKey: "duplicate-config-secret", homePath: "~/.antigravity-custom" },
+          },
+        });
+        const duplicated = yield* service.updateProviderInstance({
+          operation: "duplicate",
+          sourceInstanceId: sourceId,
+          instanceId,
+          displayName: "Copy",
+        });
+        assert.equal(duplicated.providerInstances[instanceId]?.displayName, "Copy");
+        assert.equal(
+          duplicated.providerInstances[instanceId]?.environment?.[0]?.value,
+          "duplicate-environment-secret",
+        );
+        assert.propertyVal(
+          duplicated.providerInstances[instanceId]?.config,
+          "apiKey",
+          "duplicate-config-secret",
+        );
+        yield* service.updateProviderInstance({ operation: "remove", instanceId: sourceId });
+        const afterRemove = yield* service.getSettings;
+        assert.isUndefined(afterRemove.providerInstances[sourceId]);
+        assert.equal(
+          afterRemove.providerInstances[instanceId]?.environment?.[0]?.value,
+          "duplicate-environment-secret",
+        );
+        assert.propertyVal(
+          afterRemove.providerInstances[instanceId]?.config,
+          "apiKey",
+          "duplicate-config-secret",
+        );
+        const raw = yield* fs.readFileString(config.settingsPath);
+        assert.notInclude(raw, "duplicate-environment-secret");
+        assert.notInclude(raw, "duplicate-config-secret");
+        const redacted = ServerSettingsModule.redactServerSettingsForClient(afterRemove);
+        assert.equal(redacted.providerInstances[instanceId]?.environment?.[0]?.value, "");
+        const conflict = yield* service
+          .updateProviderInstance({
+            operation: "duplicate",
+            sourceInstanceId: instanceId,
+            instanceId,
+          })
+          .pipe(Effect.flip);
+        assert.equal(conflict.operation, "create-provider-instance");
+      }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect("duplicates implicit native defaults and refuses missing sources", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("claude_copy");
+      const sourceInstanceId = ProviderInstanceId.make("claudeAgent");
+      const settings = yield* service.updateProviderInstance({
+        operation: "duplicate",
+        sourceInstanceId,
+        instanceId,
+        displayName: "Claude copy",
+      });
+      assert.equal(
+        settings.providerInstances[instanceId]?.driver,
+        ProviderDriverKind.make("claudeAgent"),
+      );
+      assert.isFalse(resolveProviderInstanceEnabled(settings.providerInstances[instanceId]!));
+      const missing = yield* service
+        .updateProviderInstance({
+          operation: "duplicate",
+          sourceInstanceId: ProviderInstanceId.make("absent_source"),
+          instanceId: ProviderInstanceId.make("unused"),
+        })
+        .pipe(Effect.flip);
+      assert.equal(missing.operation, "duplicate-provider-instance");
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("creates provider instances atomically without overwriting a concurrent add", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
@@ -682,6 +799,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       const next = yield* serverSettings.updateSettings({
         providerInstances: {
+          [ProviderInstanceId.make("claudeAgent")]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            enabled: true,
+          },
           [ProviderInstanceId.make("codex")]: {
             driver: ProviderDriverKind.make("codex"),
             enabled: false,
@@ -708,6 +829,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
         [claude]: {
           driver: ProviderDriverKind.make("claudeAgent"),
+          enabled: true,
           config: { customModels: ["z-ai/glm-5.3-flash"] },
         },
       };
@@ -824,11 +946,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         [ProviderInstanceId.make("codex")]: {
           driver: ProviderDriverKind.make("codex"),
           config: { binaryPath: "/opt/guard/bin/codex" },
-        },
-        [ProviderInstanceId.make("claudeAgent")]: {
-          driver: ProviderDriverKind.make("claudeAgent"),
-          enabled: false,
-          config: {},
         },
       });
 

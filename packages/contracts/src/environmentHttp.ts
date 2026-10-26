@@ -48,9 +48,11 @@ import {
   DpopFailureReason,
   AuthSessionId,
   ThreadId,
+  TurnItemId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import {
+  OrchestrationV2BodyRangeResult,
   OrchestrationV2ShellSnapshot,
   OrchestrationV2ThreadBoundedSnapshot,
   OrchestrationV2ThreadDetailSnapshot,
@@ -94,6 +96,8 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "scope_not_granted",
   "invalid_command",
   "invalid_history_cursor",
+  "invalid_body_field",
+  "body_revision_changed",
   "thread_transcript_too_large",
 ]);
 export type EnvironmentRequestInvalidReason = typeof EnvironmentRequestInvalidReason.Type;
@@ -528,7 +532,7 @@ export const AuthOtherClientSessionsRevokeResult = Schema.Struct({
 export type AuthOtherClientSessionsRevokeResult = typeof AuthOtherClientSessionsRevokeResult.Type;
 
 class EnvironmentMetadataHttpApi extends HttpApiGroup.make("metadata").add(
-  HttpApiEndpoint.get("descriptor", "/.well-known/t3/environment", {
+  HttpApiEndpoint.get("descriptor", "/.well-known/mines/environment", {
     success: ExecutionEnvironmentDescriptor,
   }),
 ) {}
@@ -734,6 +738,23 @@ class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
       success: OrchestrationV2ThreadHistoryPage,
       error: EnvironmentOrchestrationThreadHistoryErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "threadBodyRange",
+      "/api/orchestration/threads/:threadId/items/:itemId/body",
+      {
+        headers: OrchestrationProtocolHeaders,
+        params: Schema.Struct({ threadId: ThreadId, itemId: TurnItemId }),
+        query: Schema.Struct({
+          field: Schema.Literals(["text", "markdown"]),
+          before: Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+          revision: TrimmedNonEmptyString,
+        }),
+        success: OrchestrationV2BodyRangeResult,
+        error: EnvironmentOrchestrationThreadHistoryErrors,
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
 class EnvironmentProjectsHttpApi extends HttpApiGroup.make("projects")

@@ -1,3 +1,6 @@
+import { openBrowserPrivateStore } from "../catalog/storage";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { minesAccountIdAtom } from "@t3tools/client-runtime/catalog";
 import {
   ConnectionCatalogDocument,
   type ConnectionCatalogDocument as ConnectionCatalogDocumentType,
@@ -16,6 +19,8 @@ import {
   replaceCatalogValue,
   Persistence,
   makeStoredShellSnapshotEncoder,
+  createEncryptedHistoryCache,
+  DESKTOP_HISTORY_CACHE_BYTES,
 } from "@t3tools/client-runtime/platform";
 import { TokenStore } from "@t3tools/client-runtime/authorization";
 import {
@@ -40,7 +45,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { projectFaviconCache } from "../assets/projectFaviconCache";
 
-const DATABASE_NAME = "t3code:connection-runtime";
+const DATABASE_NAME = "mines:connection-runtime";
 const DATABASE_VERSION = 4;
 const CATALOG_STORE_NAME = "catalog";
 const SHELL_STORE_NAME = "shell";
@@ -493,8 +498,8 @@ export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStor
 
 // The stored names predate the rename and stay, so a tab still on an older version and an
 // updated one read and revoke the same grants.
-const PULL_REQUEST_ROUTING_KEY_PREFIX = "t3code:github-routing:";
-const PULL_REQUEST_ROUTING_CHANGED = "t3code:github-routing-changed";
+const PULL_REQUEST_ROUTING_KEY_PREFIX = "mines:github-routing:";
+const PULL_REQUEST_ROUTING_CHANGED = "mines:github-routing-changed";
 const isStoredPullRequestRoutingPermission = Schema.is(StoredPullRequestRoutingPermission);
 const encodeStoredPullRequestRoutingPermission = Schema.encodeSync(
   Schema.fromJsonString(StoredPullRequestRoutingPermission),
@@ -930,7 +935,24 @@ export const layer = Layer.effectContext(
       Context.add(ProfileStore.ConnectionProfileStore, profileStore),
       Context.add(CredentialStore.ConnectionCredentialStore, credentialStore),
       Context.add(TokenStore.RemoteDpopAccessTokenStore, remoteTokenStore),
-      Context.add(Persistence.EnvironmentCacheStore, cacheStore),
+      Context.add(
+        Persistence.EnvironmentCacheStore,
+        createEncryptedHistoryCache({
+          base: cacheStore,
+          accountId: () => appAtomRegistry.get(minesAccountIdAtom) ?? "local-device",
+          open: openBrowserPrivateStore,
+          budgetBytes: DESKTOP_HISTORY_CACHE_BYTES,
+          unmetered: async () => {
+            const network = (
+              navigator as Navigator & { connection?: { type?: string; saveData?: boolean } }
+            ).connection;
+            return (
+              network?.saveData !== true &&
+              (network?.type === "wifi" || network?.type === "ethernet")
+            );
+          },
+        }),
+      ),
     );
   }),
 );

@@ -47,6 +47,28 @@ describe("getOnboardingProviderState", () => {
     ).toBe("attention");
   });
 
+  it("requires an available model before a connected ChatGPT plan is ready", () => {
+    const connected: ServerProvider = {
+      ...readyCodex,
+      auth: { status: "authenticated", subscriptionSharing: true },
+    };
+
+    expect(getOnboardingProviderState(connected)).toBe("attention");
+    expect(
+      getOnboardingProviderState({
+        ...connected,
+        models: [{ slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null }],
+      }),
+    ).toBe("ready");
+    expect(
+      getOnboardingProviderState({
+        ...connected,
+        status: "warning",
+        models: [{ slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null }],
+      }),
+    ).toBe("attention");
+  });
+
   it("offers sign-in only when the server reports an authentication failure", () => {
     expect(
       getOnboardingProviderState({

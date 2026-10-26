@@ -33,15 +33,15 @@ export class RuntimeRequestResponseExecutionError extends Schema.TaggedError<Run
   override get message(): string {
     switch (this.reason) {
       case "request-missing":
-        return `Runtime request ${this.requestId} no longer exists on thread ${this.threadId}.`;
+        return `Runtime request ${this.requestId} no longer exists on mine ${this.threadId}.`;
       case "request-not-ready":
-        return `Runtime request ${this.requestId} on thread ${this.threadId} is not ready for response execution.`;
+        return `Runtime request ${this.requestId} on mine ${this.threadId} is not ready for response execution.`;
       case "request-not-resumable":
-        return `Runtime request ${this.requestId} on thread ${this.threadId} is not resumable on provider session ${this.providerSessionId}.`;
+        return `Runtime request ${this.requestId} on mine ${this.threadId} is not resumable on provider session ${this.providerSessionId}.`;
       case "provider-session-not-active":
-        return `Provider session ${this.providerSessionId} is not active for runtime request ${this.requestId} on thread ${this.threadId}.`;
+        return `Provider session ${this.providerSessionId} is not active for runtime request ${this.requestId} on mine ${this.threadId}.`;
       case "unexpected-failure":
-        return `Failed to respond to runtime request ${this.requestId} on thread ${this.threadId} via provider session ${this.providerSessionId}.`;
+        return `Failed to respond to runtime request ${this.requestId} on mine ${this.threadId} via provider session ${this.providerSessionId}.`;
     }
   }
 }
@@ -62,7 +62,7 @@ export interface RuntimeRequestServiceV2Shape {
 export class RuntimeRequestServiceV2 extends Context.Service<
   RuntimeRequestServiceV2,
   RuntimeRequestServiceV2Shape
->()("t3/orchestration-v2/RuntimeRequestService/RuntimeRequestServiceV2") {}
+>()("mines/orchestration-v2/RuntimeRequestService/RuntimeRequestServiceV2") {}
 
 export const layer: Layer.Layer<
   RuntimeRequestServiceV2,

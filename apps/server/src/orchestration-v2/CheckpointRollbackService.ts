@@ -58,9 +58,9 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
   override get message(): string {
     switch (this.reason) {
       case "rollback-target-invalid":
-        return `Rollback target ${this.checkpointId} for provider thread ${this.providerThreadId} on thread ${this.threadId} is incomplete or invalid.`;
+        return `Rollback target ${this.checkpointId} for provider thread ${this.providerThreadId} on mine ${this.threadId} is incomplete or invalid.`;
       case "active-provider-changed":
-        return `Active provider changed before rollback target ${this.checkpointId} could execute on thread ${this.threadId}.`;
+        return `Active provider changed before rollback target ${this.checkpointId} could execute on mine ${this.threadId}.`;
       case "provider-turn-unavailable":
         return `Provider turn for rollback target ${this.checkpointId} is unavailable on provider thread ${this.providerThreadId}.`;
       case "shared-workspace":
@@ -100,7 +100,7 @@ export interface CheckpointRollbackServiceV2Shape {
 export class CheckpointRollbackServiceV2 extends Context.Service<
   CheckpointRollbackServiceV2,
   CheckpointRollbackServiceV2Shape
->()("t3/orchestration-v2/CheckpointRollbackService/CheckpointRollbackServiceV2") {}
+>()("mines/orchestration-v2/CheckpointRollbackService/CheckpointRollbackServiceV2") {}
 
 export const layer: Layer.Layer<
   CheckpointRollbackServiceV2,

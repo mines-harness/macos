@@ -28,7 +28,7 @@ const FINAL_STATUSES: ReadonlySet<string> = new Set([
 export class DelegatedTaskAnalytics extends Context.Service<
   DelegatedTaskAnalytics,
   { readonly onSubagent: (event: SubagentEvent) => Effect.Effect<void> }
->()("t3/telemetry/DelegatedTaskAnalytics") {}
+>()("mines/telemetry/DelegatedTaskAnalytics") {}
 
 const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;

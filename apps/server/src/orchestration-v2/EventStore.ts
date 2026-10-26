@@ -37,7 +37,7 @@ export class EventStoreReadEventsError extends Schema.TaggedError<EventStoreRead
   override get message(): string {
     return this.threadId === undefined
       ? "Failed to read agent orchestration events."
-      : `Failed to read agent orchestration events for thread ${this.threadId}.`;
+      : `Failed to read agent orchestration events for mine ${this.threadId}.`;
   }
 }
 
@@ -73,7 +73,7 @@ export interface EventStoreV2Shape {
 }
 
 export class EventStoreV2 extends Context.Service<EventStoreV2, EventStoreV2Shape>()(
-  "t3/orchestration-v2/EventStore/EventStoreV2",
+  "mines/orchestration-v2/EventStore/EventStoreV2",
 ) {}
 
 const layerBase: Layer.Layer<EventStoreV2, never, OrchestrationEventStore.OrchestrationEventStore> =

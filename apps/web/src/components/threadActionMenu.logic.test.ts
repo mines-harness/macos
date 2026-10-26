@@ -26,6 +26,21 @@ const baseState: ThreadActionMenuState = {
 };
 
 describe("buildThreadActionMenuItems", () => {
+  it("offers transfer only on a supporting connection and requires operate permission", () => {
+    expect(buildThreadActionMenuItems(baseState).some((item) => item.id === "transfer-mine")).toBe(
+      false,
+    );
+    expect(
+      buildThreadActionMenuItems({ ...baseState, canTransferMine: true }).find(
+        (item) => item.id === "transfer-mine",
+      )?.disabled,
+    ).not.toBe(true);
+    expect(
+      buildThreadActionMenuItems({ ...baseState, canTransferMine: true, canOperate: false }).find(
+        (item) => item.id === "transfer-mine",
+      )?.disabled,
+    ).toBe(true);
+  });
   it.each([false, true])(
     "disables both lifecycle directions without permission (reversed: %s)",
     (reversed) => {
@@ -37,26 +52,8 @@ describe("buildThreadActionMenuItems", () => {
         isSnoozed: reversed,
       });
       const expected = reversed
-        ? [
-            "unpin",
-            "unsettle",
-            "unsnooze",
-            "rename",
-            "regenerate-title",
-            "auto-settle",
-            "archive",
-            "delete",
-          ]
-        : [
-            "pin",
-            "settle",
-            "snooze",
-            "rename",
-            "regenerate-title",
-            "auto-settle",
-            "archive",
-            "delete",
-          ];
+        ? ["unsettle", "unsnooze", "rename", "regenerate-title", "auto-settle", "archive", "delete"]
+        : ["settle", "snooze", "rename", "regenerate-title", "auto-settle", "archive", "delete"];
       expect(items.filter((item) => item.disabled).map((item) => item.id)).toEqual(expected);
       expect(
         items.find((item) => item.id === "snooze")?.children?.every((child) => child.disabled) ??

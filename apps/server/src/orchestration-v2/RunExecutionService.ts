@@ -570,6 +570,8 @@ export interface RunExecutionServiceV2StartRootRunInput {
   readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
   readonly loadRunInterruptReason?: () => Effect.Effect<string | undefined, never>;
+  readonly onExecutionSettled?: Effect.Effect<void>;
+  readonly onCheckpointScheduled?: Effect.Effect<void>;
   readonly message: ProviderAdapter.ProviderAdapterV2TurnMessage;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
@@ -584,7 +586,7 @@ export interface RunExecutionServiceV2Shape {
 export class RunExecutionServiceV2 extends Context.Service<
   RunExecutionServiceV2,
   RunExecutionServiceV2Shape
->()("t3/orchestration-v2/RunExecutionService/RunExecutionServiceV2") {}
+>()("mines/orchestration-v2/RunExecutionService/RunExecutionServiceV2") {}
 
 export const layer: Layer.Layer<
   RunExecutionServiceV2,
@@ -625,6 +627,7 @@ export const layer: Layer.Layer<
         readonly completedAt?: DateTime.Utc;
         readonly failureItemPersisted: boolean;
         readonly refreshAfterTurn: Effect.Effect<void>;
+        readonly onCheckpointScheduled: Effect.Effect<void>;
         readonly writeIfRunCurrent?: {
           readonly activeAttemptId: RunAttemptId;
           readonly expectedStatus: OrchestrationV2Run["status"];
@@ -869,12 +872,14 @@ export const layer: Layer.Layer<
         } else {
           yield* eventSink.writeWithEffects(finalization);
         }
+        if (finalization.effects.length > 0) yield* input.onCheckpointScheduled;
         yield* input.refreshAfterTurn;
       },
     );
 
     return RunExecutionServiceV2.of({
       startRootRun: Effect.fn("RunExecutionService.startRootRun")(function* (input) {
+        const settleExecution = yield* Effect.cached(input.onExecutionSettled ?? Effect.void);
         const rootTurnOrigin: ProviderEventIngestor.ProviderTurnOrigin = {
           createdBy: input.message.createdBy,
           creationSource: input.message.creationSource,
@@ -953,6 +958,7 @@ export const layer: Layer.Layer<
                 cause,
               });
               yield* writeFinalRunEvents({
+                onCheckpointScheduled: input.onCheckpointScheduled ?? Effect.void,
                 run: input.run,
                 rootNode: input.rootNode,
                 checkpointScope: input.checkpointScope,
@@ -986,6 +992,7 @@ export const layer: Layer.Layer<
           ),
         );
         if (responseStreamingMode === null) {
+          yield* settleExecution;
           return;
         }
         const terminalEvent = yield* Ref.make<ProviderTerminalEvent | null>(null);
@@ -1049,6 +1056,7 @@ export const layer: Layer.Layer<
           const providerThread = yield* Ref.get(latestProviderThread);
           const openSubagents = yield* Ref.get(openRunOwnedSubagents);
           yield* writeFinalRunEvents({
+            onCheckpointScheduled: input.onCheckpointScheduled ?? Effect.void,
             run: input.run,
             rootNode: input.rootNode,
             checkpointScope: input.checkpointScope,
@@ -1507,6 +1515,7 @@ export const layer: Layer.Layer<
                 const openSubagents = yield* Ref.get(openRunOwnedSubagents);
                 let nextRetryWarningAt = completedAt;
                 yield* writeFinalRunEvents({
+                  onCheckpointScheduled: input.onCheckpointScheduled ?? Effect.void,
                   run: input.run,
                   rootNode: input.rootNode,
                   checkpointScope: input.checkpointScope,
@@ -1563,6 +1572,7 @@ export const layer: Layer.Layer<
               }),
           ),
           Effect.ensuring(eventSubscription.close),
+          Effect.ensuring(settleExecution),
           Effect.forkDetach,
         );
 
@@ -1596,6 +1606,7 @@ export const layer: Layer.Layer<
           threadId: input.run.threadId,
           runId: input.run.id,
           runOrdinal: input.run.ordinal,
+          ...(input.run.liveVoice === undefined ? {} : { liveVoice: input.run.liveVoice }),
           providerTurnOrdinal: input.providerTurnOrdinal,
           ...(input.nativeThreadHasTurns === undefined
             ? {}
@@ -1621,6 +1632,7 @@ export const layer: Layer.Layer<
             : yield* Effect.exit(input.shouldStartProviderTurn());
         if (Exit.isSuccess(shouldStart) && !shouldStart.value) {
           yield* Fiber.interrupt(providerEventFiber);
+          yield* settleExecution;
           return;
         }
 
@@ -1661,6 +1673,7 @@ export const layer: Layer.Layer<
                     Ref.get(openRunOwnedSubagents).pipe(
                       Effect.flatMap((openSubagents) =>
                         writeFinalRunEvents({
+                          onCheckpointScheduled: input.onCheckpointScheduled ?? Effect.void,
                           run: input.run,
                           rootNode: input.rootNode,
                           checkpointScope: input.checkpointScope,
@@ -1694,6 +1707,7 @@ export const layer: Layer.Layer<
                     cause: { start: cause, write: writeCause },
                   }),
               ),
+              Effect.ensuring(settleExecution),
             ),
           ),
         );

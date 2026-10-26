@@ -56,7 +56,7 @@ export class ThreadSearchError extends Schema.TaggedError<ThreadSearchError>()(
   },
 ) {
   override get message(): string {
-    return `Thread search ${this.operation} failed.`;
+    return `Mine search ${this.operation} failed.`;
   }
 }
 
@@ -272,7 +272,7 @@ export class ThreadSearch extends Context.Service<
       readonly messageThreadIds: ReadonlyArray<ThreadId>;
     }) => Effect.Effect<ReadonlyArray<ThreadId>, ThreadSearchError>;
   }
->()("t3/orchestration-v2/ThreadSearch") {}
+>()("mines/orchestration-v2/ThreadSearch") {}
 
 // Rows a client gets per search: enough for the shown results without sending every match.
 const OLDER_SETTLED_TITLE_ROWS = 15;

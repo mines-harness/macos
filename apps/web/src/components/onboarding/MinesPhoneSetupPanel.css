@@ -1,0 +1,98 @@
+[data-phone-illustration] [data-phone-example-stage] {
+  opacity: 0.4;
+  animation-duration: 6400ms;
+  animation-fill-mode: both;
+  animation-timing-function: ease-out;
+}
+
+[data-phone-example-stage="reading"] {
+  animation-name: mines-phone-reading;
+}
+
+[data-phone-example-stage="updating"] {
+  animation-name: mines-phone-updating;
+}
+
+[data-phone-example-stage="ready"] {
+  opacity: 1;
+  animation-name: mines-phone-ready;
+}
+
+[data-phone-example-connection] {
+  opacity: 0.35;
+  animation: mines-phone-connection 6400ms ease-out both;
+}
+
+@keyframes mines-phone-reading {
+  0% {
+    opacity: 0.4;
+    transform: translateY(4px);
+  }
+  12%,
+  30% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  42%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mines-phone-updating {
+  0%,
+  28% {
+    opacity: 0.4;
+    transform: translateY(4px);
+  }
+  40%,
+  61% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  73%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mines-phone-ready {
+  0%,
+  60% {
+    opacity: 0.4;
+    transform: translateY(4px);
+  }
+  76%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mines-phone-connection {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: -30;
+  }
+  15%,
+  75% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0.35;
+    stroke-dashoffset: 30;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-phone-illustration] [data-phone-example-stage],
+  [data-phone-example-connection] {
+    animation: none;
+  }
+
+  [data-phone-illustration] [data-phone-example-stage="ready"] {
+    opacity: 1;
+  }
+}

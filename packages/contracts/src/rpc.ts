@@ -1,3 +1,11 @@
+import * as MineTransfer from "./mineTransfer.ts";
+import * as Catalog from "./catalogRpc.ts";
+import * as Peer from "./minesPeer.ts";
+import * as PeerManagement from "./peerManagement.ts";
+import * as Cloud from "./executionTargets.ts";
+import * as Groups from "./groupChat.ts";
+import * as SharedGroups from "./sharedGroups.ts";
+import * as Voice from "./providerVoice.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -383,6 +391,16 @@ import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
+  mineTransferPreflight: "mineTransfer.preflight",
+  mineTransferPrepare: "mineTransfer.prepare",
+  mineTransferReadChunk: "mineTransfer.readChunk",
+  mineTransferBegin: "mineTransfer.begin",
+  mineTransferWriteChunk: "mineTransfer.writeChunk",
+  mineTransferAccept: "mineTransfer.accept",
+  mineTransferFinalize: "mineTransfer.finalize",
+  mineTransferCancel: "mineTransfer.cancel",
+  mineTransferGet: "mineTransfer.get",
+
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
@@ -414,6 +432,10 @@ export const WS_METHODS = {
 
   providerUploadFeedback: "provider.uploadFeedback",
   providerAuthStart: "provider.auth.start",
+  voiceGetCapabilities: "provider.voice.getCapabilities",
+  voiceStart: "provider.voice.start",
+  voiceSubscribe: "provider.voice.subscribe",
+  voiceStop: "provider.voice.stop",
   providerConsumeResetCredit: "provider.consumeResetCredit",
   providerAuthComplete: "provider.auth.complete",
   chatGptReconnectProfile: "provider.chatgpt.reconnect-profile",
@@ -475,6 +497,45 @@ export const WS_METHODS = {
   deviceDetail: "device.detail",
   deviceAction: "device.action",
 
+  sharedGroupsGet: "sharedGroups.get",
+  sharedGroupsSubscribe: "sharedGroups.subscribe",
+  sharedGroupsSend: "sharedGroups.send",
+  sharedGroupsAddChats: "sharedGroups.addChats",
+  sharedGroupsRemoveChats: "sharedGroups.removeChats",
+  sharedGroupsLeave: "sharedGroups.leave",
+  groupsSubscribe: "groups.subscribe",
+  groupsList: "groups.list",
+  groupsGet: "groups.get",
+  groupsCreate: "groups.create",
+  groupsAddMembers: "groups.addMembers",
+  groupsSend: "groups.send",
+  groupsStop: "groups.stop",
+  groupsArchive: "groups.archive",
+  groupsRetry: "groups.retry",
+  cloudSnapshot: "cloud.snapshot",
+  cloudRefresh: "cloud.refresh",
+  cloudSubmit: "cloud.submit",
+  cloudLink: "cloud.link",
+  cloudFollowUp: "cloud.followUp",
+  cloudStatus: "cloud.status",
+  cloudDiff: "cloud.diff",
+  cloudApply: "cloud.apply",
+  cloudUnlink: "cloud.unlink",
+  peerGetState: "peer.getState",
+  peerStatus: "peer.status",
+  peerCheckDevice: "peer.checkDevice",
+  peerApprove: "peer.approve",
+  peerRevoke: "peer.revoke",
+  peerConfigure: "peer.configure",
+  peerConnectionState: "peer.connectionState",
+  catalogExchange: "catalog.exchange",
+  catalogBindIdentity: "catalog.bindIdentity",
+  catalogSubscribe: "catalog.subscribe",
+  peerDisable: "peer.disable",
+  groupsPeer: "groups.peer",
+  groupsConnectHost: "groups.connectHost",
+  groupsListHostRoutes: "groups.listHostRoutes",
+  groupsDisconnectHost: "groups.disconnectHost",
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
@@ -598,6 +659,241 @@ const WsServerRemoveKeybindingRpc = Rpc.make(WS_METHODS.serverRemoveKeybinding, 
   payload: ServerRemoveKeybindingInput,
   success: ServerRemoveKeybindingResult,
   error: Schema.Union([KeybindingsConfigError, EnvironmentAuthorizationError]),
+});
+
+const WsVoiceGetCapabilitiesRpc = Rpc.make(WS_METHODS.voiceGetCapabilities, {
+  payload: Voice.ProviderVoiceCapabilitiesInput,
+  success: Voice.ProviderVoiceCapabilities,
+  error: Schema.Union([Voice.ProviderVoiceError, EnvironmentAuthorizationError]),
+});
+const WsVoiceStartRpc = Rpc.make(WS_METHODS.voiceStart, {
+  payload: Voice.ProviderVoiceStartInput,
+  success: Voice.ProviderVoiceStartResult,
+  error: Schema.Union([Voice.ProviderVoiceError, EnvironmentAuthorizationError]),
+});
+const WsVoiceSubscribeRpc = Rpc.make(WS_METHODS.voiceSubscribe, {
+  payload: Voice.ProviderVoiceSessionInput,
+  success: Voice.ProviderVoiceEvent,
+  stream: true,
+  error: Schema.Union([Voice.ProviderVoiceError, EnvironmentAuthorizationError]),
+});
+const WsVoiceStopRpc = Rpc.make(WS_METHODS.voiceStop, {
+  payload: Voice.ProviderVoiceSessionInput,
+  success: Schema.Void,
+  error: Schema.Union([Voice.ProviderVoiceError, EnvironmentAuthorizationError]),
+});
+
+const WsSharedGroupsGetRpc = Rpc.make(WS_METHODS.sharedGroupsGet, {
+  payload: SharedGroups.SharedGroupGetInput,
+  success: SharedGroups.SharedGroupView,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsSubscribeRpc = Rpc.make(WS_METHODS.sharedGroupsSubscribe, {
+  payload: SharedGroups.SharedGroupGetInput,
+  success: SharedGroups.SharedGroupView,
+  stream: true,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsSendRpc = Rpc.make(WS_METHODS.sharedGroupsSend, {
+  payload: SharedGroups.SharedGroupSendInput,
+  success: SharedGroups.SharedGroupView,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsAddChatsRpc = Rpc.make(WS_METHODS.sharedGroupsAddChats, {
+  payload: SharedGroups.SharedGroupAddChatsInput,
+  success: SharedGroups.SharedGroupView,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsRemoveChatsRpc = Rpc.make(WS_METHODS.sharedGroupsRemoveChats, {
+  payload: SharedGroups.SharedGroupRemoveChatsInput,
+  success: SharedGroups.SharedGroupView,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsLeaveRpc = Rpc.make(WS_METHODS.sharedGroupsLeave, {
+  payload: SharedGroups.SharedGroupGetInput,
+  success: Schema.Void,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsSubscribeRpc = Rpc.make(WS_METHODS.groupsSubscribe, {
+  payload: Groups.GroupGetInput,
+  success: Groups.GroupSnapshot,
+  stream: true,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsListRpc = Rpc.make(WS_METHODS.groupsList, {
+  payload: Schema.Struct({}),
+  success: Groups.GroupListResult,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsGetRpc = Rpc.make(WS_METHODS.groupsGet, {
+  payload: Groups.GroupGetInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsCreateRpc = Rpc.make(WS_METHODS.groupsCreate, {
+  payload: Groups.GroupCreateInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsAddMembersRpc = Rpc.make(WS_METHODS.groupsAddMembers, {
+  payload: Groups.GroupAddMembersInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsSendRpc = Rpc.make(WS_METHODS.groupsSend, {
+  payload: Groups.GroupSendInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsStopRpc = Rpc.make(WS_METHODS.groupsStop, {
+  payload: Groups.GroupStopInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsArchiveRpc = Rpc.make(WS_METHODS.groupsArchive, {
+  payload: Groups.GroupArchiveInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsRetryRpc = Rpc.make(WS_METHODS.groupsRetry, {
+  payload: Groups.GroupRetryInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudSnapshotRpc = Rpc.make(WS_METHODS.cloudSnapshot, {
+  payload: Schema.Struct({}),
+  success: Cloud.CloudSnapshot,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudRefreshRpc = Rpc.make(WS_METHODS.cloudRefresh, {
+  payload: Cloud.CloudRefreshInput,
+  success: Cloud.CloudRefreshResult,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudSubmitRpc = Rpc.make(WS_METHODS.cloudSubmit, {
+  payload: Cloud.CloudSubmitInput,
+  success: Cloud.CloudTask,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudLinkRpc = Rpc.make(WS_METHODS.cloudLink, {
+  payload: Cloud.CloudLinkInput,
+  success: Cloud.CloudTask,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudFollowUpRpc = Rpc.make(WS_METHODS.cloudFollowUp, {
+  payload: Cloud.CloudFollowUpInput,
+  success: Cloud.CloudTask,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudStatusRpc = Rpc.make(WS_METHODS.cloudStatus, {
+  payload: Cloud.CloudTaskInput,
+  success: Cloud.CloudTask,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudDiffRpc = Rpc.make(WS_METHODS.cloudDiff, {
+  payload: Cloud.CloudDiffInput,
+  success: Cloud.CloudDiffResult,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudApplyRpc = Rpc.make(WS_METHODS.cloudApply, {
+  payload: Cloud.CloudApplyInput,
+  success: Cloud.CloudApplyResult,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsCloudUnlinkRpc = Rpc.make(WS_METHODS.cloudUnlink, {
+  payload: Cloud.CloudTaskInput,
+  success: Schema.Void,
+  error: Schema.Union([Cloud.CloudOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerGetStateRpc = Rpc.make(WS_METHODS.peerGetState, {
+  payload: Schema.Struct({}),
+  success: PeerManagement.PeerState,
+  error: Schema.Union([PeerManagement.PeerManagementError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerStatusRpc = Rpc.make(WS_METHODS.peerStatus, {
+  payload: Schema.Struct({}),
+  success: PeerManagement.PeerStatus,
+  error: Schema.Union([PeerManagement.PeerManagementError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerCheckDeviceRpc = Rpc.make(WS_METHODS.peerCheckDevice, {
+  payload: PeerManagement.PeerCheckDeviceInput,
+  success: PeerManagement.PeerDeviceStatus,
+  error: Schema.Union([PeerManagement.PeerManagementError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerApproveRpc = Rpc.make(WS_METHODS.peerApprove, {
+  payload: PeerManagement.PeerApproveInput,
+  success: PeerManagement.PeerState,
+  error: Schema.Union([PeerManagement.PeerManagementError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerRevokeRpc = Rpc.make(WS_METHODS.peerRevoke, {
+  payload: PeerManagement.PeerRevokeInput,
+  success: PeerManagement.PeerState,
+  error: Schema.Union([PeerManagement.PeerManagementError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerConfigureRpc = Rpc.make(WS_METHODS.peerConfigure, {
+  payload: Peer.PeerConfigure,
+  success: Peer.PeerConnectionState,
+  error: Schema.Union([Peer.PeerError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerConnectionStateRpc = Rpc.make(WS_METHODS.peerConnectionState, {
+  payload: Schema.Struct({}),
+  success: Peer.PeerConnectionState,
+  error: Schema.Union([Peer.PeerError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerDisableRpc = Rpc.make(WS_METHODS.peerDisable, {
+  payload: Schema.Struct({}),
+  success: Peer.PeerConnectionState,
+  error: Schema.Union([Peer.PeerError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsPeerRpc = Rpc.make(WS_METHODS.groupsPeer, {
+  payload: Groups.GroupPeerEnvelope,
+  success: Groups.GroupPeerResponse,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsConnectHostRpc = Rpc.make(WS_METHODS.groupsConnectHost, {
+  payload: Groups.GroupConnectHostInput,
+  success: Groups.GroupHostRoute,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsListHostRoutesRpc = Rpc.make(WS_METHODS.groupsListHostRoutes, {
+  payload: Schema.Struct({}),
+  success: Groups.GroupHostRoutes,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+
+const WsGroupsDisconnectHostRpc = Rpc.make(WS_METHODS.groupsDisconnectHost, {
+  payload: Groups.GroupDisconnectHostInput,
+  success: Schema.Void,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
 });
 
 const WsServerProbeRpc = Rpc.make(WS_METHODS.serverProbe, {
@@ -1902,7 +2198,125 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
+const WsCatalogBindIdentityRpc = Rpc.make(WS_METHODS.catalogBindIdentity, {
+  payload: Catalog.CatalogBindIdentityInput,
+  success: Catalog.CatalogBindIdentityResult,
+  error: Schema.Union([Catalog.CatalogRpcError, EnvironmentAuthorizationError]),
+});
+const WsCatalogExchangeRpc = Rpc.make(WS_METHODS.catalogExchange, {
+  payload: Catalog.CatalogExchangeInput,
+  success: Catalog.CatalogExchangeResult,
+  error: Schema.Union([Catalog.CatalogRpcError, EnvironmentAuthorizationError]),
+});
+const WsCatalogSubscribeRpc = Rpc.make(WS_METHODS.catalogSubscribe, {
+  payload: Catalog.CatalogSubscribeInput,
+  success: Catalog.CatalogUpdate,
+  error: Schema.Union([Catalog.CatalogRpcError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsMineTransferPreflightRpc = Rpc.make(WS_METHODS.mineTransferPreflight, {
+  payload: MineTransfer.MineTransferPreflightInput,
+  success: MineTransfer.MineTransferPreflightResult,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferPrepareRpc = Rpc.make(WS_METHODS.mineTransferPrepare, {
+  payload: MineTransfer.MineTransferPrepareInput,
+  success: MineTransfer.MineTransferStatus,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferReadChunkRpc = Rpc.make(WS_METHODS.mineTransferReadChunk, {
+  payload: MineTransfer.MineTransferReadChunkInput,
+  success: MineTransfer.MineTransferChunk,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferBeginRpc = Rpc.make(WS_METHODS.mineTransferBegin, {
+  payload: MineTransfer.MineTransferBeginInput,
+  success: MineTransfer.MineTransferStatus,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferWriteChunkRpc = Rpc.make(WS_METHODS.mineTransferWriteChunk, {
+  payload: MineTransfer.MineTransferWriteChunkInput,
+  success: MineTransfer.MineTransferStatus,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferAcceptRpc = Rpc.make(WS_METHODS.mineTransferAccept, {
+  payload: MineTransfer.MineTransferAcceptInput,
+  success: MineTransfer.MineTransferReceipt,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferFinalizeRpc = Rpc.make(WS_METHODS.mineTransferFinalize, {
+  payload: MineTransfer.MineTransferFinalizeInput,
+  success: MineTransfer.MineTransferStatus,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferCancelRpc = Rpc.make(WS_METHODS.mineTransferCancel, {
+  payload: MineTransfer.MineTransferIdInput,
+  success: MineTransfer.MineTransferStatus,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+const WsMineTransferGetRpc = Rpc.make(WS_METHODS.mineTransferGet, {
+  payload: MineTransfer.MineTransferIdInput,
+  success: MineTransfer.MineTransferStatus,
+  error: Schema.Union([MineTransfer.MineTransferError, EnvironmentAuthorizationError]),
+});
+
 export const WsRpcGroup = RpcGroup.make(
+  WsVoiceGetCapabilitiesRpc,
+  WsVoiceStartRpc,
+  WsVoiceSubscribeRpc,
+  WsVoiceStopRpc,
+  WsMineTransferPreflightRpc,
+  WsMineTransferPrepareRpc,
+  WsMineTransferReadChunkRpc,
+  WsMineTransferBeginRpc,
+  WsMineTransferWriteChunkRpc,
+  WsMineTransferAcceptRpc,
+  WsMineTransferFinalizeRpc,
+  WsMineTransferCancelRpc,
+  WsMineTransferGetRpc,
+
+  WsCatalogBindIdentityRpc,
+  WsCatalogExchangeRpc,
+  WsCatalogSubscribeRpc,
+  WsGroupsDisconnectHostRpc,
+  WsGroupsListHostRoutesRpc,
+  WsGroupsConnectHostRpc,
+  WsGroupsPeerRpc,
+  WsPeerDisableRpc,
+  WsPeerConnectionStateRpc,
+  WsPeerConfigureRpc,
+  WsPeerRevokeRpc,
+  WsPeerApproveRpc,
+  WsPeerGetStateRpc,
+  WsPeerStatusRpc,
+  WsPeerCheckDeviceRpc,
+  WsCloudSnapshotRpc,
+  WsCloudRefreshRpc,
+  WsCloudSubmitRpc,
+  WsCloudLinkRpc,
+  WsCloudFollowUpRpc,
+  WsCloudStatusRpc,
+  WsCloudDiffRpc,
+  WsCloudApplyRpc,
+  WsCloudUnlinkRpc,
+
+  WsSharedGroupsGetRpc,
+  WsSharedGroupsSubscribeRpc,
+  WsSharedGroupsSendRpc,
+  WsSharedGroupsAddChatsRpc,
+  WsSharedGroupsRemoveChatsRpc,
+  WsSharedGroupsLeaveRpc,
+  WsGroupsSubscribeRpc,
+  WsGroupsListRpc,
+  WsGroupsGetRpc,
+  WsGroupsCreateRpc,
+  WsGroupsAddMembersRpc,
+  WsGroupsSendRpc,
+  WsGroupsStopRpc,
+  WsGroupsArchiveRpc,
+  WsGroupsRetryRpc,
+
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,

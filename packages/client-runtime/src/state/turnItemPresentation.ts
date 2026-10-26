@@ -1,12 +1,54 @@
 import {
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
   type OrchestrationV2Run,
+  type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2TurnItem,
+  type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 
 import type { ThreadStructureTurnItem } from "./models.ts";
 
 const WORKSPACE_PREPARATION_INPUT = "Preparing workspace";
+const importTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+export function threadImportLabel(
+  input: {
+    readonly historyOrigin?: string | undefined;
+    readonly importedAt?: DateTime.Utc | undefined;
+  },
+  locales?: Intl.LocalesArgument,
+): string | null {
+  if (input.historyOrigin !== "v1_import") return null;
+  if (input.importedAt === undefined) return "Thread imported";
+  const formatter =
+    locales === undefined
+      ? importTimeFormatter
+      : new Intl.DateTimeFormat(locales, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        });
+  return `Thread imported on ${formatter.format(DateTime.toDateUtc(input.importedAt))}`;
+}
+
+export function threadImportBoundaryItemId(
+  items: ReadonlyArray<Pick<OrchestrationV2ProjectedTurnItem, "sourceThreadId" | "sourceItemId">>,
+  threadId: ThreadId,
+): TurnItemId | null {
+  const prefix = `agent-session-import:v2:turn-item:${threadId}:`;
+  return (
+    items.findLast(
+      (row) =>
+        row.sourceThreadId === threadId &&
+        row.sourceItemId.startsWith(prefix) &&
+        /^\d{6,}$/.test(row.sourceItemId.slice(prefix.length)),
+    )?.sourceItemId ?? null
+  );
+}
 
 export function turnItemIsWorkspacePreparation(item: OrchestrationV2TurnItem): boolean {
   return (

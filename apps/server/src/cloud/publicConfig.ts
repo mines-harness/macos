@@ -1,9 +1,8 @@
 import {
   connectLoopbackRedirectUri,
   CONNECT_OAUTH_SCOPES,
-  DEFAULT_HOSTED_APP_URL,
+  hostedAppOrigin,
 } from "@t3tools/shared/connectAuth";
-import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { isRelayTracingEnabled } from "@t3tools/shared/otelEnvironment";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Config from "effect/Config";
@@ -12,12 +11,11 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 
-declare const __T3CODE_BUILD_RELAY_URL__: string | undefined;
-declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
-declare const __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__: string | undefined;
-declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__: string | undefined;
-declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__: string | undefined;
-declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__: string | undefined;
+declare const __MINES_BUILD_RELAY_URL__: string | undefined;
+declare const __MINES_BUILD_CONTROL_URL__: string | undefined;
+declare const __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__: string | undefined;
+declare const __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__: string | undefined;
+declare const __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__: string | undefined;
 
 const CLOUD_CLI_OAUTH_LOOPBACK_PORT = 34338;
 const CLOUD_CLI_OAUTH_SCOPES = CONNECT_OAUTH_SCOPES;
@@ -51,34 +49,27 @@ function normalizeSecureUrl(value: string): string | null {
 }
 
 const buildTimeRelayUrl =
-  typeof __T3CODE_BUILD_RELAY_URL__ === "undefined"
+  typeof __MINES_BUILD_RELAY_URL__ === "undefined"
     ? ""
-    : (normalizeSecureRelayUrl(__T3CODE_BUILD_RELAY_URL__) ?? "");
-const buildTimeClerkPublishableKey = readBuildTimeValue(
-  typeof __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__ === "undefined"
-    ? undefined
-    : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__,
-);
-const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
-  typeof __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__ === "undefined"
-    ? undefined
-    : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
+    : (normalizeSecureRelayUrl(__MINES_BUILD_RELAY_URL__) ?? "");
+const buildTimeControlUrl = readBuildTimeValue(
+  typeof __MINES_BUILD_CONTROL_URL__ === "undefined" ? undefined : __MINES_BUILD_CONTROL_URL__,
 );
 const buildTimeRelayClientTracing = {
   tracesUrl: readBuildTimeValue(
-    typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__ === "undefined"
+    typeof __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__ === "undefined"
       ? undefined
-      : __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__,
+      : __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__,
   ),
   tracesDataset: readBuildTimeValue(
-    typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__ === "undefined"
+    typeof __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__ === "undefined"
       ? undefined
-      : __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__,
+      : __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__,
   ),
   tracesToken: readBuildTimeValue(
-    typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__ === "undefined"
+    typeof __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__ === "undefined"
       ? undefined
-      : __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__,
+      : __MINES_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__,
   ),
 } as const;
 
@@ -90,10 +81,10 @@ export function resolveRelayClientTracingConfig(
     return null;
   }
 
-  const tracesUrl = env.T3CODE_RELAY_CLIENT_OTLP_TRACES_URL?.trim() || fallback.tracesUrl;
+  const tracesUrl = env.MINES_RELAY_CLIENT_OTLP_TRACES_URL?.trim() || fallback.tracesUrl;
   const tracesDataset =
-    env.T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET?.trim() || fallback.tracesDataset;
-  const tracesToken = env.T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN?.trim() || fallback.tracesToken;
+    env.MINES_RELAY_CLIENT_OTLP_TRACES_DATASET?.trim() || fallback.tracesDataset;
+  const tracesToken = env.MINES_RELAY_CLIENT_OTLP_TRACES_TOKEN?.trim() || fallback.tracesToken;
   const normalizedTracesUrl = normalizeSecureUrl(tracesUrl);
   return normalizedTracesUrl && tracesDataset && tracesToken
     ? { tracesUrl: normalizedTracesUrl, tracesDataset, tracesToken }
@@ -101,7 +92,7 @@ export function resolveRelayClientTracingConfig(
 }
 
 export function makeRelayUrlConfig(fallback = buildTimeRelayUrl) {
-  const runtimeConfig = Config.NonEmptyString("T3CODE_RELAY_URL");
+  const runtimeConfig = Config.NonEmptyString("MINES_RELAY_URL");
   return (fallback ? runtimeConfig.pipe(Config.withDefault(fallback)) : runtimeConfig).pipe(
     Config.mapEffect(validateRelayUrl),
   );
@@ -109,26 +100,15 @@ export function makeRelayUrlConfig(fallback = buildTimeRelayUrl) {
 
 export const relayUrlConfig = makeRelayUrlConfig();
 
-export const hostedAppUrlConfig = makePublicValueConfig(
-  "T3CODE_HOSTED_APP_URL",
-  DEFAULT_HOSTED_APP_URL,
-).pipe(Config.mapEffect(validateHostedAppUrl));
+export const hostedAppUrlConfig = makePublicValueConfig("MINES_HOSTED_APP_URL", "").pipe(
+  Config.mapEffect(validateHostedAppUrl),
+);
 
 function validateHostedAppUrl(value: string) {
   try {
-    const url = new URL(value);
-    const isLoopbackHttp =
-      url.protocol === "http:" &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
-    if (
-      (url.protocol !== "https:" && !isLoopbackHttp) ||
-      url.pathname !== "/" ||
-      url.search !== "" ||
-      url.hash !== ""
-    ) {
-      throw new Error("invalid hosted app origin");
-    }
-    return Effect.succeed(url.origin);
+    const origin = hostedAppOrigin(value);
+    if (!origin) throw new Error("invalid hosted app origin");
+    return Effect.succeed(origin);
   } catch {
     return Effect.fail(
       new Config.ConfigError(
@@ -149,6 +129,28 @@ function makePublicValueConfig(name: string, fallback: string) {
   );
 }
 
+export function makeControlUrlConfig(fallback = buildTimeControlUrl) {
+  return makePublicValueConfig("MINES_CONTROL_URL", fallback).pipe(
+    Config.mapEffect((value) => {
+      const origin = hostedAppOrigin(value);
+      return origin
+        ? Effect.succeed(origin)
+        : Effect.fail(
+            new Config.ConfigError(
+              new Schema.SchemaError(
+                new SchemaIssue.InvalidValue({
+                  message:
+                    "Device control URL must be an absolute HTTPS origin (or HTTP loopback origin).",
+                }),
+              ),
+            ),
+          );
+    }),
+  );
+}
+
+export const controlUrlConfig = makeControlUrlConfig();
+
 export interface CloudCliOAuthConfig {
   readonly tokenEndpoint: string;
   readonly deviceAuthorizationEndpoint: string;
@@ -159,45 +161,47 @@ export interface CloudCliOAuthConfig {
 }
 
 export function makeCloudCliOAuthConfig({
-  clerkPublishableKeyFallback = buildTimeClerkPublishableKey,
-  clerkCliOAuthClientIdFallback = buildTimeClerkCliOAuthClientId,
+  tokenEndpointFallback = "",
+  deviceAuthorizationEndpointFallback = "",
+  clientIdFallback = "",
 }: {
-  readonly clerkPublishableKeyFallback?: string;
-  readonly clerkCliOAuthClientIdFallback?: string;
+  readonly tokenEndpointFallback?: string;
+  readonly deviceAuthorizationEndpointFallback?: string;
+  readonly clientIdFallback?: string;
 } = {}) {
   return Config.all({
-    clerkPublishableKey: makePublicValueConfig(
-      "T3CODE_CLERK_PUBLISHABLE_KEY",
-      clerkPublishableKeyFallback,
+    tokenEndpoint: makePublicValueConfig("MINES_CLI_OAUTH_TOKEN_URL", tokenEndpointFallback),
+    deviceAuthorizationEndpoint: makePublicValueConfig(
+      "MINES_CLI_OAUTH_DEVICE_AUTHORIZATION_URL",
+      deviceAuthorizationEndpointFallback,
     ),
-    clientId: makePublicValueConfig(
-      "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID",
-      clerkCliOAuthClientIdFallback,
-    ),
+    clientId: makePublicValueConfig("MINES_CLI_OAUTH_CLIENT_ID", clientIdFallback),
   }).pipe(
-    Config.mapEffect(({ clerkPublishableKey, clientId }) =>
+    Config.mapEffect(({ tokenEndpoint, deviceAuthorizationEndpoint, clientId }) =>
       Effect.try({
-        try: () => clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey),
+        try: () => {
+          for (const value of [tokenEndpoint, deviceAuthorizationEndpoint]) {
+            const url = new URL(value);
+            if (url.protocol !== "https:" || url.username || url.password || url.hash)
+              throw new Error("Invalid OAuth endpoint.");
+          }
+          return {
+            tokenEndpoint,
+            deviceAuthorizationEndpoint,
+            clientId,
+            loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
+            redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),
+            scopes: CLOUD_CLI_OAUTH_SCOPES,
+          } satisfies CloudCliOAuthConfig;
+        },
         catch: (cause) =>
           new Config.ConfigError(
             new ConfigProvider.SourceError({
-              message: "Failed to derive Clerk Frontend API URL from the publishable key.",
+              message: "CLI OAuth endpoints must be explicit HTTPS URLs for your own service.",
               cause,
             }),
           ),
-      }).pipe(
-        Effect.map(
-          (clerkFrontendApiUrl) =>
-            ({
-              tokenEndpoint: `${clerkFrontendApiUrl}/oauth/token`,
-              deviceAuthorizationEndpoint: `${clerkFrontendApiUrl}/oauth/device_authorization`,
-              clientId,
-              loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
-              redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),
-              scopes: CLOUD_CLI_OAUTH_SCOPES,
-            }) satisfies CloudCliOAuthConfig,
-        ),
-      ),
+      }),
     ),
   );
 }
@@ -205,7 +209,8 @@ export function makeCloudCliOAuthConfig({
 export const cloudCliOAuthConfig = makeCloudCliOAuthConfig();
 
 export const hasCloudPublicConfig = Boolean(
-  (normalizeSecureRelayUrl(process.env.T3CODE_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
-  (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
-  (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
+  (normalizeSecureRelayUrl(process.env.MINES_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
+  process.env.MINES_CLI_OAUTH_TOKEN_URL?.trim() &&
+  process.env.MINES_CLI_OAUTH_DEVICE_AUTHORIZATION_URL?.trim() &&
+  process.env.MINES_CLI_OAUTH_CLIENT_ID?.trim(),
 );

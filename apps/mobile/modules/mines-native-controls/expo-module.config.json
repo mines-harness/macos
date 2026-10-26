@@ -1,0 +1,18 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["MinesNativeControlsModule", "MinesKeyboardCommandsModule"],
+    "appDelegateSubscribers": [
+      "MinesWorkspaceOrientationSubscriber",
+      "MinesMenuDismissTouchGateSubscriber"
+    ]
+  },
+  "android": {
+    "modules": [
+      "expo.modules.minesnativecontrols.MinesNativeControlsModule",
+      "expo.modules.minesnativecontrols.MinesWorkspaceNavigationModule",
+      "expo.modules.minesnativecontrols.MinesKeyboardCommandsModule",
+      "expo.modules.minesnativecontrols.MinesFoldPostureModule"
+    ]
+  }
+}

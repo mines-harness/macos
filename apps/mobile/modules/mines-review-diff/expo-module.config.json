@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["MinesReviewDiffModule"],
+    "podspecPath": "MinesReviewDiffNative.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.minesreviewdiff.MinesReviewDiffModule"]
+  }
+}

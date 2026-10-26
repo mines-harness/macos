@@ -49,7 +49,7 @@ const config = {
 const input = {
   token: "device-token",
   packageName: "com.t3tools.t3code.dev",
-  data: { t3_kind: "agent_activity", active: "true" },
+  data: { mines_kind: "agent_activity", active: "true" },
   alert: false,
 };
 

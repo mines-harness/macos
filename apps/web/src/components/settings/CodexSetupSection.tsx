@@ -1,3 +1,4 @@
+import { configuredHostedAppUrl } from "~/hostedPairing";
 import { AuthProvidersManageScope } from "@t3tools/contracts";
 import { useEnvironmentScope } from "../../state/session";
 import {
@@ -15,7 +16,7 @@ import type {
 import { codexAuthHandoffUrl } from "@t3tools/shared/codexAuthHandoff";
 import { providerAuthReturnUrl } from "@t3tools/shared/providerAuthReturnUrl";
 import { isLoopbackHost } from "@t3tools/shared/preview";
-import { CheckIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
+import { AlertCircleIcon, CheckIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import {
   Children,
   useEffect,
@@ -285,6 +286,7 @@ function ManagedCodexSetup({
   const [autoStartHandled, setAutoStartHandled] = useState(false);
   const installed = installation?.installedVersion != null;
   const authenticated = provider?.auth.status === "authenticated";
+  const ready = getOnboardingProviderState(provider) === "ready";
   const updateAvailable =
     installed &&
     installation?.source !== "local" &&
@@ -323,6 +325,11 @@ function ManagedCodexSetup({
   const unavailable =
     readOnly || !enabled || pending || authQuery.error !== null || installQuery.error !== null;
   const busy = pending || authInProgress || installActive;
+  const providerAttentionMessage =
+    installed && !ready && !busy
+      ? provider?.message?.trim() ||
+        (authenticated ? "Your ChatGPT account is connected, but Codex is not ready yet." : null)
+      : null;
 
   const run = async <A, E>(
     request: () => Promise<AtomCommandResult<A, E>>,
@@ -549,8 +556,8 @@ function ManagedCodexSetup({
         : installation?.phase === "verifying"
           ? "Checking Codex."
           : installed
-            ? `${installation?.source === "local" ? "Using your installed Codex" : "Managed by T3 Code"}${installation?.installedVersion ? ` · v${installation.installedVersion}` : ""}.`
-            : (installation?.message ?? "T3 Code downloads and manages Codex for you.");
+            ? `${installation?.source === "local" ? "Using your installed Codex" : "Managed by mines"}${installation?.installedVersion ? ` · v${installation.installedVersion}` : ""}.`
+            : (installation?.message ?? "mines downloads and manages Codex for you.");
   const accountDescription = finishingSignIn ? (
     "Finishing sign-in..."
   ) : installActive ? (
@@ -561,6 +568,8 @@ function ManagedCodexSetup({
     ) : (
       (auth?.message ?? "Finish signing in in your browser.")
     )
+  ) : providerAttentionMessage ? (
+    providerAttentionMessage
   ) : authenticated ? (
     provider?.auth.email?.trim() ? (
       <>
@@ -581,7 +590,10 @@ function ManagedCodexSetup({
   );
 
   const handoffUrl =
-    needsManualCallback && url && auth?.flowId && providerAuthReturnUrl(returnUrl.toString())
+    needsManualCallback &&
+    url &&
+    auth?.flowId &&
+    providerAuthReturnUrl(returnUrl.toString(), configuredHostedAppUrl())
       ? codexAuthHandoffUrl(
           {
             authorizationUrl: url,
@@ -627,7 +639,7 @@ function ManagedCodexSetup({
   const callbackCompletion =
     !handoff && auth?.phase === "waiting" && url ? (
       <div className="flex w-full flex-col gap-3 text-xs leading-relaxed text-muted-foreground">
-        <p>If sign-in doesn't return to T3 Code, paste the URL from the final localhost page.</p>
+        <p>If sign-in doesn't return to mines, paste the URL from the final localhost page.</p>
         <form
           className="flex flex-col gap-2 sm:flex-row sm:items-center"
           onSubmit={(event) => {
@@ -683,7 +695,7 @@ function ManagedCodexSetup({
           <details>
             <summary className="cursor-pointer">Other ways to connect</summary>
             <Button className="mt-2" size="sm" variant="outline" render={<a href={handoffUrl} />}>
-              Use T3 desktop for automatic return
+              Use mines desktop for automatic return
             </Button>
           </details>
         ) : null}
@@ -745,6 +757,10 @@ function ManagedCodexSetup({
           description={
             installActive ? (
               runtimeDescription
+            ) : auth?.phase === "failed" || auth?.phase === "cancelled" ? (
+              accountDescription
+            ) : providerAttentionMessage ? (
+              providerAttentionMessage
             ) : authenticated ? (
               provider?.auth.email?.trim() ? (
                 <>
@@ -773,7 +789,7 @@ function ManagedCodexSetup({
               auth?.phase === "waiting" ||
               (pending && !installActive) ? (
               <CodexSignInDescription />
-            ) : authActive || auth?.phase === "failed" || auth?.phase === "cancelled" ? (
+            ) : authActive ? (
               accountDescription
             ) : (
               "Code with your ChatGPT subscription."
@@ -781,9 +797,15 @@ function ManagedCodexSetup({
           }
           control={
             authenticated && !busy ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
-                <CheckIcon className="size-3.5" />
-                Ready
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-medium ${ready ? "text-success-foreground" : "text-warning-foreground"}`}
+              >
+                {ready ? (
+                  <CheckIcon className="size-3.5" />
+                ) : (
+                  <AlertCircleIcon className="size-3.5" />
+                )}
+                {ready ? "Ready" : "Needs attention"}
               </span>
             ) : authActive ? (
               waitingControl
@@ -1003,7 +1025,7 @@ export function CodexManagedRuntimeFields({
     <>
       <SettingsRow
         title="Binary path"
-        description="Selected by T3 Code."
+        description="Selected by mines."
         control={
           <div className="w-full sm:w-80">
             <Input

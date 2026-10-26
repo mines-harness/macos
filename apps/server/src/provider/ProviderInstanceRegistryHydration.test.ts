@@ -17,6 +17,19 @@ function settingsWith(overrides: Partial<ServerSettings>): ServerSettings {
 }
 
 describe("deriveProviderInstanceConfigMap", () => {
+  it("does not restore a removed default instance through a project override", () => {
+    const codex = ProviderInstanceId.make("codex");
+    const settings = settingsWith({
+      providerInstances: {
+        [codex]: { driver: ProviderDriverKind.make("codex"), enabled: false, removed: true },
+      },
+      projectSettingsOverrides: {
+        [projectId]: { providerInstances: { [codex]: { enabled: true } } },
+      },
+    });
+    expect(deriveProviderInstanceConfigMap(settings)[codex]).toBeUndefined();
+  });
+
   it("turns a machine-disabled instance on when a project enables it", () => {
     const settings = settingsWith({
       providerInstances: {

@@ -1,11 +1,11 @@
 # Permission modes
 
 Permission modes control when an agent needs your approval to act. Choose a mode in the message
-composer; it applies to that thread.
+composer; it applies to that mine.
 
-Set the default for new threads in **Settings → General → New threads → Permissions**.
-Projects can override the environment default. New threads use this setting rather than the
-mode of the thread you were viewing. The initial default is **Full access**; existing threads
+Set the default for new mines in **Settings → General → New mines → Permissions**.
+Projects can override the environment default. New mines use this setting rather than the
+mode of the mine you were viewing. The initial default is **Full access**; existing mines
 and modes you choose in a draft keep their permissions.
 
 | Mode                  | Behavior                                                                              |
@@ -25,14 +25,14 @@ Providers enforce permissions differently. Some read-only actions can proceed in
 including OpenCode and Antigravity, fall back to asking. On Grok, commands its review blocks come
 to you for approval.
 
-Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode
+Muse Code offers only **Supervised** and **Full access**. A Muse mine already set to another mode
 runs in **Supervised**.
 
-Grok offers no **Auto-accept edits**. A Grok thread already set to it runs in **Supervised**. Grok
+Grok offers no **Auto-accept edits**. A Grok mine already set to it runs in **Supervised**. Grok
 file-change approvals offer **Allow all edits this session**. Its command approvals have no
 session-wide choice, because Grok would remember that command for the whole project.
 
-ACP Registry agents run their own tools in their own mode; T3 Code answers their approval requests
+ACP Registry agents run their own tools in their own mode; mines answers their approval requests
 by the permission mode. See [ACP Registry permissions](./providers-acp.md#permissions-and-terminals).
 
 Claude can still ask in **Full access** when its settings disable bypass permissions or require

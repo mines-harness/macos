@@ -23,7 +23,7 @@ export class UnknownWorkspaceError extends Schema.TaggedError<UnknownWorkspaceEr
   },
 ) {
   override get message(): string {
-    return `'${this.cwd}' is not a registered project, a managed worktree, or a thread's worktree.`;
+    return `'${this.cwd}' is not a registered project, a managed worktree, or a mine's worktree.`;
   }
 }
 
@@ -44,7 +44,7 @@ export class KnownWorkspaces extends Context.Service<
     /** Fails unless `cwd` exists and resolves inside a known workspace. */
     readonly assertContains: (cwd: string) => Effect.Effect<void, UnknownWorkspaceError>;
   }
->()("t3/workspace/KnownWorkspaces") {}
+>()("mines/workspace/KnownWorkspaces") {}
 
 /** @public */
 export const make = Effect.gen(function* () {

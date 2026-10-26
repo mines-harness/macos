@@ -1,3 +1,4 @@
+import { BodyRangeNotice } from "./BodyRangeNotice";
 import { findRevealRef } from "./markdownFindContext";
 import { type MessageId, type ServerProviderSkill, ThreadId } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
@@ -119,16 +120,23 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 
 export function UserMessageRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  return ctx.workflowOpening?.messageId === row.message.id ? (
-    <WorkflowOpeningBlock
-      opening={ctx.workflowOpening}
-      environmentId={ctx.activeThreadEnvironmentId}
-      onOpenThread={(threadId) => ctx.onOpenThread(ThreadId.make(threadId))}
-    />
-  ) : resolveUserMessagePresentation(row.message).attribution === "automation" ? (
-    <AutomationMessageRow row={row} />
-  ) : (
-    <UserTimelineRow row={row} />
+  const body =
+    ctx.workflowOpening?.messageId === row.message.id ? (
+      <WorkflowOpeningBlock
+        opening={ctx.workflowOpening}
+        environmentId={ctx.activeThreadEnvironmentId}
+        onOpenThread={(threadId) => ctx.onOpenThread(ThreadId.make(threadId))}
+      />
+    ) : resolveUserMessagePresentation(row.message).attribution === "automation" ? (
+      <AutomationMessageRow row={row} />
+    ) : (
+      <UserTimelineRow row={row} />
+    );
+  return (
+    <>
+      <BodyRangeNotice row={row.projectedItem} threadRef={ctx.threadRef} />
+      {body}
+    </>
   );
 }
 
@@ -422,12 +430,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       className="group flex flex-col items-end gap-1"
       data-user-message-attribution={folded ? "agent" : undefined}
     >
-      {userMessage.attribution === "t3code" ? (
-        <p
-          className="me-1 text-2xs text-muted-foreground/70"
-          data-user-message-attribution="t3code"
-        >
-          Sent by T3 Code
+      {userMessage.attribution === "mines" ? (
+        <p className="me-1 text-2xs text-muted-foreground/70" data-user-message-attribution="mines">
+          Sent by mines
         </p>
       ) : null}
       {/* The row's heading already names the guest for screen readers. */}
@@ -597,7 +602,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           <div className="flex shrink-0 items-center gap-2">
             {folded && senderThreadId ? (
               <InlineButton onClick={() => ctx.onOpenThread(senderThreadId)} tone="muted">
-                Open thread
+                Open mine
               </InlineButton>
             ) : null}
             <Tooltip>

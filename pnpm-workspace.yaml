@@ -1,7 +1,7 @@
 packages:
   - apps/*
   - infra/*
-  - oxlint-plugin-t3code
+  - oxlint-plugin-mines
   - packages/*
   - scripts
 
@@ -223,6 +223,14 @@ minimumReleaseAgeExclude:
   - "@pierre/diffs@1.6.1"
   - "@pierre/highlights@0.2.0"
   - "@pierre/theming@1.0.2"
+  - "@better-auth/core@1.7.13"
+  - "@better-auth/drizzle-adapter@1.7.13"
+  - "@better-auth/kysely-adapter@1.7.13"
+  - "@better-auth/memory-adapter@1.7.13"
+  - "@better-auth/mongo-adapter@1.7.13"
+  - "@better-auth/prisma-adapter@1.7.13"
+  - "@better-auth/telemetry@1.7.13"
+  - better-auth@1.7.13
 
 overrides:
   # Pin every patched package, including transitive dependencies, so lockfile-free
@@ -233,7 +241,6 @@ overrides:
   alchemy: 2.0.0-beta.80
   expo-audio: 58.0.9
   expo-network: 58.0.3
-  "@clerk/expo-native-components": 0.4.0
   expo-sharing: 58.0.19
   expo-widgets: 58.0.20
   "@ff-labs/fff-node": 0.11.0
@@ -343,9 +350,6 @@ packageExtensions:
   "@clerk/expo@*":
     dependencies:
       "@expo/config-plugins": 58.0.9
-  "@clerk/expo-native-components@*":
-    dependencies:
-      "@expo/config-plugins": 58.0.9
   # Our patch makes @effect/vitest import vite-plus/test. A catalog: spec here
   # resolves through the vite-plus override above.
   "@effect/vitest@*":
@@ -360,7 +364,6 @@ patchedDependencies:
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
   expo-audio@58.0.9: patches/expo-audio@58.0.9.patch
   expo-network@58.0.3: patches/expo-network@58.0.3.patch
-  "@clerk/expo-native-components@0.4.0": patches/@clerk__expo-native-components@0.4.0.patch
   "@effect/vitest@4.0.5": patches/@effect__vitest@4.0.5.patch
   "@expo/metro-config@58.0.14": patches/@expo__metro-config@58.0.14.patch
   expo-sharing@58.0.19: patches/expo-sharing@58.0.19.patch

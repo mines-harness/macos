@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>mines menu bar</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="panel" aria-label="mines quick view">
+      <header class="header">
+        <div class="brand">
+          <img src="../startup/mine.png" width="25" height="25" alt="" /><span
+            >mines<span class="brand-period">.</span></span
+          >
+        </div>
+        <button class="open-app" data-action="open">
+          Open app <span aria-hidden="true">↗</span>
+        </button>
+      </header>
+      <div class="switcher" role="tablist" aria-label="Quick view">
+        <button id="overview-tab" role="tab" aria-selected="true" aria-controls="overview">
+          Overview
+        </button>
+        <button
+          id="devices-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="devices"
+          tabindex="-1"
+        >
+          Devices <span id="device-count" class="tab-count">?</span>
+        </button>
+      </div>
+      <div class="scroll-content">
+        <section id="overview" role="tabpanel" aria-labelledby="overview-tab">
+          <div id="workspace-summary" class="workspace-summary">
+            <div>
+              <h1 id="workspace-title">Your workspace.</h1>
+              <p id="workspace-subtitle">Connecting to your agents…</p>
+            </div>
+            <div class="mine-stage" aria-hidden="true">
+              <img
+                id="workspace-mine"
+                src="../startup/mine.png"
+                width="44"
+                height="44"
+                alt=""
+              /><span class="mine-spark spark-one"></span><span class="mine-spark spark-two"></span>
+            </div>
+          </div>
+          <section class="activity" aria-label="Mine activity">
+            <div class="activity-stats">
+              <button id="running-filter" class="activity-stat" aria-pressed="false">
+                <img src="../startup/mine.png" width="19" height="19" alt="" /><span
+                  ><strong id="running-count">?</strong><span>Running</span></span
+                >
+              </button>
+              <button id="attention-filter" class="activity-stat" aria-pressed="false">
+                <svg
+                  id="attention-icon"
+                  class="flag"
+                  viewBox="0 0 24 24"
+                  width="21"
+                  height="21"
+                  aria-hidden="true"
+                >
+                  <path fill="currentColor" d="M7 3h12l-3 5 3 5H7zM5 3h2v16h5v2H2v-2h3z" /></svg
+                ><span><strong id="attention-count">?</strong><span>Need attention</span></span>
+              </button>
+            </div>
+            <div class="activity-heading"><span id="activity-label">Your workspace</span></div>
+            <div id="active-mines" class="active-mines"></div>
+          </section>
+          <button class="new-mine" data-action="new">
+            <span><span class="plus" aria-hidden="true">+</span> New mine</span
+            ><span aria-hidden="true">↗</span>
+          </button>
+          <section aria-label="Connected account usage">
+            <div class="section-heading">
+              <h2>Accounts</h2>
+              <button class="text-button" data-action="accounts">
+                Manage <span aria-hidden="true">↗</span>
+              </button>
+            </div>
+            <div id="account-usage" class="account-usage"></div>
+          </section>
+        </section>
+        <section id="devices" role="tabpanel" aria-labelledby="devices-tab" hidden>
+          <div class="section-heading device-heading">
+            <h2>Your devices</h2>
+            <span id="connection-summary">Checking connections</span>
+          </div>
+          <div id="device-list" class="device-list"></div>
+          <section class="pair-card">
+            <div class="phone-icon" aria-hidden="true"><span></span></div>
+            <h2>Take your mines with you.</h2>
+            <p>Pair your phone to follow your agents and pick up work on the go.</p>
+            <button class="primary-button" data-action="devices">
+              Pair a phone <span aria-hidden="true">↗</span>
+            </button>
+          </section>
+        </section>
+      </div>
+      <footer class="footer">
+        <button class="connection-button" data-tab="devices">
+          <i id="connection-dot"></i><span id="connection-label">Connecting</span></button
+        ><button class="text-button quit-button" data-action="quit">Quit mines</button>
+      </footer>
+    </main>
+  </body>
+</html>

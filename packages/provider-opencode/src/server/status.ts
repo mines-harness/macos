@@ -3,6 +3,7 @@ import {
   type ServerProviderModel,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ServerProviderAuth,
 } from "@t3tools/contracts";
 import type { OpenCodeSettings } from "../settings.ts";
 import * as Cause from "effect/Cause";
@@ -10,6 +11,8 @@ import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -29,6 +32,50 @@ const OPENCODE_PRESENTATION = {
   displayName: "OpenCode",
   showInteractionModeToggle: false,
 } as const;
+
+const decodeOpenCodeAccounts = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        name: Schema.String,
+        connections: Schema.Array(Schema.Struct({ type: Schema.String, method: Schema.String })),
+      }),
+    ),
+  ),
+);
+
+const readOpenCode2Auth = Effect.fn("OpencodeProviderStatus.readOpenCode2Auth")(function* (
+  settings: OpenCodeSettings,
+  cwd: string,
+  environment: NodeJS.ProcessEnv | undefined,
+): Effect.fn.Return<ServerProviderAuth, never, OpenCodeRuntime.OpenCodeRuntime> {
+  const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
+  const result = yield* runtime
+    .runOpenCodeCommand({
+      binaryPath: settings.binaryPath,
+      args: ["auth", "list", "--format", "json"],
+      cwd,
+      ...(environment === undefined ? {} : { environment }),
+    })
+    .pipe(Effect.timeout("10 seconds"), Effect.option);
+  if (Option.isNone(result) || result.value.code !== 0) return { status: "unknown" };
+  const accounts = decodeOpenCodeAccounts(result.value.stdout);
+  if (Option.isNone(accounts)) return { status: "unknown" };
+  const connected = accounts.value.flatMap((account) =>
+    account.connections
+      .filter((connection) => connection.type === "credential" && connection.method.length > 0)
+      .map((connection) => ({ name: account.name, method: connection.method })),
+  );
+  const account = connected.find((connection) => connection.method === "oauth") ?? connected[0];
+  return account
+    ? {
+        status: "authenticated",
+        type: account.method,
+        ...(account.name.trim() ? { label: account.name.trim() } : {}),
+      }
+    : { status: "unauthenticated" };
+});
 
 class OpenCodeProbeError extends Data.TaggedError("OpenCodeProbeError")<{
   readonly cause?: unknown;
@@ -427,8 +474,8 @@ export const makePendingOpenCodeProvider = Effect.fn(
         auth: { status: "unknown" },
         message:
           openCodeSettings.serverUrl.trim().length > 0
-            ? "OpenCode is disabled in T3 Code settings. A server URL is configured."
-            : "OpenCode is disabled in T3 Code settings.",
+            ? "OpenCode is disabled in mines settings. A server URL is configured."
+            : "OpenCode is disabled in mines settings.",
       },
     });
   }
@@ -607,13 +654,16 @@ const checkOpenCode2 = Effect.fn("checkOpenCode2")(function* (
   version: string,
   checkedAt: string,
   loadModels: Effect.Effect<ReadonlyArray<OpenCode2Model>, OpenCodeRuntime.OpenCodeRuntimeError>,
+  auth?: ServerProviderAuth,
 ) {
   const result = yield* Effect.exit(loadModels);
   const probe = (status: "ready" | "warning" | "error", message: string) => ({
     installed: true,
     version,
     status,
-    auth: { status: status === "ready" ? ("authenticated" as const) : ("unknown" as const) },
+    auth: auth ?? {
+      status: status === "ready" ? ("authenticated" as const) : ("unknown" as const),
+    },
     message,
   });
   if (result._tag === "Failure") {
@@ -686,6 +736,7 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
     ReadonlyArray<OpenCode2Model>,
     OpenCodeRuntime.OpenCodeRuntimeError
   >,
+  environment?: NodeJS.ProcessEnv,
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
@@ -724,19 +775,29 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
   };
 
   if (!openCodeSettings.enabled) {
+    const installed = isExternalServer
+      ? undefined
+      : yield* probeRuntime.pipe(Effect.option, Effect.map(Option.getOrUndefined));
+    const auth =
+      installed?.generation === "v2"
+        ? yield* readOpenCode2Auth(openCodeSettings, cwd, environment)
+        : { status: "unknown" as const };
     return buildServerProvider({
       presentation: OPENCODE_PRESENTATION,
       enabled: false,
       checkedAt,
       models: providerModelsFromSettings([], customModels, DEFAULT_OPENCODE_MODEL_CAPABILITIES),
       probe: {
-        installed: false,
-        version: null,
+        installed: installed !== undefined,
+        version: installed?.version ?? null,
         status: "warning",
-        auth: { status: "unknown" },
-        message: isExternalServer
-          ? "OpenCode is disabled in T3 Code settings. A server URL is configured."
-          : "OpenCode is disabled in T3 Code settings.",
+        auth,
+        message:
+          auth.status === "authenticated"
+            ? "Existing OpenCode account found. Enable OpenCode to use it in mines."
+            : isExternalServer
+              ? "OpenCode is disabled in mines settings. A server URL is configured."
+              : "OpenCode is disabled in mines settings.",
       },
     });
   }
@@ -758,7 +819,16 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
   }
   const probed = probedExit.value;
   if (probed.generation === "v2") {
-    return yield* checkOpenCode2(openCodeSettings, probed.version, checkedAt, loadOpenCode2Models);
+    const auth = isExternalServer
+      ? undefined
+      : yield* readOpenCode2Auth(openCodeSettings, cwd, environment);
+    return yield* checkOpenCode2(
+      openCodeSettings,
+      probed.version,
+      checkedAt,
+      loadOpenCode2Models,
+      auth,
+    );
   }
   if (compareSemverVersions(probed.version, OpenCodeRuntime.MINIMUM_OPENCODE_VERSION) < 0) {
     return buildServerProvider({

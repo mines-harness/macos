@@ -1,19 +1,30 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { AgentSessionScanInput, type EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/reactivity";
+import * as Schema from "effect/Schema";
+import { Atom, AsyncResult } from "effect/reactivity";
 import { useContext } from "react";
 
 import { agentSessionScan } from "../state/agentSessions";
 import { environmentAtomList, environmentIdsKey } from "../state/environmentAtomList";
 import { formatEnvironmentQueryError } from "../state/query";
 
-const scanAtom = (environmentId: EnvironmentId) => agentSessionScan({ environmentId, input: {} });
-const projectScansAtom = environmentAtomList("web-project-scans", scanAtom);
+const decodeInput = Schema.decodeUnknownSync(Schema.fromJsonString(AgentSessionScanInput));
+const projectScansAtom = Atom.family((key: string) => {
+  const input = decodeInput(key);
+  return environmentAtomList("web-project-scans", (environmentId) =>
+    agentSessionScan({ environmentId, input }),
+  );
+});
 
-export function useProjectScans(environmentIds: readonly EnvironmentId[]) {
+export function useProjectScans(
+  environmentIds: readonly EnvironmentId[],
+  input: AgentSessionScanInput = {},
+) {
   const registry = useContext(RegistryContext);
-  const results = useAtomValue(projectScansAtom(environmentIdsKey(environmentIds)));
+  const results = useAtomValue(
+    projectScansAtom(JSON.stringify(input))(environmentIdsKey(environmentIds)),
+  );
   return environmentIds.map((environmentId, index) => {
     const result = results[index]!;
     return {
@@ -21,7 +32,7 @@ export function useProjectScans(environmentIds: readonly EnvironmentId[]) {
       data: Option.getOrNull(AsyncResult.value(result)),
       error: result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null,
       isPending: result.waiting || result._tag === "Initial",
-      refresh: () => registry.refresh(scanAtom(environmentId)),
+      refresh: () => registry.refresh(agentSessionScan({ environmentId, input })),
     };
   });
 }

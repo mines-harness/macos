@@ -135,6 +135,25 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
   );
 }
 
+const NATIVE_DEFAULT_PROVIDER_INSTANCES = new Set([
+  "codex",
+  "claudeAgent",
+  "cursor",
+  "grok",
+  "opencode",
+  "antigravity",
+  "pi",
+  "muse",
+]);
+
+function sourceProviderInstance(settings: ServerSettings, instanceId: ProviderInstanceId) {
+  const configured = settings.providerInstances[instanceId];
+  if (configured !== undefined) return configured;
+  return NATIVE_DEFAULT_PROVIDER_INSTANCES.has(instanceId)
+    ? { driver: ProviderDriverKind.make(instanceId) }
+    : undefined;
+}
+
 export function applyProviderInstanceMutation(
   settings: ServerSettings,
   mutation: ProviderInstanceMutation,
@@ -142,6 +161,26 @@ export function applyProviderInstanceMutation(
   const providerInstances = { ...settings.providerInstances };
   if (mutation.operation === "upsert" || mutation.operation === "create") {
     providerInstances[mutation.instanceId] = mutation.instance;
+  } else if (mutation.operation === "duplicate") {
+    const source = sourceProviderInstance(settings, mutation.sourceInstanceId)!;
+    providerInstances[mutation.instanceId] = {
+      ...source,
+      ...(source.environment !== undefined
+        ? {
+            environment: source.environment.map(
+              ({ valueRedacted: _redacted, ...variable }) => variable,
+            ),
+          }
+        : {}),
+      enabled: resolveProviderInstanceEnabled(source),
+      ...(mutation.displayName !== undefined ? { displayName: mutation.displayName } : {}),
+    };
+  } else if (NATIVE_DEFAULT_PROVIDER_INSTANCES.has(mutation.instanceId)) {
+    providerInstances[mutation.instanceId] = {
+      driver: sourceProviderInstance(settings, mutation.instanceId)!.driver,
+      enabled: false,
+      removed: true,
+    };
   } else {
     delete providerInstances[mutation.instanceId];
   }
@@ -154,8 +193,9 @@ function ensureProviderInstanceMutationAllowed(
   settingsPath: string,
 ): Effect.Effect<void, ServerSettingsError> {
   if (
-    mutation.operation === "create" &&
-    settings.providerInstances[mutation.instanceId] !== undefined
+    (mutation.operation === "create" || mutation.operation === "duplicate") &&
+    settings.providerInstances[mutation.instanceId] !== undefined &&
+    settings.providerInstances[mutation.instanceId]?.removed !== true
   ) {
     return Effect.fail(
       new ServerSettingsError({
@@ -164,6 +204,18 @@ function ensureProviderInstanceMutationAllowed(
         providerInstanceId: mutation.instanceId,
       }),
     );
+  }
+  if (mutation.operation === "duplicate") {
+    const source = sourceProviderInstance(settings, mutation.sourceInstanceId);
+    if (source === undefined || source.removed === true) {
+      return Effect.fail(
+        new ServerSettingsError({
+          settingsPath,
+          operation: "duplicate-provider-instance",
+          providerInstanceId: mutation.sourceInstanceId,
+        }),
+      );
+    }
   }
   return Effect.void;
 }
@@ -195,7 +247,7 @@ export class ServerSettingsService extends Context.Service<
     /** Subscribe before reading a snapshot to retain changes before lazy stream startup. */
     readonly subscribeChanges: Effect.Effect<Stream.Stream<ServerSettings>, never, Scope.Scope>;
   }
->()("t3/serverSettings/ServerSettingsService") {
+>()("mines/serverSettings/ServerSettingsService") {
   static readonly layerTest = (overrides: DeepPartial<ServerSettings> = {}) => layerTest(overrides);
 }
 
@@ -241,8 +293,8 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     updateProviderInstance: (mutation, patch = {}) =>
       updateTestSettings((currentSettings) =>
         Effect.gen(function* () {
-          yield* ensureProviderInstanceMutationAllowed(currentSettings, mutation, "test settings");
           const patched = applyServerSettingsPatch(currentSettings, patch);
+          yield* ensureProviderInstanceMutationAllowed(patched, mutation, "test settings");
           return applyProviderInstanceMutation(patched, mutation);
         }),
       ),
@@ -1152,9 +1204,13 @@ const make = Effect.gen(function* () {
     updateProviderInstance: (mutation, patch = {}) =>
       updateAndPersistSettings((current) =>
         Effect.gen(function* () {
-          yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
           const patched = applyServerSettingsPatch(current, patch);
-          return applyProviderInstanceMutation(patched, mutation);
+          yield* ensureProviderInstanceMutationAllowed(patched, mutation, settingsPath);
+          const source =
+            mutation.operation === "duplicate"
+              ? yield* materializeSettingsSecrets(patched)
+              : patched;
+          return applyProviderInstanceMutation(source, mutation);
         }),
       ),
     withSettingsSnapshot,

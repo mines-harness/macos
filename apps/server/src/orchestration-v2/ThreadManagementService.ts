@@ -2,6 +2,7 @@ import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
 } from "@t3tools/contracts";
+import type { CatalogContextRevision } from "@t3tools/contracts/catalogRpc";
 import type {
   ProjectionRecordField,
   ProjectionRecordFilter,
@@ -126,6 +127,8 @@ export interface ThreadManagementSendInput {
   readonly messageId: MessageId;
   readonly scheduledTaskId?: ScheduledTaskId;
   readonly senderThreadId?: ThreadId;
+  readonly contextContinuationOfRunId?: RunId;
+  readonly catalogContextRevision?: CatalogContextRevision;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
@@ -187,7 +190,7 @@ export class ThreadManagementThreadNotFoundError extends Schema.TaggedError<Thre
   },
 ) {
   override get message(): string {
-    return `Thread ${this.threadId} was not found in project ${this.projectId}.`;
+    return `Mine ${this.threadId} was not found in project ${this.projectId}.`;
   }
 }
 
@@ -196,7 +199,7 @@ export class ThreadTranscriptTooLargeError extends Schema.TaggedError<ThreadTran
   { threadId: ThreadId },
 ) {
   override get message(): string {
-    return "The thread transcript exceeds the file attachment limit.";
+    return "The mine transcript exceeds the file attachment limit.";
   }
 }
 
@@ -208,7 +211,7 @@ export class ThreadManagementRunNotFoundError extends Schema.TaggedError<ThreadM
   },
 ) {
   override get message(): string {
-    return `Run ${this.runId} does not belong to thread ${this.threadId}.`;
+    return `Run ${this.runId} does not belong to mine ${this.threadId}.`;
   }
 }
 
@@ -219,7 +222,7 @@ export class ThreadManagementThreadArchivedError extends Schema.TaggedError<Thre
   },
 ) {
   override get message(): string {
-    return `Thread ${this.threadId} is archived and cannot receive messages.`;
+    return `Mine ${this.threadId} is archived and cannot receive messages.`;
   }
 }
 
@@ -231,7 +234,7 @@ export class ThreadManagementNoSteerableRunError extends Schema.TaggedError<Thre
   },
 ) {
   override get message(): string {
-    return `Thread ${this.threadId} has no running turn that can be ${this.mode === "steer" ? "steered" : "restarted"}.`;
+    return `Mine ${this.threadId} has no running turn that can be ${this.mode === "steer" ? "steered" : "restarted"}.`;
   }
 }
 
@@ -256,7 +259,7 @@ export class ThreadManagementProjectionLoadError extends Schema.TaggedError<Thre
   },
 ) {
   override get message(): string {
-    return `Unable to load thread ${this.threadId} in project ${this.projectId}.`;
+    return `Unable to load mine ${this.threadId} in project ${this.projectId}.`;
   }
 }
 
@@ -268,7 +271,7 @@ export class ThreadManagementProjectThreadsListError extends Schema.TaggedError<
   },
 ) {
   override get message(): string {
-    return `Unable to list threads in project ${this.projectId}.`;
+    return `Unable to list mines in project ${this.projectId}.`;
   }
 }
 
@@ -280,7 +283,7 @@ export class ThreadManagementDurableRunProjectionError extends Schema.TaggedErro
   },
 ) {
   override get message(): string {
-    return `Message ${this.messageId} was accepted on thread ${this.threadId} without a durable run projection.`;
+    return `Message ${this.messageId} was accepted on mine ${this.threadId} without a durable run projection.`;
   }
 }
 
@@ -309,7 +312,7 @@ export class ThreadManagementBackgroundWaitError extends Schema.TaggedError<Thre
       case "unsupported":
         return "This provider cannot mark background work as awaited.";
       case "unavailable":
-        return "This thread has no live provider session.";
+        return "This mine has no live provider session.";
       case "failed":
         return "Failed to update the awaited background work.";
     }
@@ -461,7 +464,7 @@ export interface ThreadManagementServiceShape {
 export class ThreadManagementService extends Context.Service<
   ThreadManagementService,
   ThreadManagementServiceShape
->()("t3/orchestration-v2/ThreadManagementService") {}
+>()("mines/orchestration-v2/ThreadManagementService") {}
 
 export function isActiveRun(run: OrchestrationV2Run): boolean {
   return (
@@ -810,6 +813,12 @@ const make = Effect.gen(function* () {
       messageId: input.messageId,
       ...(input.scheduledTaskId === undefined ? {} : { scheduledTaskId: input.scheduledTaskId }),
       ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
+      ...(input.catalogContextRevision === undefined
+        ? {}
+        : { catalogContextRevision: input.catalogContextRevision }),
+      ...(input.contextContinuationOfRunId === undefined
+        ? {}
+        : { contextContinuationOfRunId: input.contextContinuationOfRunId }),
       text: input.text,
       attachments: input.attachments,
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),

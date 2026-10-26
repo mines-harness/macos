@@ -108,7 +108,7 @@ export function relayHookBaseUrl(input: {
 }
 
 export class ScheduledTaskWebhookOrigin extends Context.Reference<Effect.Effect<WebhookOrigin>>(
-  "t3/scheduledTasks/ScheduledTaskWebhookOrigin",
+  "mines/scheduledTasks/ScheduledTaskWebhookOrigin",
   {
     defaultValue: () => Effect.succeed({ relayHookBaseUrl: null }),
   },
@@ -261,7 +261,7 @@ export class ScheduledTaskService extends Context.Service<
       request: WebhookTriggerRequest,
     ) => Effect.Effect<WebhookTriggerResult, ScheduledTaskError>;
   }
->()("t3/scheduledTasks/ScheduledTaskService") {}
+>()("mines/scheduledTasks/ScheduledTaskService") {}
 
 function taskError(message: string, input?: { taskId?: ScheduledTaskId; cause?: unknown }) {
   return new ScheduledTaskError({
@@ -1253,7 +1253,7 @@ export const layer = Layer.effect(
         )
         .pipe(
           Effect.mapError((cause) =>
-            taskError("Could not delete thread's schedule tasks.", { cause }),
+            taskError("Could not delete mine's schedule tasks.", { cause }),
           ),
         );
       yield* Effect.forEach(removed, ({ task_id }) => forgetWebhookTask(task_id), {

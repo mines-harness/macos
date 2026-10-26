@@ -365,7 +365,7 @@ export function BranchToolbarBranchSelector({
         stackedThreadToast({
           type: "error",
           title: "Action unavailable",
-          description: "This connection cannot change the thread's branch.",
+          description: "This connection cannot change the mine's branch.",
         }),
       );
       return;

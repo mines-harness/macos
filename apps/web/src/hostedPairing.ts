@@ -1,4 +1,4 @@
-import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
+import { hostedAppOrigin } from "@t3tools/shared/connectAuth";
 
 import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "./pairingUrl";
 
@@ -11,7 +11,7 @@ export interface HostedPairingRequest {
 export type HostedAppChannel = "latest" | "nightly";
 
 export function configuredHostedAppUrl(): string {
-  return import.meta.env.VITE_HOSTED_APP_URL?.trim() || DEFAULT_HOSTED_APP_URL;
+  return hostedAppOrigin(import.meta.env.VITE_HOSTED_APP_URL) ?? "";
 }
 
 function configuredBackendUrl(): string {
@@ -36,7 +36,7 @@ export function isHostedStaticApp(url?: URL): boolean {
     return false;
   }
 
-  if (configuredHostedAppChannel()) {
+  if (configuredHostedAppChannel() && configuredHostedAppUrl()) {
     return true;
   }
 
@@ -87,7 +87,7 @@ export function buildHostedPairingUrl(input: {
 export function buildHostedChannelSelectionUrl(input: {
   readonly channel: HostedAppChannel;
 }): string {
-  const url = new URL("/__t3code/channel", configuredHostedAppUrl());
+  const url = new URL("/__mines/channel", configuredHostedAppUrl());
   url.searchParams.set("channel", input.channel);
   return url.toString();
 }

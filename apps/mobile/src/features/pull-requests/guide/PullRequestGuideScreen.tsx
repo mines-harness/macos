@@ -180,13 +180,13 @@ export function PullRequestGuideStopScreen({ route }: StaticScreenProps<GuideSto
             ) : (
               <>
                 <GuideNotice state={state} />
-                <Text className="text-2xl leading-8 font-t3-semibold">{stop.title}</Text>
+                <Text className="text-2xl leading-8 font-mines-semibold">{stop.title}</Text>
                 <PullRequestMarkdown markdown={stop.summary} />
                 {stop.attention ? (
                   <View className="gap-3 rounded-xl border border-border bg-grouped-card p-4">
                     <View className="flex-row items-center gap-2">
                       <SymbolView name="eye" size={17} tintColorClassName="accent-icon-muted" />
-                      <Text className="text-sm font-t3-semibold">
+                      <Text className="text-sm font-mines-semibold">
                         {attentionLabels[stop.attention.kind]}
                       </Text>
                     </View>
@@ -220,14 +220,14 @@ export function PullRequestGuideStopScreen({ route }: StaticScreenProps<GuideSto
                 {diff.error ? <Text className="text-danger-foreground">{diff.error}</Text> : null}
                 {notes.length ? (
                   <View className="gap-4">
-                    <Text className="font-t3-semibold">Notes on this stop</Text>
+                    <Text className="font-mines-semibold">Notes on this stop</Text>
                     {notes.map(({ marker, note }) => (
                       <View key={marker} className="flex-row gap-3">
                         <View className="h-7 w-7 items-center justify-center rounded-lg bg-grouped-card">
-                          <Text className="text-xs font-t3-semibold">{marker}</Text>
+                          <Text className="text-xs font-mines-semibold">{marker}</Text>
                         </View>
                         <View className="min-w-0 flex-1 gap-2">
-                          <Text className="font-t3-semibold">{note.title}</Text>
+                          <Text className="font-mines-semibold">{note.title}</Text>
                           <Text className="text-xs text-foreground-muted">
                             {note.path.split("/").at(-1)}:{note.line}
                           </Text>
@@ -258,7 +258,7 @@ export function PullRequestGuideStopScreen({ route }: StaticScreenProps<GuideSto
                 ) : null}
                 {stop.questions.length ? (
                   <View className="gap-3">
-                    <Text className="font-t3-semibold">Questions to consider</Text>
+                    <Text className="font-mines-semibold">Questions to consider</Text>
                     {stop.questions.map((question) => (
                       <PullRequestMarkdown key={question} markdown={question} />
                     ))}
@@ -296,7 +296,7 @@ export function PullRequestGuideStopScreen({ route }: StaticScreenProps<GuideSto
                         ? `Next · ${position + 2} of ${guide.stops.length}`
                         : "End of guide"}
                     </Text>
-                    <Text className="text-base font-t3-semibold">
+                    <Text className="text-base font-mines-semibold">
                       {guide && position < guide.stops.length - 1
                         ? guide.stops[position + 1]?.title
                         : canReview

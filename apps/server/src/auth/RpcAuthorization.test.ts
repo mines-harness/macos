@@ -1,7 +1,10 @@
 import {
   AuthEnvironmentMaintainScope,
+  AuthAccessReadScope,
+  AuthAccessWriteScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
@@ -29,6 +32,17 @@ import {
 import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("keeps voice discovery read-only and protects live sessions with operate permission", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.voiceGetCapabilities)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    for (const method of [WS_METHODS.voiceStart, WS_METHODS.voiceSubscribe, WS_METHODS.voiceStop])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+  });
+  it("requires device administration for a direct probe while keeping device status read-only", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.peerStatus)).toBe(AuthAccessReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.peerCheckDevice)).toBe(AuthAccessWriteScope);
+  });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
@@ -371,3 +385,64 @@ it.effect("denies manual cleanup before the handler without settings permission"
     expect(handled).toBe(false);
   }).pipe(Effect.scoped),
 );
+
+describe("mine transfer authorization", () => {
+  const tested = [WS_METHODS.mineTransferReadChunk, WS_METHODS.mineTransferWriteChunk] as const;
+  const group = WsRpcGroup.omit(
+    ...[...WsRpcGroup.requests.keys()].filter(
+      (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
+        !(tested as ReadonlyArray<string>).includes(tag),
+    ),
+  );
+  it.effect.each([
+    {
+      method: WS_METHODS.mineTransferReadChunk,
+      scopes: [AuthOrchestrationOperateScope],
+      missing: AuthFilesystemReadScope,
+    },
+    {
+      method: WS_METHODS.mineTransferReadChunk,
+      scopes: [AuthOrchestrationOperateScope, AuthFilesystemReadScope],
+      missing: AuthSourceControlWriteScope,
+    },
+    {
+      method: WS_METHODS.mineTransferWriteChunk,
+      scopes: [AuthOrchestrationOperateScope],
+      missing: AuthFilesystemWriteScope,
+    },
+    {
+      method: WS_METHODS.mineTransferWriteChunk,
+      scopes: [AuthOrchestrationOperateScope, AuthFilesystemWriteScope],
+      missing: AuthSourceControlWriteScope,
+    },
+  ])(
+    "requires $missing before $method can read or write transfer data",
+    ({ method, scopes, missing }) =>
+      Effect.gen(function* () {
+        const handled: Array<string> = [];
+        const client = yield* RpcTest.makeClient(group).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              group.toLayerHandler(WS_METHODS.mineTransferReadChunk, () =>
+                Effect.sync(() => handled.push("read")).pipe(Effect.andThen(Effect.never)),
+              ),
+              group.toLayerHandler(WS_METHODS.mineTransferWriteChunk, () =>
+                Effect.sync(() => handled.push("write")).pipe(Effect.andThen(Effect.never)),
+              ),
+              RpcAuthorization.layer(scopes),
+            ),
+          ),
+        );
+        const input = { transferId: "transfer-auth-test", offset: 0, data: "YQ==" };
+        const denied =
+          method === WS_METHODS.mineTransferReadChunk
+            ? yield* client[WS_METHODS.mineTransferReadChunk](input).pipe(Effect.flip)
+            : yield* client[WS_METHODS.mineTransferWriteChunk](input).pipe(Effect.flip);
+        expect(denied).toMatchObject({
+          _tag: "EnvironmentAuthorizationError",
+          requiredPermission: missing,
+        });
+        expect(handled).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+});

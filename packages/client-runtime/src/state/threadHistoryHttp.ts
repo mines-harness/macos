@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -41,5 +41,32 @@ export const fetchEnvironmentThreadHistoryPage = Effect.fn(
     timeoutMs: input.timeoutMs ?? DEFAULT_THREAD_HISTORY_TIMEOUT_MS,
     request: ({ client, headers }) =>
       client.threadHistoryPage({ ...endpoint, headers: withOrchestrationProtocolHeader(headers) }),
+  });
+});
+
+export const fetchEnvironmentThreadBodyRange = Effect.fn(
+  "clientRuntime.state.fetchEnvironmentThreadBodyRange",
+)(function* (input: {
+  readonly prepared: PreparedConnection;
+  readonly threadId: ThreadId;
+  readonly itemId: TurnItemId;
+  readonly field: "text" | "markdown";
+  readonly before: number;
+  readonly revision: string;
+  readonly signer: Option.Option<ManagedRelay.ManagedRelayDpopSigner["Service"]>;
+  readonly remoteAuthorization?: Option.Option<RemoteEnvironmentAuthorization["Service"]>;
+}) {
+  const endpoint = {
+    params: { threadId: input.threadId, itemId: input.itemId },
+    query: { field: input.field, before: input.before, revision: input.revision },
+  };
+  return yield* executeAuthenticatedEnvironmentHttpRequest({
+    ...input,
+    group: "orchestration",
+    method: "GET",
+    url: (urls) => urls.threadBodyRange(endpoint),
+    timeoutMs: DEFAULT_THREAD_HISTORY_TIMEOUT_MS,
+    request: ({ client, headers }) =>
+      client.threadBodyRange({ ...endpoint, headers: withOrchestrationProtocolHeader(headers) }),
   });
 });

@@ -597,7 +597,7 @@ export const DeviceToolTargetInput = Schema.Struct({
   deviceId: Schema.optional(
     DeviceId.annotate({
       description:
-        "Device from device_list. Omit to use the device most recently opened in this thread.",
+        "Device from device_list. Omit to use the device most recently opened in this mine.",
     }),
   ),
   hostId: Schema.optional(DeviceHostId),
@@ -618,7 +618,7 @@ export type DeviceToolScreenshotResult = typeof DeviceToolScreenshotResult.Type;
 export const DeviceToolCloseInput = Schema.Struct({
   deviceId: Schema.optional(
     DeviceId.annotate({
-      description: "Device to close. Omit to close every device in this thread.",
+      description: "Device to close. Omit to close every device in this mine.",
     }),
   ),
   hostId: Schema.optional(DeviceHostId),

@@ -12,7 +12,7 @@ const project = (environmentId: string, id: string, canonicalKey: string) =>
 const projects = [
   project("laptop", "t3", "github.com/pingdotgg/t3code"),
   project("desktop", "other", "github.com/pingdotgg/other"),
-  project("server", "t3-copy", "github.com/pingdotgg/t3code"),
+  project("server", "mines-copy", "github.com/pingdotgg/t3code"),
 ];
 const target = {
   environmentId: "laptop",
@@ -25,7 +25,7 @@ describe("pullRequestFallbackEnvironment", () => {
   it("moves to a connected copy of the repository when the original is down", () => {
     expect(
       pullRequestFallbackEnvironment(target, projects, new Set(["desktop", "server"])),
-    ).toEqual({ environmentId: "server", projectId: "t3-copy" });
+    ).toEqual({ environmentId: "server", projectId: "mines-copy" });
   });
 
   it("stays put while the original is connected or nothing else holds the repository", () => {
@@ -39,7 +39,7 @@ describe("pullRequestFallbackEnvironment", () => {
     const { host: _host, ...hostless } = target;
     expect(pullRequestFallbackEnvironment(hostless, projects, new Set(["server"]))).toEqual({
       environmentId: "server",
-      projectId: "t3-copy",
+      projectId: "mines-copy",
     });
   });
 });

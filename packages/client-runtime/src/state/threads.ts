@@ -7,12 +7,14 @@ import {
   type OrchestrationV2ThreadStreamItem,
   type OrchestrationV2TurnItem,
   type ThreadId as ThreadIdType,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import { boundedSnapshotProjection } from "@t3tools/shared/orchestrationV2BoundedSnapshot";
 import { pendingBackgroundTurnItems } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -38,7 +40,10 @@ import { applyOrchestrationV2ProjectionEvent } from "./orchestrationV2Projection
 import { THREAD_SNAPSHOT_IDLE_TTL_MS } from "./threadRetention.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 import * as ThreadHistoryController from "./threadHistoryController.ts";
-import { fetchEnvironmentThreadHistoryPage } from "./threadHistoryHttp.ts";
+import {
+  fetchEnvironmentThreadHistoryPage,
+  fetchEnvironmentThreadBodyRange,
+} from "./threadHistoryHttp.ts";
 import {
   applyHistoryPageMeta,
   clearActiveHistoryLoading,
@@ -54,6 +59,10 @@ import {
   type EnvironmentThreadStatus,
 } from "./threadState.ts";
 
+const encodeHistoryCacheCursor = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Array(Schema.NullOr(Schema.String))),
+);
+
 function statusWithoutLiveData(
   data: Option.Option<OrchestrationV2ThreadProjection>,
 ): EnvironmentThreadStatus {
@@ -64,7 +73,7 @@ function formatThreadError(cause: Cause.Cause<unknown>): string {
   const error = Cause.squash(cause);
   return error instanceof Error && error.message.trim().length > 0
     ? error.message
-    : "Could not synchronize the thread.";
+    : "Could not synchronize the mine.";
 }
 
 function formatHistoryError(error: unknown): string {
@@ -118,9 +127,7 @@ function shouldPersistThread(
   if (history.expanded) {
     return false;
   }
-  return !thread.runs.some(
-    (run) => run.status === "preparing" || run.status === "starting" || run.status === "running",
-  );
+  return thread.thread.deletedAt === null;
 }
 
 // Only still-active local copies take the server's item: events applied meanwhile win,
@@ -154,6 +161,7 @@ interface ThreadResumeSnapshot {
 }
 
 interface ThreadResumeCache {
+  validForOwner?: () => boolean;
   snapshot: ThreadResumeSnapshot | undefined;
   owner: object | undefined;
 }
@@ -193,6 +201,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
 ) {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
   const cache = yield* Persistence.EnvironmentCacheStore;
+  const isCurrentOwner = cache.captureOwner?.() ?? (() => true);
+  const foregroundActivity = cache.foregroundActivity?.();
+  yield* Effect.addFinalizer(() => Effect.sync(() => foregroundActivity?.dispose()));
   const snapshotLoader = yield* ThreadSnapshotLoader.ThreadSnapshotLoader;
   const historyController = yield* Effect.serviceOption(
     ThreadHistoryController.ThreadHistoryController,
@@ -204,7 +215,12 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   );
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
-  const retained = resumeCache?.snapshot;
+  if (cache.protectThread) {
+    const release = yield* cache.protectThread(environmentId, threadId);
+    yield* Effect.addFinalizer(() => Effect.sync(release));
+  }
+  const retained = resumeCache?.validForOwner?.() === false ? undefined : resumeCache?.snapshot;
+  if (resumeCache) resumeCache.validForOwner = isCurrentOwner;
   const owner = {};
   if (resumeCache) resumeCache.owner = owner;
   const cached =
@@ -268,6 +284,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     if (resumeCache?.owner === owner) resumeCache.snapshot = committed;
   });
   const persistence = yield* Queue.sliding<OrchestrationV2ThreadDetailSnapshot>(1);
+  const prefetchWakeups = yield* Queue.sliding<void>(1);
+  let lastWorkActive = true;
   let queuedSnapshot = Option.getOrUndefined(cached);
   let savedSnapshot = queuedSnapshot;
   const queuePersist = (snapshot: OrchestrationV2ThreadDetailSnapshot) =>
@@ -279,7 +297,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const persist = Effect.fn("EnvironmentThreadState.persist")(function* (
     snapshot: OrchestrationV2ThreadDetailSnapshot,
   ) {
-    if (resumeCache !== undefined && resumeCache.owner !== owner) return;
+    if (!isCurrentOwner() || (resumeCache !== undefined && resumeCache.owner !== owner)) return;
     if (committed.state.status === "deleted") return;
     if (
       committed.persisted &&
@@ -354,7 +372,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           status: "synchronizing" as const,
           error: Option.none(),
         },
-  );
+  ).pipe(Effect.tap(() => Effect.sync(() => foregroundActivity?.setBusy(true))));
   const setReady = SubscriptionRef.update(state, (current) =>
     current.status === "live" || current.status === "deleted" || Option.isSome(current.error)
       ? current
@@ -365,6 +383,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         },
   );
   const setDisconnected = Effect.gen(function* () {
+    foregroundActivity?.setBusy(false);
     yield* Ref.set(awaitingCompletion, false);
     yield* SubscriptionRef.update(state, (current) => ({
       ...current,
@@ -381,6 +400,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           error: Option.some(message),
         })),
       ),
+      Effect.tap(() => Effect.sync(() => foregroundActivity?.setBusy(false))),
     );
 
   const setThread = Effect.fn("EnvironmentThreadState.setThread")(function* (
@@ -413,9 +433,13 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         history,
       };
     });
-    // Active projections can update many times per second and retain large tool
-    // payloads. Persist once the run settles so cache encoding stays off the
-    // streaming path. Progressive meta rides along when the window is incomplete.
+    const workActive = thread.runs.some((run) =>
+      ["preparing", "starting", "running", "waiting"].includes(run.status),
+    );
+    if (lastWorkActive && !workActive) yield* Queue.offer(prefetchWakeups, undefined);
+    lastWorkActive = workActive;
+    foregroundActivity?.setBusy(workActive || waiting);
+    // The persistence worker throttles encoding while live deltas continue.
     if (shouldPersistThread(thread, next.history)) {
       const snapshotSequence = yield* SubscriptionRef.get(lastSequence);
       yield* queuePersist(
@@ -444,7 +468,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       history: EMPTY_THREAD_HISTORY_META,
     });
     yield* remember;
-    if (resumeCache !== undefined && resumeCache.owner !== owner) return;
+    if (!isCurrentOwner() || (resumeCache !== undefined && resumeCache.owner !== owner)) return;
     yield* cache.removeThread(environmentId, threadId).pipe(
       Effect.catch((error) =>
         Effect.logWarning("Could not remove the cached thread.").pipe(
@@ -570,6 +594,26 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       yield* setDeleted();
       return;
     }
+    if (result._tag === "applied") {
+      const workActive = result.projection.runs.some((run) =>
+        ["preparing", "starting", "running", "waiting"].includes(run.status),
+      );
+      if (lastWorkActive && !workActive) yield* Queue.offer(prefetchWakeups, undefined);
+      lastWorkActive = workActive;
+      foregroundActivity?.setBusy(workActive);
+    }
+    if (result._tag === "applied" && result.history.expanded && queuedSnapshot) {
+      let tail: EnvironmentThreadState = {
+        data: Option.some(queuedSnapshot.projection),
+        status: "live",
+        error: Option.none(),
+        history: historyMetaFromCachedSnapshot(queuedSnapshot),
+      };
+      for (const item of fresh) tail = applyEvent(tail, item)[1];
+      if (Option.isSome(tail.data)) {
+        yield* queuePersist(snapshotToPersist(sequence, tail.data.value, tail.history, true));
+      }
+    }
     if (result._tag === "applied" && shouldPersistThread(result.projection, result.history)) {
       const snapshotSequence = yield* SubscriptionRef.get(lastSequence);
       yield* queuePersist(
@@ -593,6 +637,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           ? { ...current, status: "live" as const, error: Option.none() }
           : current,
       );
+      foregroundActivity?.setBusy(lastWorkActive);
+      yield* Queue.offer(prefetchWakeups, undefined);
       return;
     }
 
@@ -650,6 +696,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const loadEarlier = Effect.fn("EnvironmentThreadState.loadEarlier")(function* (
     throughEntryId?: string,
   ) {
+    if (!isCurrentOwner()) return { _tag: "noop" } as const;
     const current = yield* SubscriptionRef.get(state);
     if (
       current.status === "deleted" ||
@@ -694,24 +741,48 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
 
     const runLoad = Effect.gen(function* () {
       const preparedOption = yield* SubscriptionRef.get(supervisor.prepared);
-      if (Option.isNone(preparedOption) || Option.isNone(httpClient))
-        return yield* failLoad("Environment is not connected.");
-
+      const online = Option.isSome(preparedOption) && Option.isSome(httpClient);
       const views =
         throughEntryId === undefined ? [undefined] : ["conversation" as const, undefined];
       for (const view of views) {
-        const pageResult = yield* fetchEnvironmentThreadHistoryPage({
-          prepared: preparedOption.value,
-          threadId,
-          cursor: requestCursor,
-          throughEntryId,
-          view,
-          signer: dpopSigner,
-          remoteAuthorization,
-        }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient.value), Effect.result);
+        const cacheCursor = encodeHistoryCacheCursor([
+          requestCursor,
+          view ?? null,
+          throughEntryId ?? null,
+        ]);
+        const cachedPage =
+          !online && cache.loadHistoryPage
+            ? yield* cache
+                .loadHistoryPage(environmentId, threadId, cacheCursor)
+                .pipe(Effect.catch(() => Effect.succeedNone))
+            : Option.none();
+        if (!online && Option.isNone(cachedPage))
+          return yield* failLoad("Device is offline and this history page has not been cached.");
+        const pageResult = Option.isSome(cachedPage)
+          ? Result.succeed(cachedPage.value)
+          : Option.isSome(preparedOption) && Option.isSome(httpClient)
+            ? yield* fetchEnvironmentThreadHistoryPage({
+                prepared: preparedOption.value,
+                threadId,
+                cursor: requestCursor,
+                throughEntryId,
+                view,
+                signer: dpopSigner,
+                remoteAuthorization,
+              }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient.value), Effect.result)
+            : Result.fail(new Error("Device is not connected."));
         if (Result.isFailure(pageResult))
           return yield* failLoad(formatHistoryError(pageResult.failure));
         const page = pageResult.success;
+        if (!isCurrentOwner()) return { _tag: "noop" } as const;
+        if (online && cache.saveHistoryPage)
+          yield* cache
+            .saveHistoryPage(environmentId, threadId, cacheCursor, page)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Could not cache history page.", error.message),
+              ),
+            );
         const complete = view === undefined;
         const waiting = yield* Ref.get(awaitingCompletion);
         const result = yield* applyLock.withPermits(1)(
@@ -756,6 +827,171 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       ),
     );
   });
+
+  const loadEarlierBody = Effect.fn("EnvironmentThreadState.loadEarlierBody")(function* (
+    sourceThreadId: ThreadIdType,
+    itemId: TurnItemId,
+  ) {
+    if (!isCurrentOwner()) return { _tag: "noop" } as const;
+    const current = yield* SubscriptionRef.get(state);
+    const item = Option.getOrUndefined(current.data)?.visibleTurnItems.find(
+      (row) => row.sourceThreadId === sourceThreadId && row.sourceItemId === itemId,
+    )?.item;
+    const range = item?.bodyRange;
+    if (!range || range.startByte === 0) return { _tag: "noop" } as const;
+    const cacheKey = encodeHistoryCacheCursor([
+      "body",
+      sourceThreadId,
+      itemId,
+      range.revision,
+      String(range.startByte),
+    ]);
+    const cachedBody = cache.loadBodyRange
+      ? yield* cache
+          .loadBodyRange(environmentId, threadId, cacheKey)
+          .pipe(Effect.catch(() => Effect.succeedNone))
+      : Option.none();
+    const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+    if (Option.isNone(cachedBody) && (Option.isNone(prepared) || Option.isNone(httpClient)))
+      return {
+        _tag: "error",
+        message: "Device is offline and this part of the message has not been cached.",
+      } as const;
+    const response = Option.isSome(cachedBody)
+      ? Result.succeed(cachedBody.value)
+      : Option.isSome(prepared) && Option.isSome(httpClient)
+        ? yield* fetchEnvironmentThreadBodyRange({
+            prepared: prepared.value,
+            threadId: sourceThreadId,
+            itemId,
+            field: range.field,
+            before: range.startByte,
+            revision: range.revision,
+            signer: dpopSigner,
+            remoteAuthorization,
+          }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient.value), Effect.result)
+        : Result.fail(new Error("Device is not connected."));
+    if (Result.isFailure(response))
+      return { _tag: "error", message: formatHistoryError(response.failure) } as const;
+    const page = response.success;
+    if (!isCurrentOwner()) return { _tag: "noop" } as const;
+    if (Option.isNone(cachedBody) && cache.saveBodyRange)
+      yield* cache
+        .saveBodyRange(environmentId, threadId, cacheKey, page)
+        .pipe(Effect.catch(() => Effect.void));
+    yield* applyLock.withPermits(1)(
+      SubscriptionRef.update(state, (latest) => {
+        if (Option.isNone(latest.data)) return latest;
+        const projection = latest.data.value;
+        const update = (value: OrchestrationV2TurnItem): OrchestrationV2TurnItem => {
+          if (
+            value.threadId !== sourceThreadId ||
+            value.id !== itemId ||
+            value.bodyRange?.revision !== range.revision ||
+            value.bodyRange.startByte !== page.range.endByte
+          )
+            return value;
+          const bodyRange = { ...range, startByte: page.range.startByte };
+          return range.field === "text" && "text" in value
+            ? { ...value, text: page.text + value.text, bodyRange }
+            : range.field === "markdown" && "markdown" in value
+              ? { ...value, markdown: page.text + value.markdown, bodyRange }
+              : value;
+        };
+        const visibleTurnItems = projection.visibleTurnItems.map((row) => ({
+          ...row,
+          item: update(row.item),
+        }));
+        const updated = visibleTurnItems.find(
+          (row) => row.sourceThreadId === sourceThreadId && row.sourceItemId === itemId,
+        )?.item;
+        return {
+          ...latest,
+          history: { ...latest.history, expanded: true },
+          data: Option.some({
+            ...projection,
+            visibleTurnItems,
+            turnItems: projection.turnItems.map(update),
+            messages: projection.messages.map((message) =>
+              updated &&
+              "messageId" in updated &&
+              "text" in updated &&
+              updated.messageId === message.id
+                ? { ...message, text: updated.text, bodyRange: updated.bodyRange }
+                : message,
+            ),
+          }),
+        };
+      }),
+    );
+    yield* remember;
+    return { _tag: "loaded" } as const;
+  });
+
+  const prefetchHistory = Effect.fn("EnvironmentThreadState.prefetchHistory")(function* () {
+    if (
+      !cache.prefetchAllowed ||
+      !cache.loadHistoryPage ||
+      !cache.saveHistoryPage ||
+      Option.isNone(httpClient)
+    )
+      return;
+    if (!(yield* cache.prefetchAllowed)) return;
+    const first = yield* SubscriptionRef.get(state);
+    let cursor = first.history.historyCursor;
+    const visited = new Set<string>();
+    while (isCurrentOwner() && cursor !== null && !visited.has(cursor)) {
+      visited.add(cursor);
+      const latest = yield* SubscriptionRef.get(state);
+      if (
+        latest.status !== "live" ||
+        Option.isNone(latest.data) ||
+        latest.history.loading ||
+        latest.data.value.runs.some((run) =>
+          ["preparing", "starting", "running", "waiting"].includes(run.status),
+        )
+      )
+        return;
+      if (!(yield* cache.prefetchAllowed)) return;
+      if (cache.inspectHistoryCache) {
+        const usage = yield* cache.inspectHistoryCache;
+        if (
+          usage.entries.reduce((total, entry) => total + entry.bytes, 0) >=
+          usage.budgetBytes * 0.9
+        )
+          return;
+      }
+      const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+      if (Option.isNone(prepared)) return;
+      const cacheCursor = encodeHistoryCacheCursor([cursor, null, null]);
+      const existing = yield* cache.loadHistoryPage(environmentId, threadId, cacheCursor);
+      if (Option.isSome(existing)) {
+        cursor = existing.value.nextCursor;
+        continue;
+      }
+      const page = yield* fetchEnvironmentThreadHistoryPage({
+        prepared: prepared.value,
+        threadId,
+        cursor,
+        signer: dpopSigner,
+        remoteAuthorization,
+      }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient.value));
+      if (!isCurrentOwner()) return;
+      yield* cache.saveHistoryPage(environmentId, threadId, cacheCursor, page);
+      cursor = page.nextCursor;
+    }
+  });
+  yield* Effect.forever(
+    Queue.take(prefetchWakeups).pipe(
+      Effect.andThen(() => {
+        foregroundActivity?.setBusy(true);
+        return prefetchHistory().pipe(
+          Effect.ensuring(Effect.sync(() => foregroundActivity?.setBusy(lastWorkActive))),
+        );
+      }),
+      Effect.catch(() => Effect.void),
+    ),
+  ).pipe(Effect.forkScoped);
 
   // A cached item can stay running after the server finished it, and no event will ever
   // name it again: it can sit outside every bounded window, and a repeated Stop records
@@ -823,6 +1059,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   if (Option.isSome(historyController)) {
     const scope = yield* Scope.Scope;
     const registration = yield* historyController.value.register(environmentId, threadId, {
+      loadEarlierBody: (sourceThreadId, itemId) =>
+        loadEarlierBody(sourceThreadId, itemId).pipe(
+          Effect.forkIn(scope),
+          Effect.flatMap(Fiber.join),
+        ),
       loadEarlier: (throughEntryId) =>
         loadEarlier(throughEntryId).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
       reconcilePendingWork: () =>
@@ -971,7 +1212,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         };
       }),
       {
-        onDefect: () => setStreamError("Could not synchronize the thread."),
+        onDefect: () => setStreamError("Could not synchronize the mine."),
         onExpectedFailure: (cause) => setStreamError(formatThreadError(cause)),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
@@ -1024,7 +1265,7 @@ export function createEnvironmentThreadStateAtoms<R, E>(
           get.mount(resumeAtom);
           const resume = get.once(resumeAtom);
           const live = threadStateChanges(environmentId, threadId, resume);
-          return resume.snapshot === undefined
+          return resume.validForOwner?.() === false || resume.snapshot === undefined
             ? live
             : Stream.concat(Stream.succeed(cachedThreadState(resume.snapshot.state)), live);
         },

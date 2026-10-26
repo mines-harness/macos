@@ -2,6 +2,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { LayersIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
+import { BackgroundImportStatus } from "../onboarding/BackgroundImportStatus";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
@@ -36,6 +37,9 @@ export function ProjectsSettings() {
       (scope.reason === "project-missing" || scope.reason === "checkout-missing"));
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 px-6 pt-4">
+        <BackgroundImportStatus surface="settings" />
+      </div>
       {value.project && projectScope ? (
         <ProjectSettingsPanel
           projectKey={value.project}

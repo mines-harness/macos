@@ -15,7 +15,7 @@ import { readEnvironmentScope } from "./session";
 import { useAtomCommand } from "./use-atom-command";
 
 export const ORCHESTRATION_OPERATE_DENIED_MESSAGE =
-  "This connection cannot change threads or projects.";
+  "This connection cannot change mines or projects.";
 
 export function useOrchestrationCommand<W extends { readonly environmentId: EnvironmentId }, A, E>(
   command: AtomCommand<W, A, E>,

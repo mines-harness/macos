@@ -113,7 +113,7 @@ export function ReviewThreadCard({
   reference,
   pending,
   fixPending,
-  fixLabel = "Fix in a thread",
+  fixLabel = "Fix in a mine",
   onFix,
   onReply,
   onLoadMore,

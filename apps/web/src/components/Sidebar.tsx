@@ -142,6 +142,8 @@ import { readEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { openMineTransferDialog } from "./chat/mineTransferDialogState";
+import { canTransferMineAtom } from "./chat/mineTransferAvailability";
 import { buildThreadRouteParams, resolveActiveThreadRouteRef } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
@@ -214,6 +216,7 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { MinesCatalogTree } from "./sidebar/MinesCatalogTree";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
@@ -285,9 +288,9 @@ const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
-const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
-const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
-const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const SETTLED_SHELF_EXPANDED_KEY = "mines:sidebar:settled-expanded";
+const SNOOZED_SHELF_EXPANDED_KEY = "mines:sidebar:snoozed-expanded";
+const WORKING_SHELF_EXPANDED_KEY = "mines:sidebar:working-expanded";
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -369,7 +372,9 @@ function useSidebarThreads(input: {
 }) {
   const { projectScopeKey, scopedProjectKeys, serverConfigs, optimisticDrop, routeThreadRef } =
     input;
-  const threads = useQuietThreadShells();
+  const threads = useQuietThreadShells().map((thread) =>
+    thread.pinnedAt == null ? thread : { ...thread, pinnedAt: null, pinOrderKey: null },
+  );
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
@@ -552,9 +557,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     const supportsSnooze = capabilities?.threadSnooze === true;
     const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
     if (capabilities?.threadActiveReorder === true) activeReorderable.add(threadKey);
-    if (capabilities?.threadPinning === true && capabilities.threadPinReorder === true) {
-      draggable.add(threadKey);
-    }
+    // Library owns pinning and manual drag organization; Activity uses state actions.
     if (optimisticDrop?.key === threadKey) {
       const projected = applySidebarThreadDrop(
         thread,
@@ -775,8 +778,8 @@ function checkThreadOperations(
   if (canOperateThreads(threads)) return true;
   toastManager.add({
     type: "error",
-    title: "Thread action unavailable",
-    description: "This connection cannot change one or more selected threads.",
+    title: "Mine action unavailable",
+    description: "This connection cannot change one or more selected mines.",
   });
   return false;
 }
@@ -786,6 +789,7 @@ const SIDEBAR_DRAG_DISTANCE = 6;
 const SIDEBAR_DRAG_LABEL_HEIGHT = 24;
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const [activityView, setActivityView] = useState(false);
   const {
     projects,
     serverConfigs,
@@ -863,7 +867,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     onCopy: ({ threadId }) => {
       toastManager.add({
         type: "success",
-        title: "Thread ID copied",
+        title: "Mine ID copied",
         description: threadId,
       });
     },
@@ -871,7 +875,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to copy thread ID",
+          title: "Failed to copy mine ID",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -1347,7 +1351,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const trimmed = title.trim();
       setRenamingThreadKey(null);
       if (trimmed.length === 0) {
-        toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+        toastManager.add({ type: "warning", title: "Mine title cannot be empty" });
         return;
       }
       if (trimmed === originalTitle) return;
@@ -1360,7 +1364,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to rename thread",
+            title: "Failed to rename mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1432,7 +1436,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to settle thread",
+              title: "Failed to settle mine",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -1469,7 +1473,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to un-settle thread",
+            title: "Failed to un-settle mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1484,7 +1488,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to wake thread",
+            title: "Failed to wake mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1549,7 +1553,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     const threads = contextDragThreads();
     const title =
-      threadByKeyRef.current.get(contextDragKeyRef.current ?? "")?.title.trim() || "Thread";
+      threadByKeyRef.current.get(contextDragKeyRef.current ?? "")?.title.trim() || "Mine";
     moveThreadContextDragGhost(point, { title, count: threads.length });
     return true;
   };
@@ -1656,7 +1660,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to pin thread",
+            title: "Failed to pin mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1671,7 +1675,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to unpin thread",
+            title: "Failed to unpin mine",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1935,8 +1939,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
           const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), "Failed to settle thread").finally(
-            () => settlingThreadKeysRef.current.delete(activeKey),
+          const settled = await run(settleThread(threadRef), "Failed to settle mine").finally(() =>
+            settlingThreadKeysRef.current.delete(activeKey),
           );
           if (
             settled &&
@@ -1952,20 +1956,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         case "move-active":
-          if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin thread"))) return;
-          if (
-            plan.unsettle &&
-            !(await run(unsettleThread(threadRef), "Failed to un-settle thread"))
-          )
+          if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin mine"))) return;
+          if (plan.unsettle && !(await run(unsettleThread(threadRef), "Failed to un-settle mine")))
             return;
-          if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake thread")))
+          if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake mine")))
             return;
           break;
         case "pin":
           if (
             !(await run(
               pinThread(threadRef, plan.orderKey === undefined ? {} : { orderKey: plan.orderKey }),
-              "Failed to pin thread",
+              "Failed to pin mine",
             ))
           )
             return;
@@ -1984,8 +1985,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               assignment.orderKey,
             ),
             plan.kind === "move-active"
-              ? "Failed to reorder active threads"
-              : "Failed to reorder pinned threads",
+              ? "Failed to reorder active mines"
+              : "Failed to reorder pinned mines",
           ))
         )
           return;
@@ -2034,7 +2035,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to snooze thread",
+            title: "Failed to snooze mine",
             description:
               outcome.error instanceof Error ? outcome.error.message : "An error occurred.",
           }),
@@ -2187,8 +2188,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 type: "error",
                 title:
                   snoozedThreadRefs.length > 0
-                    ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? "" : "s"}`
-                    : "Failed to snooze threads",
+                    ? `Failed to snooze ${failures.length} mine${failures.length === 1 ? "" : "s"}`
+                    : "Failed to snooze mines",
                 description:
                   firstError instanceof Error ? firstError.message : "An error occurred.",
               }),
@@ -2216,7 +2217,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             toastManager.add(
               stackedThreadToast({
                 type: "error",
-                title: "Failed to regenerate thread titles",
+                title: "Failed to regenerate mine titles",
                 description: error instanceof Error ? error.message : "An error occurred.",
               }),
             );
@@ -2248,8 +2249,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const confirmed = await settlePromise(() =>
           api.dialogs.confirm(
             [
-              `Delete ${count} thread${count === 1 ? "" : "s"}?`,
-              "This permanently clears conversation history for these threads.",
+              `Delete ${count} mine${count === 1 ? "" : "s"}?`,
+              "This permanently clears conversation history for these mines.",
             ].join("\n"),
             { variant: "destructive" },
           ),
@@ -2280,7 +2281,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to delete threads",
+            title: "Failed to delete mines",
             description: firstError instanceof Error ? firstError.message : "An error occurred.",
           }),
         );
@@ -2367,8 +2368,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           true;
         const supportsSnooze =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
-        const supportsPinning =
-          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadPinning === true;
+        const supportsPinning = false;
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
@@ -2412,6 +2412,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               canShareWithGuest: appAtomRegistry.get(
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
+              canTransferMine: appAtomRegistry.get(canTransferMineAtom(threadRef.environmentId)),
               supports: {
                 settlement: supportsSettlement,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2465,7 +2466,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Could not create thread",
+                  title: "Could not create mine",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2511,6 +2512,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "share-guest":
             openGuestShareDialog(threadRef);
             return;
+          case "transfer-mine":
+            openMineTransferDialog(threadRef);
+            return;
           case "regenerate-title": {
             if (isRegeneratingTitle) return;
             const result = await updateThreadMetadata({
@@ -2522,7 +2526,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to regenerate thread title",
+                  title: "Failed to regenerate mine title",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2538,7 +2542,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 stackedThreadToast({
                   type: "error",
                   title: "Path unavailable",
-                  description: "This thread does not have a workspace path to copy.",
+                  description: "This mine does not have a workspace path to copy.",
                 }),
               );
               return;
@@ -2556,7 +2560,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(`Archive thread "${thread.title}"?`),
+                api.dialogs.confirm(`Archive mine "${thread.title}"?`),
               );
               if (confirmed._tag === "Failure" || !confirmed.value) return;
             }
@@ -2572,8 +2576,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 stackedThreadToast({
                   type: "error",
                   title: didArchive
-                    ? "Thread archived, but navigation failed"
-                    : "Failed to archive thread",
+                    ? "Mine archived, but navigation failed"
+                    : "Failed to archive mine",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2586,8 +2590,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               const confirmed = await settlePromise(() =>
                 api.dialogs.confirm(
                   [
-                    `Delete thread "${thread.title}"?`,
-                    "This permanently clears conversation history for this thread.",
+                    `Delete mine "${thread.title}"?`,
+                    "This permanently clears conversation history for this mine.",
                   ].join("\n"),
                   { variant: "destructive" },
                 ),
@@ -2600,7 +2604,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to delete thread",
+                  title: "Failed to delete mine",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2748,8 +2752,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       <SidebarHeaderIconButton
                         label={
                           scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
+                            ? `Filter mines by project: ${scopedProjectGroup.displayName}`
+                            : "Filter mines by project"
                         }
                       />
                     }
@@ -2864,6 +2868,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {!isSearchingThreads ? (
+            <div className="flex gap-1 px-2 py-1" role="group" aria-label="Sidebar view">
+              <Button
+                size="sm"
+                variant={activityView ? "ghost-muted" : "secondary"}
+                onClick={() => setActivityView(false)}
+              >
+                Library
+              </Button>
+              <Button
+                size="sm"
+                variant={activityView ? "secondary" : "ghost-muted"}
+                onClick={() => setActivityView(true)}
+              >
+                Activity
+              </Button>
+            </div>
+          ) : null}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -2875,7 +2897,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 <ul
                   id="sidebar-thread-search-results"
                   role="listbox"
-                  aria-label="Thread search results"
+                  aria-label="Mine search results"
                   className="flex flex-col gap-px"
                 >
                   {threadSearchResults.map((thread, index) => {
@@ -2929,11 +2951,29 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 role="status"
                 className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
               >
-                {threadSearch.isPending ? "Searching thread messages…" : "No threads found"}
+                {threadSearch.isPending ? "Searching mine messages…" : "No mines found"}
               </p>
             )
           ) : null}
-          {!isSearchingThreads ? (
+          {!isSearchingThreads && !activityView ? (
+            <>
+              <ul>
+                <SidebarDraftBlock
+                  projectByKey={projectByKey}
+                  projectDisplayNameByKey={projectDisplayNameByKey}
+                  scopedProjectKeys={scopedProjectKeys}
+                  routeDraftId={routeDraftIdForRows}
+                  onNavigateToDraft={navigateToDraft}
+                  onDraftContextMenu={handleDraftContextMenu}
+                />
+              </ul>
+              <MinesCatalogTree
+                onActivateThread={navigateToThread}
+                activeThreadKey={routeRowThreadKey}
+              />
+            </>
+          ) : null}
+          {!isSearchingThreads && activityView ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
               delay={150}
@@ -3000,10 +3040,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
                                 .threadSnooze === true
                             }
-                            pinningSupported={
-                              serverConfigs.get(thread.environmentId)?.environment.capabilities
-                                .threadPinning === true
-                            }
+                            pinningSupported={false}
                             isPinned={thread.pinnedAt != null}
                             dropVerb={
                               dragState?.activeKey === threadKey
@@ -3223,7 +3260,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           {olderSettledShelf.loading
                             ? "Loading"
                             : olderSettledShelf.failed
-                              ? "Could not load older threads. Retry"
+                              ? "Could not load older mines. Retry"
                               : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
                         </button>
                       </li>
@@ -3234,6 +3271,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             </TooltipProvider>
           ) : null}
           {!isSearchingThreads &&
+          activityView &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
             activeThreads.length +
@@ -3255,9 +3293,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   </button>
                 </>
               ) : scopedProjectGroup ? (
-                `No threads in ${scopedProjectGroup.displayName} yet`
+                `No mines in ${scopedProjectGroup.displayName} yet`
               ) : (
-                "No threads yet"
+                "No mines yet"
               )}
             </div>
           ) : null}

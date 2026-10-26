@@ -1,3 +1,4 @@
+import { MinesCatalog, catalogHostId } from "@t3tools/client-runtime/catalog";
 import {
   AuthOrchestrationOperateScope,
   EnvironmentId,
@@ -18,6 +19,8 @@ function deferred<T>() {
 }
 
 const state = vi.hoisted(() => ({
+  catalog: null as MinesCatalog | null,
+  owned: new Set<string>(),
   granted: new Set<string>(),
   effects: [] as string[],
   completed: deferred<void>(),
@@ -34,7 +37,18 @@ function recordEffect(action: string) {
   state.completed.resolve();
 }
 
+vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.owned }));
+vi.mock("../rpc/atomRegistry", () => ({ appAtomRegistry: { get: () => state.owned } }));
+vi.mock("../catalog/useMinesCatalog", () => ({
+  useMinesCatalog: () => ({ catalog: state.catalog }),
+}));
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
+vi.mock("../components/chat/mineTransferAvailability", () => ({
+  canTransferMineAtom: () => "transfer-available",
+}));
+vi.mock("../components/chat/mineTransferDialogState", () => ({
+  openMineTransferDialog: () => recordEffect("transfer-mine"),
+}));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),
@@ -160,6 +174,9 @@ const createMenu = () =>
   });
 
 beforeEach(() => {
+  state.catalog?.destroy();
+  state.catalog = new MinesCatalog();
+  state.owned = new Set(["secondary"]);
   state.granted = new Set(["primary"]);
   state.effects = [];
   state.completed = deferred<void>();
@@ -167,7 +184,7 @@ beforeEach(() => {
 });
 
 describe("thread menu permissions", () => {
-  it.each(["rename", "regenerate-title", "delete", "pin", "settle", "archive"] as const)(
+  it.each(["rename", "regenerate-title", "delete", "settle", "archive", "transfer-mine"] as const)(
     "%s rechecks after the native menu closes",
     async (action) => {
       state.granted.add("secondary");
@@ -180,4 +197,41 @@ describe("thread menu permissions", () => {
       expect(state.effects).toEqual([]);
     },
   );
+});
+
+it("pins and unpins the same local Library catalog without mutating the owning host", async () => {
+  const catalog = state.catalog!;
+  const id = catalogHostId("thread", target.environmentId, target.threadId);
+  const changed = () =>
+    new Promise<void>((resolve) => {
+      const stop = catalog.subscribe(() => {
+        stop();
+        resolve();
+      });
+    });
+  const pinned = changed();
+  state.show.mockResolvedValue("pin");
+  createMenu().openMenu(position);
+  await pinned;
+  expect(state.effects).toEqual([]);
+  expect(catalog.getSnapshot().pins.map((entry) => entry.entity.id)).toEqual([id]);
+  expect(state.show.mock.calls[0]![0].find((item) => item.id === "pin")?.disabled).not.toBe(true);
+  const unpinned = changed();
+  state.show.mockResolvedValue("unpin");
+  createMenu().openMenu(position);
+  await unpinned;
+  expect(catalog.getSnapshot().pins).toEqual([]);
+  expect(catalog.has(id)).toBe(true);
+  expect(state.effects).toEqual([]);
+});
+
+it("does not copy a remote title into the catalog after account ownership changes", async () => {
+  const choice = deferred<ThreadActionMenuId | null>();
+  state.show.mockReturnValue(choice.promise);
+  const completed = createMenu().openMenu(position);
+  state.owned = new Set();
+  choice.resolve("pin");
+  await completed;
+  expect(state.catalog!.getSnapshot().entities).toEqual([]);
+  expect(state.effects).toEqual([]);
 });

@@ -199,7 +199,9 @@ export const CodexDriver: ProviderDriver<
 
     // Kick the TTL-gated manifest refresh in the background and classify with the in-memory
     // manifest, so a slow or hung fetch never delays the provider check.
-    const checkProvider = modelCatalog.refreshInBackground.pipe(
+    const checkProvider = (
+      effectiveConfig.enabled ? modelCatalog.refreshInBackground : Effect.void
+    ).pipe(
       Effect.andThen(
         Effect.zipWith(
           checkCodexProviderStatus(effectiveConfig, undefined, processEnv),

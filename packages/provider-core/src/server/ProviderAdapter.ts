@@ -418,6 +418,7 @@ export interface ProviderAdapterV2TurnInput {
   readonly threadId: ThreadId;
   readonly runId: RunId;
   readonly runOrdinal: number;
+  readonly liveVoice?: { readonly sessionId: string };
   readonly nativeThreadHasTurns?: boolean;
   readonly providerTurnOrdinal: number;
   readonly restartContinuationOfRunId?: RunId;

@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -52,6 +53,16 @@ import {
   resolveClaudeModelsForVersion,
   resolveClaudeUpdateRequiredModels,
 } from "./ClaudeModelCatalog.ts";
+
+const decodeClaudeCredentialStatus = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      loggedIn: Schema.Boolean,
+      authMethod: Schema.optionalKey(Schema.String),
+      email: Schema.optionalKey(Schema.String),
+    }),
+  ),
+);
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -470,22 +481,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
 
-  if (!claudeSettings.enabled) {
-    return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
-      enabled: false,
-      checkedAt,
-      models: allModels,
-      probe: {
-        installed: false,
-        version: null,
-        status: "warning",
-        auth: { status: "unknown" },
-        message: "Claude is disabled in T3 Code settings.",
-      },
-    });
-  }
-
   const versionProbe = yield* runClaudeCommand(
     claudeSettings,
     ["--version"],
@@ -551,6 +546,49 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         status: "error",
         auth: { status: "unknown" },
         message: "Claude Agent CLI is installed but failed to run.",
+      },
+    });
+  }
+
+  if (!claudeSettings.enabled) {
+    const result = yield* runClaudeCommand(
+      claudeSettings,
+      ["auth", "status"],
+      resolvedEnvironment,
+      cwd,
+    ).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.option,
+      Effect.map(Option.flatMap((result) => result)),
+      Effect.map(Option.getOrUndefined),
+    );
+    const status = result
+      ? Option.getOrUndefined(decodeClaudeCredentialStatus(result.stdout))
+      : undefined;
+    return buildServerProvider({
+      presentation: CLAUDE_PRESENTATION,
+      enabled: false,
+      checkedAt,
+      models: allModels,
+      skills: [],
+      probe: {
+        installed: true,
+        version: parsedVersion,
+        status: "warning",
+        auth:
+          status && result?.code === 0 && status.loggedIn
+            ? {
+                status: "authenticated",
+                ...(status.authMethod ? { type: status.authMethod } : {}),
+                ...(status.email ? { email: status.email } : {}),
+              }
+            : status && !status.loggedIn
+              ? { status: "unauthenticated" }
+              : { status: "unknown" },
+        message:
+          status?.loggedIn && result?.code === 0
+            ? "Existing Claude account found."
+            : "Claude is disabled in mines settings.",
       },
     });
   }
@@ -697,7 +735,7 @@ export const makePendingClaudeProvider = Effect.fn("ClaudeProvider.makePendingCl
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Claude is disabled in T3 Code settings.",
+          message: "Claude is disabled in mines settings.",
         },
       });
     }

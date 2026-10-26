@@ -11,6 +11,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   turnItemIsWorkspacePreparation,
+  threadImportLabel,
+  threadImportBoundaryItemId,
   workspacePreparationRetryRunIds,
 } from "./turnItemPresentation.ts";
 
@@ -59,6 +61,42 @@ function preparationFailure(
 }
 
 const worktree = { type: "worktree", baseRef: "main" } as const;
+
+it("labels imported history with local date and clock conventions, without inventing legacy dates", () => {
+  const importedAt = DateTime.makeUnsafe("2026-10-26T08:00:00.000Z");
+  const metadata = { historyOrigin: "v1_import", importedAt };
+  expect(threadImportLabel(metadata, "en-US")).toMatch(/^Thread imported on .*2026.*(?:AM|PM)$/);
+  expect(threadImportLabel(metadata, "en-GB")).toMatch(/^Thread imported on .*2026.*\d{2}:\d{2}$/);
+  expect(threadImportLabel({ historyOrigin: "v1_import" })).toBe("Thread imported");
+  expect(threadImportLabel({ importedAt })).toBeNull();
+});
+
+it("places the import boundary after original history, before later live activity", () => {
+  const threadId = ThreadId.make("import:codex:original-session");
+  const imported = (suffix: string) => ({
+    sourceThreadId: threadId,
+    sourceItemId: TurnItemId.make(`agent-session-import:v2:turn-item:${threadId}:${suffix}`),
+  });
+  const first = imported("000000");
+  const last = imported("000001");
+  expect(
+    threadImportBoundaryItemId(
+      [
+        first,
+        last,
+        { sourceThreadId: threadId, sourceItemId: TurnItemId.make("new-live-message") },
+      ],
+      threadId,
+    ),
+  ).toBe(last.sourceItemId);
+  expect(
+    threadImportBoundaryItemId(
+      [{ ...last, sourceThreadId: ThreadId.make("other-thread") }],
+      threadId,
+    ),
+  ).toBeNull();
+  expect(threadImportBoundaryItemId([], threadId)).toBeNull();
+});
 function run(
   status: OrchestrationV2Run["status"],
   workspacePreparation?: typeof worktree,

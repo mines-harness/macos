@@ -2,7 +2,15 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { type ComponentProps, useLayoutEffect } from "react";
 import { useIncrementalTimelineEntries } from "../../hooks/useIncrementalTimelineEntries";
 import type { TimelineEntriesInput, TimelineEntry } from "../../session-logic";
-import { useThreadVisibleTurnItems } from "../../state/entities";
+import {
+  useQuietThreadProjection,
+  useQuietThreadShell,
+  useThreadVisibleTurnItems,
+} from "../../state/entities";
+import {
+  threadImportBoundaryItemId,
+  threadImportLabel,
+} from "@t3tools/client-runtime/state/turn-item-presentation";
 import {
   peekRememberedThreadTimeline,
   rememberReadyThreadTimeline,
@@ -39,8 +47,16 @@ export function ThreadTimeline({
   readyWorkspaceRoot: string | null;
 }) {
   const visibleTurnItems = useThreadVisibleTurnItems(threadDetailRef);
+  const shell = useQuietThreadShell(threadDetailRef);
+  const detail = useQuietThreadProjection(threadDetailRef);
+  const importLabel = shell ? threadImportLabel(shell.source) : null;
+  const importBoundary =
+    threadDetailRef && importLabel
+      ? threadImportBoundaryItemId(visibleTurnItems, threadDetailRef.threadId)
+      : null;
   const serverEntries = useIncrementalTimelineEntries(activeThreadKey, {
     ...entriesInput,
+    ...(detail ? { liveVoiceRuns: detail.projection.runs } : {}),
     visibleTurnItems,
   });
   const entries = draftEntries ?? serverEntries;
@@ -61,5 +77,19 @@ export function ThreadTimeline({
       workspaceRoot: readyWorkspaceRoot,
     });
   }, [activeThreadKey, detailLoading, entries, readyMarkdownCwd, readyWorkspaceRoot]);
-  return <MessagesTimeline {...timelineProps} timelineEntries={displayed.entries} />;
+  return (
+    <MessagesTimeline
+      {...timelineProps}
+      timelineEntries={displayed.entries}
+      importedHistory={
+        importLabel && importBoundary
+          ? {
+              label: importLabel,
+              sourceItemId: importBoundary,
+              archiveAttachments: detail?.projection.thread.importArchiveAttachments,
+            }
+          : null
+      }
+    />
+  );
 }

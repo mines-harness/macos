@@ -23,9 +23,10 @@ import {
   snoozeWakeLabel,
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
-import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import type { ComposerTextPaste } from "../../native/MinesComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { threadImportLabel } from "@t3tools/client-runtime/state/turn-item-presentation";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import {
   childThreadInputsTitle,
@@ -46,7 +47,7 @@ import type {
   RuntimeMode,
   RuntimeRequestId,
   ScopedThreadRef,
-  ServerConfig as T3ServerConfig,
+  ServerConfig as MinesServerConfig,
   ThreadId,
   UsageLimitsReport,
 } from "@t3tools/contracts";
@@ -259,7 +260,7 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadQueueCount: number;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
-  readonly serverConfig: T3ServerConfig | null;
+  readonly serverConfig: MinesServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
@@ -746,10 +747,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
     setStatusRequest((current) => (current === request ? null : current));
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
-      Dialog.alert(
-        "Could not update thread",
-        error instanceof Error ? error.message : "Try again.",
-      );
+      Dialog.alert("Could not update mine", error instanceof Error ? error.message : "Try again.");
     }
   };
   const pendingBackgroundWork = presentPendingBackgroundWork(
@@ -1482,6 +1480,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
               threadId={props.selectedThread.id}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
+              importLabel={threadImportLabel(props.selectedThread.source)}
               pendingHandoff={props.pendingHandoff}
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}

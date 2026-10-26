@@ -45,11 +45,11 @@ export function DraftThreadHeader(props: {
     });
   };
   const requiresThread = () =>
-    Dialog.alert("Available after the first message", "This action needs a saved thread.");
+    Dialog.alert("Available after the first message", "This action needs a saved mine.");
   return (
     <ThreadHeader
       draft
-      title="New thread"
+      title="New mine"
       subtitle=""
       headerColor={themeVariables["--color-header"]}
       usesNativeHeaderGlass={NATIVE_LIQUID_GLASS_SUPPORTED}

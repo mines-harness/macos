@@ -84,7 +84,7 @@ function ReactionPills(props: {
           )}
         >
           <Text className="text-sm">{pullRequestReactionEmoji(reaction.content)}</Text>
-          <Text className="text-xs font-t3-medium text-foreground-muted">{reaction.count}</Text>
+          <Text className="text-xs font-mines-medium text-foreground-muted">{reaction.count}</Text>
         </Pressable>
       ))}
       {props.canReact ? (
@@ -187,7 +187,7 @@ export function PullRequestCommentFooter(props: {
           className={cn(PILL, "ml-auto border-transparent")}
         >
           <SymbolView name="pencil" size={13} tintColorClassName="accent-icon-muted" />
-          <Text className="text-xs font-t3-medium text-foreground-muted">Edit</Text>
+          <Text className="text-xs font-mines-medium text-foreground-muted">Edit</Text>
         </Pressable>
       ) : null}
     </View>

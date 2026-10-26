@@ -242,7 +242,7 @@ export class ServerBrowser extends Context.Service<
 
     readonly reportProfiles: (input: PreviewReportProfilesInput) => Effect.Effect<void>;
   }
->()("t3/preview/ServerBrowser") {}
+>()("mines/preview/ServerBrowser") {}
 
 interface ViewerState {
   readonly id: string;
@@ -402,7 +402,7 @@ const editingCommand = (key: string, modifiers: number) => {
 };
 
 const CLIPBOARD_TEXT_LIMIT = 1024 * 1024;
-const CLIPBOARD_WORLD = "t3-preview-clipboard";
+const CLIPBOARD_WORLD = "mines-preview-clipboard";
 // Chromium shares its clipboard across contexts; capture real copy/cut keys in a page-inaccessible world instead.
 const CLIPBOARD_SCRIPT = `(() => {
   let keying = false;
@@ -1254,7 +1254,7 @@ const make = Effect.gen(function* () {
   const assertTabCapacity = (agentSessionId: string) => {
     if (atTabLimit(agentSessionId))
       throw new BrowserControlInterrupted(
-        `Too many server browser tabs are open (${AGENT_TAB_LIMIT} per agent session, ${SERVER_TAB_LIMIT} per server). Close one with t3_preview_close or reuse one from preview_status tabs.`,
+        `Too many server browser tabs are open (${AGENT_TAB_LIMIT} per agent session, ${SERVER_TAB_LIMIT} per server). Close one with mines_preview_close or reuse one from preview_status tabs.`,
         "tabLimit",
       );
   };
@@ -1681,7 +1681,7 @@ const make = Effect.gen(function* () {
     if (!tab) {
       throw new ServerBrowserPage.ServerBrowserOperationError(
         "PreviewAutomationTabNotFoundError",
-        "No server preview tab is open for this thread. Call preview_open first.",
+        "No server preview tab is open for this mine. Call preview_open first.",
       );
     }
     if (!READ_OPERATIONS.has(request.operation) && !tab.control.agentMayAct(request.agentSessionId))
@@ -1851,7 +1851,7 @@ const make = Effect.gen(function* () {
         if (!tab) {
           throw new ServerBrowserPage.ServerBrowserOperationError(
             "PreviewAutomationRecordingNotActiveError",
-            "No recording is active for this thread.",
+            "No recording is active for this mine.",
           );
         }
         // A stop cannot act twice (a retry finds no recording);
@@ -2445,7 +2445,7 @@ const make = Effect.gen(function* () {
     (yield* PreviewBrowserHost.sandboxBlocked)
   ) {
     yield* Effect.logWarning(
-      `This host blocks the sandbox T3's browser runs in, so browser tabs and HTML previews will not start. Run \`${setupCommand}\` once to allow it.`,
+      `This host blocks the sandbox mines's browser runs in, so browser tabs and HTML previews will not start. Run \`${setupCommand}\` once to allow it.`,
     );
   }
 

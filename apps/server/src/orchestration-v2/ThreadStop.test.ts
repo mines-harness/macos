@@ -4,6 +4,7 @@ import {
   ContextTransferId,
   EventId,
   MessageId,
+  MineTransferError,
   NodeId,
   type OrchestrationV2DomainEvent,
   ProjectId,
@@ -29,6 +30,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as MineTransferGate from "../mineTransfer/MineTransferGate.ts";
 import { CLAUDE_PROVIDER } from "./Adapters/ClaudeAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
@@ -160,6 +162,121 @@ const threadState = (threadId: ThreadId) =>
         .map((link) => link.number),
     };
   });
+
+const makeTransferGate = () => {
+  const frozen = new Map<ThreadId, string>();
+  return MineTransferGate.MineTransferGate.of({
+    freeze: (threadId, transferId) =>
+      Effect.sync(() => {
+        frozen.set(threadId, transferId);
+      }),
+    unfreeze: (threadId) =>
+      Effect.sync(() => {
+        frozen.delete(threadId);
+      }),
+    assertAvailable: (threadId) =>
+      Effect.suspend(() => {
+        const transferId = frozen.get(threadId);
+        return transferId === undefined
+          ? Effect.void
+          : Effect.fail(
+              new MineTransferError({ operation: "dispatch", reason: "busy", transferId }),
+            );
+      }),
+  });
+};
+
+it.effect("a transfer freeze rejects nested pull request wake messages", () => {
+  const gate = makeTransferGate();
+  return Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const threadId = ThreadId.make("thread:transfer-freeze-watch");
+    yield* createWatchingThread(threadId, 42);
+    const shell = yield* orchestrator.getThreadShell(threadId);
+    const currentWatch = shell?.pullRequests?.[0]?.watch;
+    assert.isDefined(currentWatch);
+    yield* gate.freeze(threadId, "transfer-freeze-watch");
+
+    const error = yield* orchestrator
+      .dispatch({
+        type: "thread.pull-request-watch.sync",
+        commandId: CommandId.make("transfer-freeze-watch-wake"),
+        threadId,
+        ...pullRequest(42),
+        startedAt: currentWatch.startedAt,
+        watch: currentWatch,
+        wake: {
+          messageId: MessageId.make("transfer-freeze-watch-wake"),
+          text: "A check failed. Fix it.",
+          notification: {
+            source: { kind: "monitor" },
+            outcome: "updated",
+            summary: "A check failed",
+          },
+        },
+      })
+      .pipe(Effect.flip);
+
+    assert.equal(error._tag, "OrchestratorCommandRejectedError");
+    assert.deepEqual((yield* orchestrator.getThreadProjection(threadId)).runs, []);
+    yield* gate.unfreeze(threadId, "transfer-freeze-watch");
+    yield* send(threadId, "Continue on this device", "start_immediately");
+    assert.deepEqual((yield* threadState(threadId)).runs, ["starting"]);
+  }).pipe(
+    Effect.provide(layerTest),
+    Effect.provideService(MineTransferGate.MineTransferGate, gate),
+  );
+});
+
+it.effect("a transfer freeze prevents accepted queue resume replays from starting work", () => {
+  const gate = makeTransferGate();
+  return Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:transfer-freeze-queue");
+    yield* createWatchingThread(threadId, 43);
+    yield* send(threadId, "Active request", "start_immediately");
+    yield* send(threadId, "Next request", "queue_after_active");
+    const resume = {
+      type: "queue.resume" as const,
+      commandId: CommandId.make("transfer-freeze-queue-resume"),
+      threadId,
+    };
+    yield* orchestrator.dispatch(resume);
+    const [active, queued] = (yield* orchestrator.getThreadProjection(threadId)).runs;
+    assert.isDefined(active);
+    assert.isDefined(queued);
+    const now = yield* DateTime.now;
+    yield* projections.apply({
+      id: EventId.make("transfer-freeze-queue-completed"),
+      type: "run.updated",
+      threadId,
+      runId: active.id,
+      occurredAt: now,
+      payload: { ...active, status: "completed", completedAt: now },
+    });
+    yield* gate.freeze(threadId, "transfer-freeze-queue");
+
+    const replayed = yield* orchestrator.dispatch(resume);
+    assert.isTrue(replayed.replayed);
+    assert.equal(
+      (yield* orchestrator.getThreadProjection(threadId)).runs.find((run) => run.id === queued.id)
+        ?.status,
+      "queued",
+    );
+
+    yield* gate.unfreeze(threadId, "transfer-freeze-queue");
+    yield* orchestrator.dispatch(resume);
+    assert.equal(
+      (yield* orchestrator.getThreadProjection(threadId)).runs.find((run) => run.id === queued.id)
+        ?.status,
+      "starting",
+    );
+  }).pipe(
+    Effect.provide(layerTest),
+    Effect.provideService(MineTransferGate.MineTransferGate, gate),
+  );
+});
 
 it.effect.each([
   ["idle", "thread.stop"],

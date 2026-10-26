@@ -1035,7 +1035,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     version: input.enabled === false ? null : "test",
     status: input.enabled === false ? "disabled" : "ready",
     auth: { status: input.enabled === false ? "unknown" : "authenticated" },
-    ...(input.enabled === false ? { message: "Provider is disabled in T3 Code settings." } : {}),
+    ...(input.enabled === false ? { message: "Provider is disabled in mines settings." } : {}),
     checkedAt: "2026-09-13T00:00:00.000Z",
     models:
       input.model === undefined
@@ -2657,17 +2657,17 @@ describe("OrchestratorMcpService thread lookup", () => {
     Effect.gen(function* () {
       const { read, send } = yield* failuresFor([]);
       assert.equal(read.code, "thread_not_found");
-      assert.equal(read.message, `Thread ${bareId} is no longer available.`);
+      assert.equal(read.message, `Mine ${bareId} is no longer available.`);
       assert.equal(send.code, "thread_not_found");
-      assert.equal(send.message, `Thread ${bareId} was not found.`);
+      assert.equal(send.message, `Mine ${bareId} was not found.`);
     }),
   );
 
   it.effect("does not name an mcp: thread that was deleted", () =>
     Effect.gen(function* () {
       const { read, send } = yield* failuresFor([deletedLaunched]);
-      assert.equal(read.message, `Thread ${bareId} is no longer available.`);
-      assert.equal(send.message, `Thread ${bareId} was not found.`);
+      assert.equal(read.message, `Mine ${bareId} is no longer available.`);
+      assert.equal(send.message, `Mine ${bareId} was not found.`);
     }),
   );
 });

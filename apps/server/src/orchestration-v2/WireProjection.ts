@@ -21,6 +21,8 @@ import {
   toolOutputIndicatesFailure,
 } from "@t3tools/shared/toolOutput";
 
+import { BODY_WINDOW_BYTES, bodyWindow, boundMessageBody } from "./threadBodyRanges.ts";
+
 const MAX_DETAIL_STRING_BYTES = 32_768;
 const MAX_DYNAMIC_VALUE_BYTES = 16_384;
 const MAX_ON_DEMAND_BYTES = 256 * 1024;
@@ -98,6 +100,19 @@ function summarizeDynamicValue(value: unknown): unknown {
 
 export function projectTurnItemForWire(item: OrchestrationV2TurnItem): OrchestrationV2TurnItem {
   switch (item.type) {
+    case "user_message":
+    case "assistant_message":
+    case "reasoning":
+      return boundMessageBody(item);
+    case "proposed_plan": {
+      if (
+        item.bodyRange !== undefined ||
+        Buffer.byteLength(item.markdown, "utf8") <= BODY_WINDOW_BYTES
+      )
+        return item;
+      const window = bodyWindow(item.markdown, "markdown");
+      return { ...item, markdown: window.text, bodyRange: window.range };
+    }
     case "handoff": {
       const { summary: _summary, ...projected } = item;
       return projected;
@@ -229,6 +244,7 @@ export function projectThreadProjectionForWire(
   };
   return {
     ...projection,
+    messages: projection.messages.map(boundMessageBody),
     contextHandoffs: projection.contextHandoffs.map(projectContextHandoffForWire),
     turnItems: projection.turnItems.map(project),
     visibleTurnItems: projection.visibleTurnItems.map((row) => ({
@@ -241,11 +257,13 @@ export function projectThreadProjectionForWire(
 export function projectDomainEventForWire(
   event: OrchestrationV2DomainEvent,
 ): OrchestrationV2DomainEvent {
-  return event.type === "turn-item.updated"
-    ? { ...event, payload: projectTurnItemForWire(event.payload) }
-    : event.type === "context-handoff.updated"
-      ? { ...event, payload: projectContextHandoffForWire(event.payload) }
-      : event;
+  return event.type === "message.updated"
+    ? { ...event, payload: boundMessageBody(event.payload) }
+    : event.type === "turn-item.updated"
+      ? { ...event, payload: projectTurnItemForWire(event.payload) }
+      : event.type === "context-handoff.updated"
+        ? { ...event, payload: projectContextHandoffForWire(event.payload) }
+        : event;
 }
 
 const LIVE_DEDUPE_MEMORY = 32;

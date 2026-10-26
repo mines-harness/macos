@@ -17,7 +17,7 @@ import {
   ScreenScrollViewBottomInset,
 } from "../../components/ui/ScreenScrollView";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { useAuth, useUser } from "@clerk/expo";
+import { useMinesAccount } from "../cloud/MinesAccountProvider";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { use, useMemo, type ComponentProps } from "react";
 import { Platform, View } from "react-native";
@@ -27,7 +27,7 @@ import { useCompactWorkspaceTabs } from "../workspace/useSystemWorkspaceTabBar";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { hasCloudPublicConfig } from "../cloud/publicConfig";
+import { hasMinesIdentityConfig } from "../cloud/publicConfig";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
@@ -59,7 +59,7 @@ export function SettingsRouteScreen() {
       : (state.routes[list + 1]?.name ?? null);
   });
   const sidebar = useMemo(() => (inSidebar ? { selected } : null), [inSidebar, selected]);
-  const content = hasCloudPublicConfig() ? (
+  const content = hasMinesIdentityConfig() ? (
     <ConfiguredSettingsRouteScreen />
   ) : (
     <LocalSettingsRouteScreen />
@@ -105,14 +105,14 @@ interface SettingsListSection {
 
 function ConfiguredSettingsRouteScreen() {
   const navigation = useNavigation();
-  const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
-  const { user } = useUser();
+  const { isLoaded, isSignedIn } = useMinesAccount();
+  const { user } = useMinesAccount();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const accountLabel = !isLoaded
     ? "Checking"
     : !isSignedIn
       ? "Sign in"
-      : (user?.primaryEmailAddress?.emailAddress ?? "Signed in");
+      : (user?.email ?? "Signed in");
 
   return (
     <SettingsList
@@ -120,7 +120,7 @@ function ConfiguredSettingsRouteScreen() {
         {
           id: "account",
           icon: "person.crop.circle",
-          label: "T3 Account",
+          label: "mines account",
           value: accountLabel,
           disabled: !isLoaded,
           onPress: () => navigation.navigate("SettingsAuth"),
@@ -146,7 +146,7 @@ function environmentsRow(count: number): SettingsListRow {
   return {
     id: "SettingsEnvironments",
     icon: "desktopcomputer",
-    label: "Environments",
+    label: "Devices",
     value: `${count}`,
     valuePosition: "trailing",
     target: "SettingsEnvironments",
@@ -250,22 +250,22 @@ function useSettingsIndexSections(): SettingsListSection[] {
       rows: [page("SettingsScheduledTasks", "clock", "Scheduled tasks")],
     },
     {
-      title: "Projects & threads",
+      title: "Projects & mines",
       rows: [
         ...(selectedProjectKey !== null
           ? [page("SettingsProjectOverview", "folder", "Overview", { value: projectLabel })]
           : []),
         page("SettingsOrganization", "folder", "Organization"),
-        page("SettingsThreads", "text.bubble", "Thread behavior"),
+        page("SettingsThreads", "text.bubble", "Mine behavior"),
         page("SettingsFollowUp", "arrow.turn.left.up", "Follow-ups"),
-        page("SettingsArchive", "archivebox", "Archived Threads"),
+        page("SettingsArchive", "archivebox", "Archived Mines"),
       ],
     },
     {
       title: "Server settings",
       rows: [
         serverPage("SettingsProviderAccounts", "person.crop.circle", "Provider accounts"),
-        serverPage("SettingsEnvironmentNewThreads", "text.bubble", "New threads"),
+        serverPage("SettingsEnvironmentNewThreads", "text.bubble", "New mines"),
         serverPage("SettingsEnvironmentSourceControl", "arrow.triangle.branch", "Source control"),
         serverPage("SettingsEnvironmentAgentBehavior", "text.alignleft", "Agent behavior"),
         serverPage("SettingsEnvironmentMaintenance", "arrow.clockwise", "Maintenance"),
@@ -273,7 +273,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
     },
     {
       title: "App",
-      rows: [page("SettingsAbout", "info.circle", "About T3 Code")],
+      rows: [page("SettingsAbout", "info.circle", "About mines")],
     },
   ];
 }

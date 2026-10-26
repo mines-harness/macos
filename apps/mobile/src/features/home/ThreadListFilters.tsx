@@ -28,7 +28,7 @@ export function ThreadListFilters(
     >
       <ListFilterMenu
         label={selectedEnvironment?.label ?? "All environments"}
-        accessibilityLabel="Filter threads by environment"
+        accessibilityLabel="Filter mines by environment"
         active={selectedEnvironment !== undefined}
         actions={[
           {
@@ -57,7 +57,7 @@ export function ThreadListFilters(
       />
       <ListFilterMenu
         label={selectedProject?.label ?? "All projects"}
-        accessibilityLabel="Filter threads by project"
+        accessibilityLabel="Filter mines by project"
         active={selectedProject !== undefined}
         actions={[
           {
@@ -84,7 +84,7 @@ export function ThreadListFilters(
       {props.selectedEnvironmentId !== null || props.selectedProjectKey !== null ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Reset thread filters"
+          accessibilityLabel="Reset mine filters"
           className="h-8 w-8 items-center justify-center"
           onPress={() => {
             props.onEnvironmentChange(null);

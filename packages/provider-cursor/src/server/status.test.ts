@@ -47,6 +47,30 @@ const baseCursorSettings: CursorSettings = decodeCursorSettings({
   customModels: [],
 });
 
+it.effect.each(["api-key", "browser"] as const)(
+  "detects saved Cursor %s credentials while disabled without loading the SDK catalog",
+  (authenticationType) =>
+    Effect.gen(function* () {
+      const provider = yield* checkCursorProviderStatus(
+        { ...baseCursorSettings, enabled: false },
+        { CURSOR_API_KEY: "saved-test-key" },
+        authenticationType,
+      ).pipe(
+        Effect.provide(
+          CursorSdkCatalog.layerTest(() => Effect.die("Disabled Cursor must not read the catalog")),
+        ),
+      );
+      expect(provider).toMatchObject({
+        enabled: false,
+        status: "disabled",
+        installed: true,
+        version: null,
+        auth: { status: "authenticated", type: authenticationType },
+      });
+      expect(provider.models).toEqual([]);
+    }),
+);
+
 const sdkParameterizedModel = {
   id: "claude-opus-4-8",
   displayName: "Opus 4.8",
@@ -222,12 +246,12 @@ describe("checkCursorProviderStatus", () => {
     {
       authenticationType: "browser" as const,
       message:
-        "Cursor needs a paid plan to run in T3 Code. Upgrade this account or sign in with a different one.",
+        "Cursor needs a paid plan to run in mines. Upgrade this account or sign in with a different one.",
     },
     {
       authenticationType: "api-key" as const,
       message:
-        "Cursor needs a paid plan to run in T3 Code. Upgrade the account that owns CURSOR_API_KEY or use a key from a paid account.",
+        "Cursor needs a paid plan to run in mines. Upgrade the account that owns CURSOR_API_KEY or use a key from a paid account.",
     },
   ])(
     "explains a rejected plan for $authenticationType authentication",

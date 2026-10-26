@@ -1,3 +1,4 @@
+import { configuredHostedAppUrl } from "~/hostedPairing";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
@@ -114,7 +115,7 @@ export function DesktopWebLinkCoordinator() {
   };
 
   const openLink = useEffectEvent(async (url: string) => {
-    const appPath = promptLinkAppPath(url);
+    const appPath = promptLinkAppPath(url, configuredHostedAppUrl());
     if (appPath !== null) {
       await router.navigate({ href: appPath });
       return;

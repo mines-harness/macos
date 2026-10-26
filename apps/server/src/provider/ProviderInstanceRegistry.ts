@@ -33,7 +33,7 @@ export class ProviderInstanceRegistry extends Context.Service<
     readonly streamChanges: Stream.Stream<void>;
     readonly subscribeChanges: Effect.Effect<PubSub.Subscription<void>, never, Scope.Scope>;
   }
->()("t3/provider/ProviderInstanceRegistry") {}
+>()("mines/provider/ProviderInstanceRegistry") {}
 
 interface LiveEntry {
   readonly instance: ProviderInstance;
@@ -47,8 +47,11 @@ interface RegistryState {
   readonly changes: PubSub.PubSub<void>;
 }
 
-const entryEqual = (a: ProviderInstanceConfig, b: ProviderInstanceConfig): boolean =>
-  Equal.equals(a, b);
+const entryEqual = (a: ProviderInstanceConfig, b: ProviderInstanceConfig): boolean => {
+  const { quotaFailoverPriority: _aPriority, ...aRuntime } = a;
+  const { quotaFailoverPriority: _bPriority, ...bRuntime } = b;
+  return Equal.equals(aRuntime, bRuntime);
+};
 
 /** Conflicting saved flags must preserve any explicit disable. */
 const resolveEntryEnabled = (entry: ProviderInstanceConfig, typedConfig: unknown): boolean => {

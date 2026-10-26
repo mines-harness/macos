@@ -1,3 +1,7 @@
+import { CommandId } from "@t3tools/contracts";
+import { groupCreate, groupSend, groupLaunchThread } from "../../state/groups";
+import { draftWorkflowAtom } from "./WorkflowPicker";
+import { randomUUID, newThreadId } from "../../lib/utils";
 import {
   type EnvironmentId,
   type ModelSelection,
@@ -41,6 +45,13 @@ import {
   startFanoutThread,
 } from "./chatViewSend";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
+import { groupPreparationKey, groupTargetKey } from "./groupSendPreparation";
+import { WorkflowLaunchReceipt } from "./workflowTargets";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "../../hooks/useLocalStorage";
 
 interface MultipleModelSendInput {
   readonly environmentId: EnvironmentId;
@@ -76,6 +87,9 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     setThreadError,
   } = input;
   const navigate = useNavigate();
+  const launchGroupThread = useOrchestrationCommand(groupLaunchThread);
+  const createGroup = useOrchestrationCommand(groupCreate);
+  const sendGroup = useOrchestrationCommand(groupSend);
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
     reportFailure: false,
   });
@@ -115,6 +129,149 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     readonly isCurrentSend: () => boolean;
   }) => {
     const { attachments: attachmentsSnapshot, messageText } = sendSnapshot;
+    const workflow = appAtomRegistry.get(draftWorkflowAtom(routeThreadKey));
+    if (workflow !== "compare") {
+      const originalDraft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+      try {
+        // The upload promise was started by the composer; observe failures even when groups reject attachments.
+        void attachmentsPromise.catch(() => undefined);
+        if (sendSnapshot.attachments.length > 0)
+          throw new Error(
+            "Group workflows currently accept text and workspace references. Send attachments to the individual mines before adding them to a group.",
+          );
+        const block = readFileBlockReason();
+        if (block) throw new Error(block);
+        // Group messages currently carry text only; preserve context using the existing literal representation.
+        const groupMessage = withMessageContext({
+          text: messageText,
+          context: buildOutgoingMessageContext([]),
+          supportsInlineMessageContext: false,
+        }).text;
+        if (groupMessage.length > 120_000)
+          throw new Error(
+            "This group message and its context exceed 120,000 characters. Reduce the selected context before sending.",
+          );
+        const title = deriveThreadTitleSeed({ text: messageText, attachments: [] });
+        const participants: Array<{ threadId: ThreadId; alias: string }> = [];
+        // Stable per-draft receipts retain already-created participants when a later launch fails.
+        const key = groupPreparationKey({
+          environmentId,
+          projectId: project.id,
+          workspaceRoot: project.workspaceRoot,
+          branch,
+          startFromOrigin,
+          runtimeMode,
+          workflow,
+          message: groupMessage,
+          targets,
+        });
+        const receiptKey = `mines:composer-group-launch:${routeThreadKey}`;
+        let preparation = getLocalStorageItem(receiptKey, WorkflowLaunchReceipt);
+        if (!preparation || preparation.key !== key) {
+          preparation = {
+            key,
+            requestId: randomUUID(),
+            launches: targets.map((target, index) => ({
+              targetId: `${index}:${groupTargetKey(target)}`,
+              threadId: newThreadId(),
+              commandId: CommandId.make(randomUUID()),
+            })),
+          };
+          setLocalStorageItem(receiptKey, preparation, WorkflowLaunchReceipt);
+        }
+        for (const [index, target] of targets.entries()) {
+          const selectionKey = `${index}:${groupTargetKey(target)}`;
+          const launch = preparation.launches.find((entry) => entry.targetId === selectionKey);
+          if (!launch) throw new Error("The saved group preparation is incomplete.");
+          const result = await launchGroupThread({
+            environmentId,
+            input: {
+              commandId: launch.commandId,
+              threadId: launch.threadId,
+              projectId: project.id,
+              title: `${title} · ${target.selection.model}`,
+              modelSelection: target.selection,
+              runtimeMode,
+              interactionMode: target.interactionMode,
+              workspaceStrategy: {
+                type: "worktree",
+                baseRef: branch,
+                ...(startFromOrigin ? { startFromOrigin: true } : {}),
+              },
+            },
+          });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          const modelAlias = (target.selection.model.split("/").at(-1) ?? "model")
+            .replace(/[^A-Za-z0-9_-]/g, "-")
+            .slice(0, 25);
+          participants.push({
+            threadId: result.value.threadId,
+            alias: `${/^[A-Za-z]/.test(modelAlias) ? modelAlias : `ai-${modelAlias}`}_${index + 1}`,
+          });
+        }
+        const created = await createGroup({
+          environmentId,
+          input: {
+            name: title.slice(0, 120),
+            workflow,
+            members: participants,
+            ...(participants[0] ? { leadThreadId: participants[0].threadId } : {}),
+            clientRequestId: preparation.requestId,
+          },
+        });
+        if (created._tag === "Failure") throw squashAtomCommandFailure(created);
+        const sent = await sendGroup({
+          environmentId,
+          input: {
+            groupId: created.value.group.id,
+            message: groupMessage,
+            clientRequestId: `${preparation.requestId}:initial`,
+          },
+        });
+        if (sent._tag === "Failure") throw squashAtomCommandFailure(sent);
+        if (
+          isCurrentSend() &&
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget) === originalDraft
+        ) {
+          clearComposerDraftContent(composerDraftTarget);
+          if (currentRouteThreadKeyRef.current === routeThreadKey) {
+            promptRef.current = "";
+            composerRef.current?.resetCursorState();
+          }
+        }
+        removeLocalStorageItem(receiptKey);
+        if (currentRouteThreadKeyRef.current === routeThreadKey && isCurrentSend()) {
+          void navigate({
+            to: "/$environmentId/groups/$groupId",
+            params: { environmentId, groupId: created.value.group.id },
+          });
+        } else {
+          toastManager.add({
+            type: "success",
+            title: "Your group is ready",
+            actionProps: {
+              children: "Open group",
+              onClick: () =>
+                void navigate({
+                  to: "/$environmentId/groups/$groupId",
+                  params: { environmentId, groupId: created.value.group.id },
+                }),
+            },
+          });
+        }
+      } catch (error) {
+        setThreadError(
+          threadId,
+          error instanceof Error
+            ? error.message
+            : "The group could not be started. Created mines remain in your library; retry resumes preparation.",
+        );
+      } finally {
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+      }
+      return;
+    }
     const failedSelections: ModelSelection[] = [];
     let clearedDraft = false;
     let releasedComposer = false;
@@ -221,7 +378,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
         toastManager.add(
           stackedThreadToast({
             type: "success",
-            title: `Started ${startedCount} ${startedCount === 1 ? "thread" : "threads"} in background`,
+            title: `Started ${startedCount} ${startedCount === 1 ? "mine" : "mines"} in background`,
           }),
         );
       }

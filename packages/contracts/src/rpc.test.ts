@@ -4,8 +4,15 @@ import * as Schema from "effect/Schema";
 
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
+import { GroupListResult } from "./groupChat.ts";
 
 describe("WebSocket RPC contracts", () => {
+  it("keeps group lists from older hosts readable without membership refs", () => {
+    expect(Schema.decodeSync(GroupListResult)({ groups: [] })).toEqual({
+      groups: [],
+      memberships: [],
+    });
+  });
   it("rejects server-internal commands sent to dispatchCommand", () => {
     const dispatchCommand = WsRpcGroup.requests.get(ORCHESTRATION_V2_WS_METHODS.dispatchCommand);
     if (dispatchCommand === undefined) throw new Error("dispatchCommand is not registered");

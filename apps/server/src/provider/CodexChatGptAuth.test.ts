@@ -65,6 +65,7 @@ const makeHarnessFor = Effect.fnUntraced(function* (
   let refreshError: string | undefined;
   let revocationStatus = 200;
   let codeError: string | undefined;
+  let codeErrorStatus = 400;
   const revocations: URLSearchParams[] = [];
   let transient = false;
   let invalidNonce = false;
@@ -147,7 +148,7 @@ const makeHarnessFor = Effect.fnUntraced(function* (
                 return;
               }
               if (codeError) {
-                response.statusCode = 400;
+                response.statusCode = codeErrorStatus;
                 response.end(JSON.stringify({ error: codeError }));
                 return;
               }
@@ -368,8 +369,9 @@ const makeHarnessFor = Effect.fnUntraced(function* (
     setRevocationStatus: (value: number) => {
       revocationStatus = value;
     },
-    setCodeError: (value: string | undefined) => {
+    setCodeError: (value: string | undefined, status = 400) => {
       codeError = value;
+      codeErrorStatus = status;
     },
     refreshes: () => refreshes,
     setRevoked: () => {
@@ -441,14 +443,14 @@ it.effect(
     ),
 );
 it.effect.each(["identity", "sharing"] as const)(
-  "failed account change preserves the original credentials and registration: %s",
+  "failed account change preserves active credentials and retains the new registration: %s",
   (failure) =>
     provision(
       Effect.gen(function* () {
         const h = yield* makeHarness;
         yield* h.signIn;
         yield* h.phase("succeeded");
-        const before = h.storedRecords();
+        const before = Option.getOrThrow(yield* h.auth.read);
         h.setCallbackClientId("oaiapp_other_account");
         if (failure === "identity") h.setInvalidNonce();
         else h.declineSharing();
@@ -458,13 +460,15 @@ it.effect.each(["identity", "sharing"] as const)(
           h.authorizationRequests[1]!.searchParams.get("client_id"),
           "dynamic_agent_client",
         );
-        if (failure === "sharing") {
-          assert.deepEqual(
-            Option.getOrThrow(yield* h.auth.read),
-            before.find((record) => record.accessToken),
-          );
-          assert.lengthOf(h.storedRecords().find((record) => record.profiles).profiles, 2);
-        } else assert.deepEqual(h.storedRecords(), before);
+        assert.deepEqual(Option.getOrThrow(yield* h.auth.read), before);
+        const registration = yield* h.auth.controller.reconnectProfile!(
+          "chatgpt-profile:oaiapp_other_account",
+        );
+        assert.strictEqual(registration?.clientId, "oaiapp_other_account");
+        if (failure === "identity") {
+          assert.isUndefined(registration?.subject);
+          assert.isUndefined(registration?.email);
+        }
       }),
     ),
 );
@@ -561,6 +565,8 @@ it.effect(
           h.callbackResponses[0]!.body,
           'content="1;url=http://localhost:7001/welcome"',
         );
+        assert.include(h.callbackResponses[0]!.body, "Returning to mines");
+        assert.include(h.callbackResponses[0]!.body, "<strong>mines</strong>");
         const first = h.authorizationRequests[0]!;
         assert.strictEqual(
           first.searchParams.get("ext_agent_host_id"),
@@ -582,7 +588,7 @@ it.effect(
           "state",
         ]);
         assert.strictEqual(first.searchParams.get("client_id"), "dynamic_agent_client");
-        assert.strictEqual(first.searchParams.get("agent_name_hint"), "T3 Code");
+        assert.strictEqual(first.searchParams.get("agent_name_hint"), "mines");
         assert.strictEqual(first.searchParams.get("response_type"), "code");
         assert.strictEqual(
           first.searchParams.get("scope"),
@@ -855,7 +861,7 @@ it.effect("rejects mismatched callback state before any token exchange or creden
   ),
 );
 it.effect.each(["issuer", "audience", "signature"] as const)(
-  "rejects ID token %s verification before saving tokens or registration",
+  "rejects ID token %s verification without saving tokens or unverified identity",
   (invalidClaim) =>
     provision(
       Effect.gen(function* () {
@@ -864,7 +870,12 @@ it.effect.each(["issuer", "audience", "signature"] as const)(
         yield* h.signIn;
         assert.include((yield* h.phase("failed")).message!, "could not be verified");
         assert.strictEqual(h.exchanges.length, 1);
-        assert.deepEqual(h.storedRecords(), []);
+        const registration = yield* h.auth.controller.reconnectProfile!(
+          "chatgpt-profile:oaiapp_test",
+        );
+        assert.strictEqual(registration?.clientId, "oaiapp_test");
+        assert.isUndefined(registration?.subject);
+        assert.isUndefined(registration?.email);
         assert.isTrue(Option.isNone(yield* h.auth.read));
       }),
     ),
@@ -1315,6 +1326,37 @@ it.effect(
           h.authorizationRequests[2]!.searchParams.get("login_hint"),
           personal.email,
         );
+      }),
+    ),
+);
+
+it.effect.each([false, true])(
+  "retains a new registration after a temporary exchange failure without changing an active account: %s",
+  (hasActiveAccount) =>
+    provision(
+      Effect.gen(function* () {
+        const h = yield* makeHarness;
+        if (hasActiveAccount) {
+          yield* h.signIn;
+          yield* h.phase("succeeded");
+        }
+        const previous = yield* h.auth.read;
+        h.setCallbackClientId("oaiapp_retry");
+        h.setCodeError("temporarily_unavailable", 503);
+        yield* h.changeAccount;
+        const failed = yield* h.phase("failed");
+        assert.deepEqual(yield* h.auth.read, previous);
+        assert.isTrue(
+          failed.methods!.some((method) => method.id === "chatgpt-profile:oaiapp_retry"),
+        );
+        h.setCodeError(undefined);
+        yield* h.reconnectProfile("oaiapp_retry");
+        yield* h.phase("succeeded");
+        assert.strictEqual(
+          h.authorizationRequests.at(-1)!.searchParams.get("client_id"),
+          "oaiapp_retry",
+        );
+        assert.strictEqual(Option.getOrThrow(yield* h.auth.read).clientId, "oaiapp_retry");
       }),
     ),
 );

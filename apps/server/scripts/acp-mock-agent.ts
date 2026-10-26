@@ -17,114 +17,118 @@ import type * as AcpCompat from "effect-acp/compat";
 
 import { beginAcpMockPrompt } from "./acpMockCancellationState.ts";
 
-const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
-const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
-const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
-const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
+const requestLogPath = process.env.MINES_ACP_REQUEST_LOG_PATH;
+const exitLogPath = process.env.MINES_ACP_EXIT_LOG_PATH;
+const antigravityProfile = process.env.MINES_ACP_ANTIGRAVITY === "1";
+const emitToolCalls = process.env.MINES_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
-  process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
-const emitV2Fidelity = process.env.T3_ACP_EMIT_V2_FIDELITY === "1";
-const vibeRetryOutcome = process.env.T3_ACP_VIBE_RETRY_OUTCOME;
-const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
-const emitPostSettleMonitorFlow = process.env.T3_ACP_EMIT_POST_SETTLE_MONITOR_FLOW === "1";
+  process.env.MINES_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
+const emitV2Fidelity = process.env.MINES_ACP_EMIT_V2_FIDELITY === "1";
+const vibeRetryOutcome = process.env.MINES_ACP_VIBE_RETRY_OUTCOME;
+const emitGenericToolPlaceholders = process.env.MINES_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
+const emitPostSettleMonitorFlow = process.env.MINES_ACP_EMIT_POST_SETTLE_MONITOR_FLOW === "1";
 const emitInTurnTaskOutputThenLateDuplicate =
-  process.env.T3_ACP_EMIT_IN_TURN_TASKOUTPUT_THEN_LATE_DUPLICATE === "1";
-const injectedReportTriggerPath = process.env.T3_ACP_INJECTED_REPORT_TRIGGER_PATH;
+  process.env.MINES_ACP_EMIT_IN_TURN_TASKOUTPUT_THEN_LATE_DUPLICATE === "1";
+const injectedReportTriggerPath = process.env.MINES_ACP_INJECTED_REPORT_TRIGGER_PATH;
 const emitBackgroundToolDuringAnswer =
-  process.env.T3_ACP_EMIT_BACKGROUND_TOOL_DURING_ANSWER === "1";
-const emitAskQuestion = process.env.T3_ACP_EMIT_ASK_QUESTION === "1";
-const emitElicitation = process.env.T3_ACP_EMIT_ELICITATION === "1";
+  process.env.MINES_ACP_EMIT_BACKGROUND_TOOL_DURING_ANSWER === "1";
+const emitAskQuestion = process.env.MINES_ACP_EMIT_ASK_QUESTION === "1";
+const emitElicitation = process.env.MINES_ACP_EMIT_ELICITATION === "1";
 const emitMcpToolApprovalElicitation =
-  process.env.T3_ACP_EMIT_MCP_TOOL_APPROVAL_ELICITATION === "1";
-const emitUrlElicitation = process.env.T3_ACP_EMIT_URL_ELICITATION === "1";
-const emitXAiAskUserQuestion = process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION === "1";
-const emitXAiExitPlanMode = process.env.T3_ACP_EMIT_XAI_EXIT_PLAN_MODE === "1";
-const emitXAiPlanMdWrite = process.env.T3_ACP_EMIT_XAI_PLAN_MD_WRITE === "1";
-const emitXAiPromptCompleteThenHang = process.env.T3_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG === "1";
-const emitXAiRateLimitThenHang = process.env.T3_ACP_EMIT_XAI_RATE_LIMIT_THEN_HANG === "1";
+  process.env.MINES_ACP_EMIT_MCP_TOOL_APPROVAL_ELICITATION === "1";
+const emitUrlElicitation = process.env.MINES_ACP_EMIT_URL_ELICITATION === "1";
+const emitXAiAskUserQuestion = process.env.MINES_ACP_EMIT_XAI_ASK_USER_QUESTION === "1";
+const emitXAiExitPlanMode = process.env.MINES_ACP_EMIT_XAI_EXIT_PLAN_MODE === "1";
+const emitXAiPlanMdWrite = process.env.MINES_ACP_EMIT_XAI_PLAN_MD_WRITE === "1";
+const emitXAiPromptCompleteThenHang =
+  process.env.MINES_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG === "1";
+const emitXAiRateLimitThenHang = process.env.MINES_ACP_EMIT_XAI_RATE_LIMIT_THEN_HANG === "1";
 const emitXAiAskUserQuestionThenHang =
-  process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION_THEN_HANG === "1";
-const emitContentThenHang = process.env.T3_ACP_EMIT_CONTENT_THEN_HANG === "1";
-const emitPlanThenHang = process.env.T3_ACP_EMIT_PLAN_THEN_HANG === "1";
-const grokKillTaskShape = process.env.T3_ACP_GROK_KILL_TASK_SHAPE;
-const emitActiveToolThenHang = process.env.T3_ACP_EMIT_ACTIVE_TOOL_THEN_HANG === "1";
-const emitGrokMonitorPostTurnPoll = process.env.T3_ACP_EMIT_GROK_MONITOR_POST_TURN_POLL === "1";
-const emitGrokBackgroundTaskStarted = process.env.T3_ACP_EMIT_GROK_BACKGROUND_TASK_STARTED === "1";
-const emitGrokBackgroundTaskPoll = process.env.T3_ACP_GROK_BACKGROUND_TASK_COMPLETION === "poll";
-const emitForeignSessionUpdates = process.env.T3_ACP_EMIT_FOREIGN_SESSION_UPDATES === "1";
-const waitForResumeRelease = process.env.T3_ACP_WAIT_FOR_RESUME_RELEASE === "1";
-const completeFirstPromptOnCancel = process.env.T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
-const floodStderr = process.env.T3_ACP_FLOOD_STDERR === "1";
-const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
-const clientFsProbePath = process.env.T3_ACP_CLIENT_FS_PROBE_PATH;
-const clientFsProbeLogPath = process.env.T3_ACP_CLIENT_FS_PROBE_LOG_PATH;
+  process.env.MINES_ACP_EMIT_XAI_ASK_USER_QUESTION_THEN_HANG === "1";
+const emitContentThenHang = process.env.MINES_ACP_EMIT_CONTENT_THEN_HANG === "1";
+const emitPlanThenHang = process.env.MINES_ACP_EMIT_PLAN_THEN_HANG === "1";
+const grokKillTaskShape = process.env.MINES_ACP_GROK_KILL_TASK_SHAPE;
+const emitActiveToolThenHang = process.env.MINES_ACP_EMIT_ACTIVE_TOOL_THEN_HANG === "1";
+const emitGrokMonitorPostTurnPoll = process.env.MINES_ACP_EMIT_GROK_MONITOR_POST_TURN_POLL === "1";
+const emitGrokBackgroundTaskStarted =
+  process.env.MINES_ACP_EMIT_GROK_BACKGROUND_TASK_STARTED === "1";
+const emitGrokBackgroundTaskPoll = process.env.MINES_ACP_GROK_BACKGROUND_TASK_COMPLETION === "poll";
+const emitForeignSessionUpdates = process.env.MINES_ACP_EMIT_FOREIGN_SESSION_UPDATES === "1";
+const waitForResumeRelease = process.env.MINES_ACP_WAIT_FOR_RESUME_RELEASE === "1";
+const completeFirstPromptOnCancel = process.env.MINES_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
+const floodStderr = process.env.MINES_ACP_FLOOD_STDERR === "1";
+const hangPromptForever = process.env.MINES_ACP_HANG_PROMPT_FOREVER === "1";
+const clientFsProbePath = process.env.MINES_ACP_CLIENT_FS_PROBE_PATH;
+const clientFsProbeLogPath = process.env.MINES_ACP_CLIENT_FS_PROBE_LOG_PATH;
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
-const hangAfterPermission = process.env.T3_ACP_HANG_AFTER_PERMISSION === "1";
-const hangFirstPromptForever = process.env.T3_ACP_HANG_FIRST_PROMPT_FOREVER === "1";
-const emitLateUpdateAfterCancel = process.env.T3_ACP_EMIT_LATE_UPDATE_AFTER_CANCEL === "1";
+const hangAfterPermission = process.env.MINES_ACP_HANG_AFTER_PERMISSION === "1";
+const hangFirstPromptForever = process.env.MINES_ACP_HANG_FIRST_PROMPT_FOREVER === "1";
+const emitLateUpdateAfterCancel = process.env.MINES_ACP_EMIT_LATE_UPDATE_AFTER_CANCEL === "1";
 const emitTaskBackgroundedAfterCancel =
-  process.env.T3_ACP_EMIT_TASK_BACKGROUNDED_AFTER_CANCEL === "1";
-const residualCallbackResponseLogPath = process.env.T3_ACP_RESIDUAL_CALLBACK_RESPONSE_LOG_PATH;
-const residualCallbackTriggerPath = process.env.T3_ACP_RESIDUAL_CALLBACK_TRIGGER_PATH;
-const exitAfterResidualCallbacks = process.env.T3_ACP_EXIT_AFTER_RESIDUAL_CALLBACKS === "1";
-const emitRunningCommandThenHang = process.env.T3_ACP_EMIT_RUNNING_COMMAND_THEN_HANG === "1";
+  process.env.MINES_ACP_EMIT_TASK_BACKGROUNDED_AFTER_CANCEL === "1";
+const residualCallbackResponseLogPath = process.env.MINES_ACP_RESIDUAL_CALLBACK_RESPONSE_LOG_PATH;
+const residualCallbackTriggerPath = process.env.MINES_ACP_RESIDUAL_CALLBACK_TRIGGER_PATH;
+const exitAfterResidualCallbacks = process.env.MINES_ACP_EXIT_AFTER_RESIDUAL_CALLBACKS === "1";
+const emitRunningCommandThenHang = process.env.MINES_ACP_EMIT_RUNNING_COMMAND_THEN_HANG === "1";
 const emitRunningCommandThenHangOnFirstPrompt =
-  process.env.T3_ACP_EMIT_RUNNING_COMMAND_THEN_HANG_FIRST_PROMPT === "1";
-const emitEmptySuccessfulBash = process.env.T3_ACP_EMIT_EMPTY_SUCCESSFUL_BASH === "1";
+  process.env.MINES_ACP_EMIT_RUNNING_COMMAND_THEN_HANG_FIRST_PROMPT === "1";
+const emitEmptySuccessfulBash = process.env.MINES_ACP_EMIT_EMPTY_SUCCESSFUL_BASH === "1";
 const emitEmptySuccessfulBashThenHang =
-  process.env.T3_ACP_EMIT_EMPTY_SUCCESSFUL_BASH_THEN_HANG === "1";
-const exitOnCancel = process.env.T3_ACP_EXIT_ON_CANCEL === "1";
-const runningCommandIgnoresTerm = process.env.T3_ACP_RUNNING_COMMAND_IGNORE_TERM === "1";
-const runningCommandPidPath = process.env.T3_ACP_RUNNING_COMMAND_PID_PATH;
-const runningCommandSeparateSession = process.env.T3_ACP_RUNNING_COMMAND_SEPARATE_SESSION === "1";
-const exitAfterRunningCommandLaunch = process.env.T3_ACP_EXIT_AFTER_RUNNING_COMMAND_LAUNCH === "1";
+  process.env.MINES_ACP_EMIT_EMPTY_SUCCESSFUL_BASH_THEN_HANG === "1";
+const exitOnCancel = process.env.MINES_ACP_EXIT_ON_CANCEL === "1";
+const runningCommandIgnoresTerm = process.env.MINES_ACP_RUNNING_COMMAND_IGNORE_TERM === "1";
+const runningCommandPidPath = process.env.MINES_ACP_RUNNING_COMMAND_PID_PATH;
+const runningCommandSeparateSession =
+  process.env.MINES_ACP_RUNNING_COMMAND_SEPARATE_SESSION === "1";
+const exitAfterRunningCommandLaunch =
+  process.env.MINES_ACP_EXIT_AFTER_RUNNING_COMMAND_LAUNCH === "1";
 const omitXAiPromptCompleteStopReason =
-  process.env.T3_ACP_OMIT_XAI_PROMPT_COMPLETE_STOP_REASON === "1";
-const failLoadSession = process.env.T3_ACP_FAIL_LOAD_SESSION === "1";
+  process.env.MINES_ACP_OMIT_XAI_PROMPT_COMPLETE_STOP_REASON === "1";
+const failLoadSession = process.env.MINES_ACP_FAIL_LOAD_SESSION === "1";
 const failLoadSessionAfterConfigReplay =
-  process.env.T3_ACP_FAIL_LOAD_SESSION_AFTER_CONFIG_REPLAY === "1";
-const emitLoadReplay = process.env.T3_ACP_EMIT_LOAD_REPLAY === "1";
-const hangLoadSessionAfterReplay = process.env.T3_ACP_HANG_LOAD_SESSION_AFTER_REPLAY === "1";
-const delayLoadSessionAfterReplay = process.env.T3_ACP_DELAY_LOAD_SESSION_AFTER_REPLAY === "1";
-const loadSessionDelayMs = Number(process.env.T3_ACP_LOAD_SESSION_DELAY_MS ?? "5000");
+  process.env.MINES_ACP_FAIL_LOAD_SESSION_AFTER_CONFIG_REPLAY === "1";
+const emitLoadReplay = process.env.MINES_ACP_EMIT_LOAD_REPLAY === "1";
+const hangLoadSessionAfterReplay = process.env.MINES_ACP_HANG_LOAD_SESSION_AFTER_REPLAY === "1";
+const delayLoadSessionAfterReplay = process.env.MINES_ACP_DELAY_LOAD_SESSION_AFTER_REPLAY === "1";
+const loadSessionDelayMs = Number(process.env.MINES_ACP_LOAD_SESSION_DELAY_MS ?? "5000");
 const emitStaleXAiPromptCompleteBeforeSecondHang =
-  process.env.T3_ACP_EMIT_STALE_XAI_PROMPT_COMPLETE_BEFORE_SECOND_HANG === "1";
+  process.env.MINES_ACP_EMIT_STALE_XAI_PROMPT_COMPLETE_BEFORE_SECOND_HANG === "1";
 const emitOverlappingXAiPromptCompleteOutOfOrder =
-  process.env.T3_ACP_EMIT_OVERLAPPING_XAI_PROMPT_COMPLETE_OUT_OF_ORDER === "1";
-const failPrompt = process.env.T3_ACP_FAIL_PROMPT === "1";
-const failPromptOrdinal = Number(process.env.T3_ACP_FAIL_PROMPT_ORDINAL);
+  process.env.MINES_ACP_EMIT_OVERLAPPING_XAI_PROMPT_COMPLETE_OUT_OF_ORDER === "1";
+const failPrompt = process.env.MINES_ACP_FAIL_PROMPT === "1";
+const failPromptOrdinal = Number(process.env.MINES_ACP_FAIL_PROMPT_ORDINAL);
 const compactionPromptOrdinals = new Set(
-  (process.env.T3_ACP_COMPACTION_PROMPT_ORDINALS ?? "").split(",").map(Number),
+  (process.env.MINES_ACP_COMPACTION_PROMPT_ORDINALS ?? "").split(",").map(Number),
 );
-const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
-const failSetModeConfigOption = process.env.T3_ACP_FAIL_SET_MODE_CONFIG_OPTION === "1";
-const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
-const omitModelConfigOption = process.env.T3_ACP_OMIT_MODEL_CONFIG_OPTION === "1";
-const emitEmptyDefaultAgentOption = process.env.T3_ACP_EMIT_EMPTY_DEFAULT_AGENT_OPTION === "1";
-const promptResponseText = process.env.T3_ACP_PROMPT_RESPONSE_TEXT;
+const failSetConfigOption = process.env.MINES_ACP_FAIL_SET_CONFIG_OPTION === "1";
+const failSetModeConfigOption = process.env.MINES_ACP_FAIL_SET_MODE_CONFIG_OPTION === "1";
+const exitOnSetConfigOption = process.env.MINES_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
+const omitModelConfigOption = process.env.MINES_ACP_OMIT_MODEL_CONFIG_OPTION === "1";
+const emitEmptyDefaultAgentOption = process.env.MINES_ACP_EMIT_EMPTY_DEFAULT_AGENT_OPTION === "1";
+const promptResponseText = process.env.MINES_ACP_PROMPT_RESPONSE_TEXT;
 const initialGrokReasoningEffort =
-  process.env.T3_ACP_INITIAL_GROK_REASONING_EFFORT?.trim() || undefined;
-const promptDelayMs = Number(process.env.T3_ACP_PROMPT_DELAY_MS ?? "0");
-const supportsSessionLifecycle = process.env.T3_ACP_SESSION_LIFECYCLE === "1";
-const supportsAcpMcp = process.env.T3_ACP_MCP_ACP === "1";
-const supportsV2Management = process.env.T3_ACP_V2_MANAGEMENT === "1";
-const omitSessionListHandler = process.env.T3_ACP_OMIT_SESSION_LIST_HANDLER === "1";
-const advertisedAuthMethodId = process.env.T3_ACP_AUTH_METHOD_ID?.trim();
+  process.env.MINES_ACP_INITIAL_GROK_REASONING_EFFORT?.trim() || undefined;
+const promptDelayMs = Number(process.env.MINES_ACP_PROMPT_DELAY_MS ?? "0");
+const supportsSessionLifecycle = process.env.MINES_ACP_SESSION_LIFECYCLE === "1";
+const supportsAcpMcp = process.env.MINES_ACP_MCP_ACP === "1";
+const supportsV2Management = process.env.MINES_ACP_V2_MANAGEMENT === "1";
+const omitSessionListHandler = process.env.MINES_ACP_OMIT_SESSION_LIST_HANDLER === "1";
+const advertisedAuthMethodId = process.env.MINES_ACP_AUTH_METHOD_ID?.trim();
 const initializeAuthMethodId =
   advertisedAuthMethodId ?? (supportsSessionLifecycle ? "test" : undefined);
-const requiresAuthentication = process.env.T3_ACP_REQUIRE_AUTH === "1";
+const requiresAuthentication = process.env.MINES_ACP_REQUIRE_AUTH === "1";
 const commandAdvertisementDelayMs = Number(
-  process.env.T3_ACP_COMMAND_ADVERTISEMENT_DELAY_MS ?? "-1",
+  process.env.MINES_ACP_COMMAND_ADVERTISEMENT_DELAY_MS ?? "-1",
 );
 const permissionOptionIds = {
-  allowOnce: process.env.T3_ACP_ALLOW_ONCE_OPTION_ID ?? "allow-once",
-  allowAlways: process.env.T3_ACP_ALLOW_ALWAYS_OPTION_ID ?? "allow-always",
-  rejectOnce: process.env.T3_ACP_REJECT_ONCE_OPTION_ID ?? "reject-once",
+  allowOnce: process.env.MINES_ACP_ALLOW_ONCE_OPTION_ID ?? "allow-once",
+  allowAlways: process.env.MINES_ACP_ALLOW_ALWAYS_OPTION_ID ?? "allow-always",
+  rejectOnce: process.env.MINES_ACP_REJECT_ONCE_OPTION_ID ?? "reject-once",
 };
-const omitAllowAlways = process.env.T3_ACP_OMIT_ALLOW_ALWAYS === "1";
+const omitAllowAlways = process.env.MINES_ACP_OMIT_ALLOW_ALWAYS === "1";
 const permissionRequestCount = Math.max(
   1,
-  Number(process.env.T3_ACP_PERMISSION_REQUEST_COUNT ?? "1") || 1,
+  Number(process.env.MINES_ACP_PERMISSION_REQUEST_COUNT ?? "1") || 1,
 );
 const sessionId = "mock-session-1";
 
@@ -432,10 +436,10 @@ function modeState(): AcpCompat.SessionModeState {
 // Grok ACP advertises versioned model ids, never the CLI product name.
 const grokAcpModels: ReadonlyArray<AcpCompat.ModelInfo> = [
   {
-    modelId: process.env.T3_ACP_GROK_MODEL ?? "grok-4.6",
+    modelId: process.env.MINES_ACP_GROK_MODEL ?? "grok-4.6",
     name: "Grok 4.6",
     _meta: {
-      totalContextTokens: Number(process.env.T3_ACP_GROK_CONTEXT_TOKENS ?? 500_000),
+      totalContextTokens: Number(process.env.MINES_ACP_GROK_CONTEXT_TOKENS ?? 500_000),
       contextWindows: [256_000, 500_000],
       supportsReasoningEffort: true,
       reasoningEffort: initialGrokReasoningEffort ?? "high",
@@ -455,7 +459,7 @@ function modelState(): AcpCompat.SessionModelState {
   }
   const modelId = grokAcpModels.some((model) => model.modelId === currentModelId)
     ? currentModelId
-    : (process.env.T3_ACP_GROK_MODEL ?? "grok-4.6");
+    : (process.env.MINES_ACP_GROK_MODEL ?? "grok-4.6");
   return {
     currentModelId: modelId,
     availableModels: grokAcpModels,
@@ -574,7 +578,7 @@ const program = Effect.gen(function* () {
       parameterizedModelPicker = request.capabilities?._meta?.parameterizedModelPicker === true;
       return {
         protocolVersion: 2,
-        info: { name: "t3-acp-mock-agent", version: "0.0.0" },
+        info: { name: "mines-acp-mock-agent", version: "0.0.0" },
         _meta: { modelState: modelState() },
         capabilities: {
           session: {
@@ -960,7 +964,7 @@ const program = Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       beginAcpMockPrompt(cancelledSessions, requestedSessionId);
       promptCount += 1;
-      const idleError = process.env.T3_ACP_IDLE_ERROR;
+      const idleError = process.env.MINES_ACP_IDLE_ERROR;
       if (idleError === "grok-background" && promptCount === 1) {
         // The structured completion lands before the prompt settles, so it is buffered.
         const taskId = "call-idle-error-background";
@@ -1079,7 +1083,7 @@ const program = Effect.gen(function* () {
         return {};
       }
       if (
-        process.env.T3_ACP_CRASH_PROMPT === "1" &&
+        process.env.MINES_ACP_CRASH_PROMPT === "1" &&
         request.prompt.some((part) => part.type === "text" && part.text === "crash now")
       ) {
         return yield* Effect.sync(() => process.exit(23));
@@ -1647,7 +1651,7 @@ const program = Effect.gen(function* () {
           },
         });
         if (exitAfterRunningCommandLaunch) {
-          // The test sends `_test/exit` once T3 has recorded the published processes.
+          // The test sends `_test/exit` once mines has recorded the published processes.
           yield* Effect.promise(() => runningCommandPublished);
           return yield* Effect.never;
         }
@@ -2119,16 +2123,16 @@ const program = Effect.gen(function* () {
         for (let index = 0; index < permissionRequestCount; index++) {
           const command =
             index > 0
-              ? (process.env.T3_ACP_SECOND_PERMISSION_COMMAND ?? "cat server/package.json")
+              ? (process.env.MINES_ACP_SECOND_PERMISSION_COMMAND ?? "cat server/package.json")
               : "cat server/package.json";
           const permission = yield* agent.client.requestPermission({
             sessionId: requestedSessionId,
-            title: process.env.T3_ACP_PERMISSION_TITLE ?? `\`${command}\``,
+            title: process.env.MINES_ACP_PERMISSION_TITLE ?? `\`${command}\``,
             subject: {
               type: "tool_call",
               toolCall: {
                 toolCallId: index === 0 ? toolCallId : `${toolCallId}-${index + 1}`,
-                title: process.env.T3_ACP_PERMISSION_TITLE ?? `\`${command}\``,
+                title: process.env.MINES_ACP_PERMISSION_TITLE ?? `\`${command}\``,
                 kind: "execute",
                 status: "pending",
                 rawInput: {
@@ -2172,7 +2176,7 @@ const program = Effect.gen(function* () {
             status: "completed",
             rawOutput: {
               exitCode: 0,
-              stdout: '{ "name": "t3" }',
+              stdout: '{ "name": "mines" }',
               stderr: "",
             },
           },
@@ -2437,7 +2441,7 @@ const program = Effect.gen(function* () {
 
       if (emitXAiPlanMdWrite) {
         // isGrokPlanMarkdownPath requires Grok's session layout.
-        const planRoot = process.env.T3_ACP_PLAN_ROOT ?? "/tmp/mock-home/.grok";
+        const planRoot = process.env.MINES_ACP_PLAN_ROOT ?? "/tmp/mock-home/.grok";
         const planPath = `${planRoot}/sessions/${requestedSessionId}/plan.md`;
         const planBody = "# Mock plan\n\n- Write the feature\n- Add a test\n- Ship it\n";
         yield* agent.client.sessionUpdate({
@@ -2586,8 +2590,8 @@ const program = Effect.gen(function* () {
   yield* agent.handleUnknownExtRequest((method, params) => {
     if (method === "_test/environment") {
       return Effect.succeed({
-        inherited: process.env.T3_ACP_RUNTIME_AMBIENT === "sentinel",
-        explicit: process.env.T3_ACP_RUNTIME_EXPLICIT === "kept",
+        inherited: process.env.MINES_ACP_RUNTIME_AMBIENT === "sentinel",
+        explicit: process.env.MINES_ACP_RUNTIME_EXPLICIT === "kept",
       });
     }
     if (method === "_test/release-resume") {

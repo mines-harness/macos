@@ -237,6 +237,7 @@ export interface EffectOutboxV2Shape {
     readonly workerId: string;
     readonly error: string;
     readonly delayMs: number;
+    readonly consumeAttempt?: boolean;
   }) => Effect.Effect<boolean, EffectOutboxError>;
   readonly fail: (input: {
     readonly effectId: string;
@@ -247,7 +248,7 @@ export interface EffectOutboxV2Shape {
 }
 
 export class EffectOutboxV2 extends Context.Service<EffectOutboxV2, EffectOutboxV2Shape>()(
-  "t3/orchestration-v2/EffectOutbox/EffectOutboxV2",
+  "mines/orchestration-v2/EffectOutbox/EffectOutboxV2",
 ) {}
 
 type EffectRow = {
@@ -617,7 +618,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           ),
       ),
       retry: Effect.fn("EffectOutbox.retry")(
-        function* ({ effectId, workerId, error, delayMs }) {
+        function* ({ effectId, workerId, error, delayMs, consumeAttempt = true }) {
           const now = yield* DateTime.now;
           const nowIso = DateTime.formatIso(now);
           const availableAt = DateTime.formatIso(
@@ -631,7 +632,8 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
               lease_owner = NULL,
               lease_expires_at = NULL,
               updated_at = ${nowIso},
-              last_error = ${error}
+              last_error = ${consumeAttempt ? error : null},
+              attempt_count = CASE WHEN ${consumeAttempt ? 1 : 0} = 1 THEN attempt_count ELSE MAX(0, attempt_count - 1) END
             WHERE effect_id = ${effectId}
               AND status = 'running'
               AND lease_owner = ${workerId}

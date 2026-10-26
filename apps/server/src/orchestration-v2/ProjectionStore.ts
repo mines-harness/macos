@@ -138,7 +138,7 @@ export class ProjectionStoreThreadNotFoundError extends Schema.TaggedError<Proje
   },
 ) {
   override get message(): string {
-    return `No orchestration projection exists for thread ${this.threadId}.`;
+    return `No orchestration projection exists for mine ${this.threadId}.`;
   }
 }
 
@@ -150,7 +150,7 @@ export class ProjectionStoreReadError extends Schema.TaggedError<ProjectionStore
   },
 ) {
   override get message(): string {
-    return `Failed to read orchestration projection for thread ${this.threadId}.`;
+    return `Failed to read orchestration projection for mine ${this.threadId}.`;
   }
 }
 
@@ -200,6 +200,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "branchPullRequest"
   | "createdAt"
   | "updatedAt"
+  | "historyOrigin"
   | "archivedAt"
   | "settledOverride"
   | "pinnedAt"
@@ -505,6 +506,7 @@ export interface ProjectionStoreV2Shape {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
     readonly snooze: boolean;
+    readonly accountFailover?: boolean;
   }) => Effect.Effect<ReadonlyArray<ProjectionLimitRecoveryCandidate>, ProjectionStoreV2Error>;
   readonly getSettlementCandidates: (
     threadId?: ThreadId,
@@ -648,7 +650,7 @@ export interface ProjectionStoreV2Shape {
 }
 
 export class ProjectionStoreV2 extends Context.Service<ProjectionStoreV2, ProjectionStoreV2Shape>()(
-  "t3/orchestration-v2/ProjectionStore/ProjectionStoreV2",
+  "mines/orchestration-v2/ProjectionStore/ProjectionStoreV2",
 ) {}
 
 export const ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION = 2;
@@ -1656,6 +1658,9 @@ export function threadShellFromProjection(
     ...(projection.thread.historyOrigin === undefined
       ? {}
       : { historyOrigin: projection.thread.historyOrigin }),
+    ...(projection.thread.importedAt === undefined
+      ? {}
+      : { importedAt: projection.thread.importedAt }),
     latestRunId: latestRun?.id ?? null,
     latestRunRequestedAt: latestRun?.requestedAt ?? null,
     latestRunStartedAt: latestRun?.startedAt ?? null,
@@ -1928,6 +1933,9 @@ function shellFromState(input: {
     ...(input.state.thread.historyOrigin === undefined
       ? {}
       : { historyOrigin: input.state.thread.historyOrigin }),
+    ...(input.state.thread.importedAt === undefined
+      ? {}
+      : { importedAt: input.state.thread.importedAt }),
     latestRunId: input.state.latestRunId,
     latestRunRequestedAt: input.state.latestRunRequestedAt,
     latestRunStartedAt: input.state.latestRunStartedAt,
@@ -3906,7 +3914,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             AND json_extract(t.payload_json, '$.archivedAt') IS NULL
             AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'
             AND json_extract(item.payload_json, '$.failure.class') = 'usage_limit'
-            AND json_extract(item.payload_json, '$.failure.resetAt') IS NOT NULL
+            AND (${booleanInt(options.accountFailover ?? false)} OR (
+            json_extract(item.payload_json, '$.failure.resetAt') IS NOT NULL
             AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) > julianday(COALESCE(r.completed_at, json_extract(t.payload_json, '$.updatedAt')))
             AND (
               (
@@ -3930,6 +3939,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 )
               )
             )
+            ))
             AND NOT EXISTS (
               SELECT 1 FROM orchestration_v2_projection_runtime_requests request
               WHERE request.thread_id = t.thread_id AND request.status = 'pending'
@@ -7041,10 +7051,11 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 (thread) =>
                   thread.status === "failed" &&
                   thread.lastErrorClass === "usage_limit" &&
-                  thread.usageLimitResetAt !== null &&
+                  (options.accountFailover === true || thread.usageLimitResetAt !== null) &&
                   thread.pendingRuntimeRequest === null,
               )
               .filter((thread) => {
+                if (options.accountFailover === true) return true;
                 const resetMs = Date.parse(thread.usageLimitResetAt!);
                 const nowMs = DateTime.toEpochMillis(options.now);
                 if (

@@ -58,6 +58,9 @@ export const UsageBucket = Schema.Struct({
   sourcePath: Schema.optional(TrimmedNonEmptyString),
   totals: UsageTokenTotals,
   costUsd: Schema.Number,
+  providerReportedCostUsd: Schema.optional(Schema.Number),
+  estimatedCostUsd: Schema.optional(Schema.Number),
+  providerReportedRecords: Schema.optional(NonNegativeInt),
   cacheSavingsUsd: Schema.Number,
   categoryCostUsd: Schema.optional(UsageCategoryCost),
   fastCostUsd: Schema.optional(Schema.Number),
@@ -108,6 +111,39 @@ export const UsagePricing = Schema.Struct({
 });
 export type UsagePricing = typeof UsagePricing.Type;
 
+export const UsageGeneratedTokens = Schema.Struct({
+  last24h: NonNegativeInt,
+  last7d: NonNegativeInt,
+  last30d: NonNegativeInt,
+  lifetime: NonNegativeInt,
+});
+export type UsageGeneratedTokens = typeof UsageGeneratedTokens.Type;
+
+export const UsageOverviewDay = Schema.Struct({
+  day: UsageDay,
+  outputTokens: NonNegativeInt,
+  records: NonNegativeInt,
+  providerReportedCostUsd: Schema.Number,
+  estimatedCostUsd: Schema.Number,
+  providerReportedRecords: NonNegativeInt,
+  unpricedRecords: NonNegativeInt,
+});
+export type UsageOverviewDay = typeof UsageOverviewDay.Type;
+
+export const UsageOverview = Schema.Struct({
+  asOf: Schema.String,
+  sources: ForwardCompatibleArray(
+    Schema.Struct({
+      provider: UsageProviderKind,
+      sourcePath: Schema.optional(TrimmedNonEmptyString),
+      firstRecordedAt: Schema.String,
+      generatedTokens: UsageGeneratedTokens,
+      daily: Schema.Array(UsageOverviewDay),
+    }),
+  ),
+});
+export type UsageOverview = typeof UsageOverview.Type;
+
 export const UsageSummaryInput = Schema.Struct({
   sinceDay: UsageDay,
   untilDay: UsageDay,
@@ -117,6 +153,7 @@ export const UsageSummaryInput = Schema.Struct({
   sinceTime: Schema.optional(TrimmedNonEmptyString),
   untilTime: Schema.optional(TrimmedNonEmptyString),
   awaitRefresh: Schema.optional(Schema.Boolean),
+  includeOverview: Schema.optional(Schema.Boolean),
 });
 export type UsageSummaryInput = typeof UsageSummaryInput.Type;
 
@@ -130,6 +167,7 @@ export const UsageSummary = Schema.Struct({
   sources: ForwardCompatibleArray(UsageSource),
   pricing: UsagePricing,
   scanDurationMs: NonNegativeInt,
+  overview: Schema.optional(UsageOverview),
 });
 export type UsageSummary = typeof UsageSummary.Type;
 

@@ -119,7 +119,7 @@ export interface LegacyV1ThreadImporterShape {
 export class LegacyV1ThreadImporter extends Context.Service<
   LegacyV1ThreadImporter,
   LegacyV1ThreadImporterShape
->()("t3/orchestration-v2/legacy/LegacyV1ThreadImporter") {}
+>()("mines/orchestration-v2/legacy/LegacyV1ThreadImporter") {}
 
 const decodeModelSelection = Schema.decodeUnknownOption(ModelSelection);
 const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment));
@@ -215,7 +215,7 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     creationSource: "server",
     id: threadId,
     projectId: ProjectId.make(row.project_id),
-    title: row.title.trim() === "" ? "Untitled thread" : row.title,
+    title: row.title.trim() === "" ? "Untitled mine" : row.title,
     providerInstanceId: modelSelection.instanceId,
     modelSelection,
     runtimeMode: runtimeModeFor(row.runtime_mode),

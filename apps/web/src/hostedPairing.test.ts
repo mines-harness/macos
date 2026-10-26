@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   buildHostedPairingUrl,
+  configuredHostedAppUrl,
   hasHostedPairingRequest,
   readHostedPairingRequest,
 } from "./hostedPairing";
@@ -9,6 +10,14 @@ import {
 describe("hostedPairing", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("does not send pairing credentials to a default third-party host", () => {
+    vi.stubEnv("VITE_HOSTED_APP_URL", "");
+    expect(configuredHostedAppUrl()).toBe("");
+    expect(() =>
+      buildHostedPairingUrl({ host: "https://my-host.example", token: "secret" }),
+    ).toThrow();
   });
 
   it("reads hosted pairing host and query token parameters", () => {

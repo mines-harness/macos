@@ -39,10 +39,10 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const [explanationOpen, setExplanationOpen] = useState(false);
   return (
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
-      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
+      <Text className="font-mines-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
         Approval needed
       </Text>
-      <Text className="font-t3-bold text-lg text-foreground">
+      <Text className="font-mines-bold text-lg text-foreground">
         {props.approval.appName ?? props.approval.requestKind}
       </Text>
       {props.approval.detail ? (
@@ -61,7 +61,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
           accessibilityState={{ expanded: explanationOpen }}
           onPress={() => setExplanationOpen((open) => !open)}
         >
-          <Text className="font-t3-bold text-xs text-foreground-secondary underline">
+          <Text className="font-mines-bold text-xs text-foreground-secondary underline">
             {FULL_ACCESS_OVERRIDE_QUESTION}
           </Text>
           {explanationOpen ? (

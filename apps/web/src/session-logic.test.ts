@@ -45,6 +45,82 @@ import { makeStreamingTimelineFixture, makeThreadProjectionFixture } from "./tes
 import type { ChatMessage } from "./types";
 
 describe("V2 session presentation", () => {
+  it("hides only empty live voice placeholders and restores their first transcript", () => {
+    const fixture = makeStreamingTimelineFixture();
+    const source = fixture.visibleTurnItems.find((row) => row.item.type === "user_message")!;
+    if (source.item.type !== "user_message") throw new Error("Missing user fixture");
+    const voiceId = MessageId.make("voice-placeholder");
+    const ordinaryId = MessageId.make("ordinary-empty");
+    const attachmentId = MessageId.make("voice-attachment");
+    const rows = [
+      { ...source, item: { ...source.item, messageId: voiceId, text: "", attachments: [] } },
+      { ...source, item: { ...source.item, messageId: ordinaryId, text: "", attachments: [] } },
+      {
+        ...source,
+        item: {
+          ...source.item,
+          messageId: attachmentId,
+          text: "",
+          attachments: [
+            {
+              id: "file",
+              type: "file" as const,
+              name: "notes.txt",
+              mimeType: "text/plain",
+              sizeBytes: 1,
+            },
+          ],
+        },
+      },
+    ];
+    const input = {
+      visibleTurnItems: rows,
+      optimisticMessages: [],
+      liveVoiceRuns: [
+        { userMessageId: voiceId, liveVoice: { sessionId: "voice-one" } },
+        { userMessageId: attachmentId, liveVoice: { sessionId: "voice-two" } },
+      ],
+    };
+    const pending = deriveTimelineEntriesFromVisibleTurnItemsWithState(input);
+    expect(pending.entries.map((entry) => entry.id)).toEqual([ordinaryId, attachmentId]);
+    const spoken = deriveTimelineEntriesFromVisibleTurnItemsWithState(
+      {
+        ...input,
+        visibleTurnItems: [
+          { ...rows[0]!, item: { ...rows[0]!.item, text: "Please check the build." } },
+          ...rows.slice(1),
+        ],
+      },
+      pending,
+    );
+    expect(spoken.entries[0]).toMatchObject({
+      id: voiceId,
+      message: { text: "Please check the build." },
+    });
+  });
+
+  it("invalidates cached entries when a voice run is recognized after its message arrives", () => {
+    const fixture = makeStreamingTimelineFixture();
+    const source = fixture.visibleTurnItems.find((row) => row.item.type === "user_message")!;
+    if (source.item.type !== "user_message") throw new Error("Missing user fixture");
+    const input = {
+      visibleTurnItems: [{ ...source, item: { ...source.item, text: "", attachments: [] } }],
+      optimisticMessages: [],
+    };
+    const before = deriveTimelineEntriesFromVisibleTurnItemsWithState(input);
+    expect(before.entries).toHaveLength(1);
+    const after = deriveTimelineEntriesFromVisibleTurnItemsWithState(
+      {
+        ...input,
+        liveVoiceRuns: [
+          { userMessageId: source.item.messageId, liveVoice: { sessionId: "voice" } },
+        ],
+      },
+      before,
+    );
+    expect(after.entries).toEqual([]);
+  });
+
   it("uses run status as the settlement boundary", () => {
     const runId = RunId.make("run-1");
     expect(
@@ -1475,7 +1551,7 @@ describe("HTML renders in the timeline", () => {
       tool: "get_weather",
       resourceUri: "ui://weather/dashboard",
     };
-    const call = renderCall("completed", { t3McpApp: mcpApp, result: { content: [] } });
+    const call = renderCall("completed", { minesMcpApp: mcpApp, result: { content: [] } });
     const entries = turn(
       call.type === "dynamic_tool" ? { ...call, toolName: "weather.get_weather" } : call,
     );

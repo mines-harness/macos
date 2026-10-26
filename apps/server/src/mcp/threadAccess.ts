@@ -54,7 +54,7 @@ export const readCaller = Effect.fn("mcp.readCaller")(function* () {
   if (!scope.capabilities.has("orchestration")) {
     return yield* new OrchestratorMcpFailure({
       code: "capability_denied",
-      message: "This credential cannot control threads.",
+      message: "This credential cannot control mines.",
     });
   }
   return yield* loadCaller();
@@ -80,7 +80,7 @@ export const loadCaller = Effect.fn("mcp.loadCaller")(function* () {
   if (caller === null || caller.deletedAt !== null) {
     return yield* new OrchestratorMcpFailure({
       code: "thread_not_found",
-      message: "The calling thread was not found.",
+      message: "The calling mine was not found.",
     });
   }
   return {
@@ -110,7 +110,7 @@ export function assertLiveCaller({ caller, scope }: Caller) {
     : Effect.fail(
         new OrchestratorMcpFailure({
           code: "parent_not_active",
-          message: "The calling provider no longer owns an active thread run.",
+          message: "The calling provider no longer owns an active mine run.",
         }),
       );
 }
@@ -128,7 +128,7 @@ export const resolveProjectId = (context: Caller, projectId: ProjectId | undefin
       : Effect.fail(
           new OrchestratorMcpFailure({
             code: "target_required",
-            message: "Pass projectId: this MCP client is not running inside a T3 thread.",
+            message: "Pass projectId: this MCP client is not running inside a mine.",
           }),
         );
 
@@ -140,7 +140,7 @@ const resolveThreadId = (context: Caller, threadId: ThreadId | undefined) =>
       : Effect.fail(
           new OrchestratorMcpFailure({
             code: "target_required",
-            message: "Pass threadId: this MCP client is not running inside a T3 thread.",
+            message: "Pass threadId: this MCP client is not running inside a mine.",
           }),
         );
 
@@ -154,7 +154,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
     return yield* OrchestrationMcp.threadNotFound(
       context.threads,
       targetId,
-      "The thread was not found.",
+      "The mine was not found.",
     );
   }
   const projection = yield* context.threads
@@ -166,7 +166,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
         error._tag === "ThreadManagementThreadNotFoundError"
           ? new OrchestratorMcpFailure({
               code: "thread_not_found",
-              message: "The thread was not found.",
+              message: "The mine was not found.",
             })
           : unavailable(),
       ),

@@ -74,7 +74,7 @@ describe("workspace connection status", () => {
     });
 
     expect(workspaceConnectionStatusPresentation(state)).toEqual({
-      label: "Syncing threads...",
+      label: "Syncing mines...",
       showsProgress: true,
     });
   });

@@ -1,7 +1,57 @@
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
-export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
+import * as Schema from "effect/Schema";
+
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
-export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
+export const CLI_RELEASE_BASE_URL_ENV = "MINES_CLI_RELEASE_BASE_URL";
+export const CLI_RELEASE_REPOSITORY_ENV = "MINES_CLI_UPDATE_REPOSITORY";
+
+export class CliReleaseConfigurationError extends Schema.TaggedError<CliReleaseConfigurationError>()(
+  "CliReleaseConfigurationError",
+  { reason: Schema.String },
+) {
+  override get message() {
+    return this.reason;
+  }
+}
+
+function cliReleaseRepository(repository: string | undefined): string | undefined {
+  const value = repository?.trim();
+  return value &&
+    /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value) &&
+    value.toLowerCase() !== "pingdotgg/t3code"
+    ? value
+    : undefined;
+}
+
+export function cliReleasesPageUrl(repository: string | undefined): string | undefined {
+  const value = cliReleaseRepository(repository);
+  return value ? `https://github.com/${value}/releases` : undefined;
+}
+
+export function resolveCliReleaseBaseUrl(
+  baseUrl: string | undefined,
+  repository?: string,
+): string | undefined {
+  const configured = baseUrl?.trim();
+  if (!configured) {
+    const page = cliReleasesPageUrl(repository);
+    return page ? `${page}/download` : undefined;
+  }
+  if (!URL.canParse(configured)) return undefined;
+  const parsed = new URL(configured);
+  if (
+    (parsed.protocol !== "https:" &&
+      !(
+        parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+      )) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    /(?:^|\/)pingdotgg\/t3code(?:\/|$)/i.test(parsed.pathname)
+  )
+    return undefined;
+  return configured.replace(/\/+$/, "");
+}
 
 // Keep archive keys aligned with the Linux matrix, Windows ARM64 build, and cli_archive rows in release.yml.
 // Node single-executables do not support darwin-x64 and segfault at startup.
@@ -33,16 +83,12 @@ export function cliArchiveTarCommand(
 }
 
 export function cliArchiveFileName(version: string, platformKey: CliArchivePlatformKey): string {
-  return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
+  return `mines-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
 }
 
-const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
-
-export function cliReleaseDownloadBaseUrl(
-  version: string,
-  baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,
-): string {
-  return `${(baseUrl?.trim() || CLI_RELEASE_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v${version}`;
+export function cliReleaseDownloadBaseUrl(version: string, baseUrl?: string): string | undefined {
+  const configured = resolveCliReleaseBaseUrl(baseUrl);
+  return configured ? `${configured}/v${version}` : undefined;
 }
 
 export function parseChecksums(text: string): ReadonlyMap<string, string> {
@@ -69,8 +115,11 @@ export function cliReleaseChannelOf(version: string): CliReleaseChannel {
 }
 
 /** Page until the channel matches; nightlies can push preview/stable releases past the first page. */
-export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+export function cliReleaseIndexPageUrl(page: number, repository?: string): string | undefined {
+  const configured = cliReleaseRepository(repository);
+  return configured
+    ? `https://api.github.com/repos/${configured}/releases?per_page=100&page=${page}`
+    : undefined;
 }
 
 /** Draft assets are not downloadable. */

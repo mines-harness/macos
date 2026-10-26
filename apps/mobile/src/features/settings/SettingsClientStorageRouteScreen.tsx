@@ -13,6 +13,8 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../components/EnvironmentMachineSymbol";
 import {
   clearClientCacheAtom,
+  historyCacheSummaryAtom,
+  setHistoryCacheBudgetAtom,
   clientCacheSummaryAtom,
   type EnvironmentClientCacheSummary,
 } from "../../state/client-cache-state";
@@ -24,6 +26,12 @@ import { SettingsScreen } from "./components/SettingsScreen";
 
 export function SettingsClientStorageRouteScreen() {
   const insets = useSafeAreaInsets();
+  const historyResult = useAtomValue(historyCacheSummaryAtom);
+  const budgetResult = useAtomValue(setHistoryCacheBudgetAtom);
+  const setBudget = useAtomSet(setHistoryCacheBudgetAtom);
+  const historyBudget = AsyncResult.isSuccess(historyResult)
+    ? historyResult.value.budgetBytes
+    : 1024 ** 3;
   const summaryResult = useAtomValue(clientCacheSummaryAtom);
   const clearResult = useAtomValue(clearClientCacheAtom);
   const clearCache = useAtomSet(clearClientCacheAtom);
@@ -48,7 +56,7 @@ export function SettingsClientStorageRouteScreen() {
     Dialog.confirm({
       title: `Clear cache for ${label}?`,
       message:
-        "This removes offline threads, server metadata, and cached branches for this environment. The saved connection and credentials stay intact.",
+        "This removes offline mines, server metadata, and cached branches for this environment. The saved connection and credentials stay intact.",
       confirmText: "Clear Cache",
       destructive: true,
       onConfirm: () =>
@@ -76,6 +84,26 @@ export function SettingsClientStorageRouteScreen() {
         className="flex-1"
         contentContainerClassName="gap-6 px-5 pt-4 pb-[18px]"
       >
+        <SettingsSection title="Encrypted offline history">
+          {[0.25, 1, 5].map((gib) => (
+            <SettingsActionRow
+              key={gib}
+              icon="internaldrive"
+              label={`${gib} GiB${historyBudget === gib * 1024 ** 3 ? " · selected" : ""}`}
+              disabled={budgetResult.waiting}
+              onPress={() => setBudget(gib * 1024 ** 3)}
+            />
+          ))}
+          <Text className="px-4 py-3 text-sm text-foreground-muted">
+            Older cached pages are removed first. Active conversation tails, drafts and your
+            computers' original histories stay safe.
+          </Text>
+          {AsyncResult.isFailure(budgetResult) && (
+            <Text accessibilityRole="alert" className="px-4 text-danger-foreground">
+              Could not change the cache budget.
+            </Text>
+          )}
+        </SettingsSection>
         <SettingsSection title="Environment caches">
           {AsyncResult.isFailure(summaryResult) ? (
             <View className="items-center gap-2 px-6 py-8">

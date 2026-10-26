@@ -1,55 +1,55 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--t3-font-sans);
-  --font-mono: var(--t3-font-mono);
-  --color-background: var(--t3-background);
-  --color-foreground: var(--t3-foreground);
-  --color-popover: var(--t3-popover);
-  --color-popover-foreground: var(--t3-popover-foreground);
-  --color-primary: var(--t3-primary);
-  --color-primary-foreground: var(--t3-primary-foreground);
-  --color-muted: var(--t3-muted);
-  --color-muted-foreground: var(--t3-muted-foreground);
-  --color-accent: var(--t3-accent);
-  --color-accent-foreground: var(--t3-accent-foreground);
-  --color-border: var(--t3-border);
-  --color-input: var(--t3-input);
-  --color-ring: var(--t3-ring);
-  --radius-sm: calc(var(--t3-radius) - 4px);
-  --radius-md: calc(var(--t3-radius) - 2px);
-  --radius-lg: var(--t3-radius);
-  --radius-xl: calc(var(--t3-radius) + 4px);
-  --radius-2xl: calc(var(--t3-radius) + 8px);
+  --font-sans: var(--mines-font-sans);
+  --font-mono: var(--mines-font-mono);
+  --color-background: var(--mines-background);
+  --color-foreground: var(--mines-foreground);
+  --color-popover: var(--mines-popover);
+  --color-popover-foreground: var(--mines-popover-foreground);
+  --color-primary: var(--mines-primary);
+  --color-primary-foreground: var(--mines-primary-foreground);
+  --color-muted: var(--mines-muted);
+  --color-muted-foreground: var(--mines-muted-foreground);
+  --color-accent: var(--mines-accent);
+  --color-accent-foreground: var(--mines-accent-foreground);
+  --color-border: var(--mines-border);
+  --color-input: var(--mines-input);
+  --color-ring: var(--mines-ring);
+  --radius-sm: calc(var(--mines-radius) - 4px);
+  --radius-md: calc(var(--mines-radius) - 2px);
+  --radius-lg: var(--mines-radius);
+  --radius-xl: calc(var(--mines-radius) + 4px);
+  --radius-2xl: calc(var(--mines-radius) + 8px);
 }
 
 :host {
-  --t3-font-sans:
+  --mines-font-sans:
     "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
     sans-serif;
-  --t3-font-mono:
+  --mines-font-mono:
     "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
-  --t3-radius: 0.625rem;
-  --t3-background: white;
-  --t3-foreground: oklch(0.269 0 0);
-  --t3-popover: white;
-  --t3-popover-foreground: oklch(0.269 0 0);
-  --t3-primary: oklch(0.488 0.217 264);
-  --t3-primary-foreground: white;
-  --t3-muted: rgb(0 0 0 / 4%);
-  --t3-muted-foreground: oklch(0.556 0 0);
-  --t3-accent: rgb(0 0 0 / 4%);
-  --t3-accent-foreground: oklch(0.269 0 0);
-  --t3-border: rgb(0 0 0 / 8%);
-  --t3-input: rgb(0 0 0 / 10%);
-  --t3-ring: oklch(0.488 0.217 264);
-  color: var(--t3-foreground);
-  font-family: var(--t3-font-sans);
+  --mines-radius: 0.625rem;
+  --mines-background: white;
+  --mines-foreground: oklch(0.269 0 0);
+  --mines-popover: white;
+  --mines-popover-foreground: oklch(0.269 0 0);
+  --mines-primary: oklch(0.488 0.217 264);
+  --mines-primary-foreground: white;
+  --mines-muted: rgb(0 0 0 / 4%);
+  --mines-muted-foreground: oklch(0.556 0 0);
+  --mines-accent: rgb(0 0 0 / 4%);
+  --mines-accent-foreground: oklch(0.269 0 0);
+  --mines-border: rgb(0 0 0 / 8%);
+  --mines-input: rgb(0 0 0 / 10%);
+  --mines-ring: oklch(0.488 0.217 264);
+  color: var(--mines-foreground);
+  font-family: var(--mines-font-sans);
 }
 
 * {
   box-sizing: border-box;
-  border-color: var(--t3-border);
+  border-color: var(--mines-border);
 }
 
 button,
@@ -63,6 +63,6 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--t3-ring) 72%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--mines-ring) 72%, transparent);
   outline-offset: -2px;
 }

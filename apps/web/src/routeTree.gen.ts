@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as SharedGroupsRouteImport } from './routes/shared-groups'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as GuestRouteImport } from './routes/guest'
+import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
@@ -38,6 +40,8 @@ import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-reques
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatEnvironmentIdGroupsGroupIdRouteImport } from './routes/_chat.$environmentId.groups.$groupId'
+import { Route as ChatEnvironmentIdCloudTargetIdRouteImport } from './routes/_chat.$environmentId.cloud.$targetId'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -47,6 +51,11 @@ const WelcomeRoute = WelcomeRouteImport.update({
 const UsageRoute = UsageRouteImport.update({
   id: '/usage',
   path: '/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SharedGroupsRoute = SharedGroupsRouteImport.update({
+  id: '/shared-groups',
+  path: '/shared-groups',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -62,6 +71,11 @@ const PairRoute = PairRouteImport.update({
 const GuestRoute = GuestRouteImport.update({
   id: '/guest',
   path: '/guest',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactsRoute = ContactsRouteImport.update({
+  id: '/contacts',
+  path: '/contacts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConnectAgentRoute = ConnectAgentRouteImport.update({
@@ -185,14 +199,28 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatEnvironmentIdGroupsGroupIdRoute =
+  ChatEnvironmentIdGroupsGroupIdRouteImport.update({
+    id: '/$environmentId/groups/$groupId',
+    path: '/$environmentId/groups/$groupId',
+    getParentRoute: () => ChatRoute,
+  } as any)
+const ChatEnvironmentIdCloudTargetIdRoute =
+  ChatEnvironmentIdCloudTargetIdRouteImport.update({
+    id: '/$environmentId/cloud/$targetId',
+    path: '/$environmentId/cloud/$targetId',
+    getParentRoute: () => ChatRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
+  '/contacts': typeof ContactsRoute
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/shared-groups': typeof SharedGroupsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/new': typeof ChatNewRoute
@@ -215,13 +243,17 @@ export interface FileRoutesByFullPath {
   '/settings/storage': typeof SettingsStorageRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/$environmentId/cloud/$targetId': typeof ChatEnvironmentIdCloudTargetIdRoute
+  '/$environmentId/groups/$groupId': typeof ChatEnvironmentIdGroupsGroupIdRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
+  '/contacts': typeof ContactsRoute
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/shared-groups': typeof SharedGroupsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/new': typeof ChatNewRoute
@@ -245,15 +277,19 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/$environmentId/cloud/$targetId': typeof ChatEnvironmentIdCloudTargetIdRoute
+  '/$environmentId/groups/$groupId': typeof ChatEnvironmentIdGroupsGroupIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
+  '/contacts': typeof ContactsRoute
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/shared-groups': typeof SharedGroupsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/new': typeof ChatNewRoute
@@ -277,6 +313,8 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/_chat/$environmentId/cloud/$targetId': typeof ChatEnvironmentIdCloudTargetIdRoute
+  '/_chat/$environmentId/groups/$groupId': typeof ChatEnvironmentIdGroupsGroupIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -284,9 +322,11 @@ export interface FileRouteTypes {
     | '/'
     | '/connect'
     | '/connect-agent'
+    | '/contacts'
     | '/guest'
     | '/pair'
     | '/settings'
+    | '/shared-groups'
     | '/usage'
     | '/welcome'
     | '/new'
@@ -309,13 +349,17 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/$environmentId/cloud/$targetId'
+    | '/$environmentId/groups/$groupId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
     | '/connect-agent'
+    | '/contacts'
     | '/guest'
     | '/pair'
     | '/settings'
+    | '/shared-groups'
     | '/usage'
     | '/welcome'
     | '/new'
@@ -339,14 +383,18 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/$environmentId/cloud/$targetId'
+    | '/$environmentId/groups/$groupId'
   id:
     | '__root__'
     | '/_chat'
     | '/connect'
     | '/connect-agent'
+    | '/contacts'
     | '/guest'
     | '/pair'
     | '/settings'
+    | '/shared-groups'
     | '/usage'
     | '/welcome'
     | '/_chat/new'
@@ -370,15 +418,19 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/_chat/$environmentId/cloud/$targetId'
+    | '/_chat/$environmentId/groups/$groupId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   ConnectRoute: typeof ConnectRoute
   ConnectAgentRoute: typeof ConnectAgentRoute
+  ContactsRoute: typeof ContactsRoute
   GuestRoute: typeof GuestRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  SharedGroupsRoute: typeof SharedGroupsRoute
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
@@ -400,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shared-groups': {
+      id: '/shared-groups'
+      path: '/shared-groups'
+      fullPath: '/shared-groups'
+      preLoaderRoute: typeof SharedGroupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -419,6 +478,13 @@ declare module '@tanstack/react-router' {
       path: '/guest'
       fullPath: '/guest'
       preLoaderRoute: typeof GuestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contacts': {
+      id: '/contacts'
+      path: '/contacts'
+      fullPath: '/contacts'
+      preLoaderRoute: typeof ContactsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/connect-agent': {
@@ -589,6 +655,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/$environmentId/groups/$groupId': {
+      id: '/_chat/$environmentId/groups/$groupId'
+      path: '/$environmentId/groups/$groupId'
+      fullPath: '/$environmentId/groups/$groupId'
+      preLoaderRoute: typeof ChatEnvironmentIdGroupsGroupIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/$environmentId/cloud/$targetId': {
+      id: '/_chat/$environmentId/cloud/$targetId'
+      path: '/$environmentId/cloud/$targetId'
+      fullPath: '/$environmentId/cloud/$targetId'
+      preLoaderRoute: typeof ChatEnvironmentIdCloudTargetIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
   }
 }
 
@@ -598,6 +678,8 @@ interface ChatRouteChildren {
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
+  ChatEnvironmentIdCloudTargetIdRoute: typeof ChatEnvironmentIdCloudTargetIdRoute
+  ChatEnvironmentIdGroupsGroupIdRoute: typeof ChatEnvironmentIdGroupsGroupIdRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
@@ -606,6 +688,8 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
+  ChatEnvironmentIdCloudTargetIdRoute: ChatEnvironmentIdCloudTargetIdRoute,
+  ChatEnvironmentIdGroupsGroupIdRoute: ChatEnvironmentIdGroupsGroupIdRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
@@ -654,9 +738,11 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   ConnectRoute: ConnectRoute,
   ConnectAgentRoute: ConnectAgentRoute,
+  ContactsRoute: ContactsRoute,
   GuestRoute: GuestRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  SharedGroupsRoute: SharedGroupsRoute,
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,

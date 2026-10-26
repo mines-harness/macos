@@ -69,7 +69,7 @@ function signTestJwt(payload: object, privateKey: string): string {
 const freshRequest = Effect.gen(function* () {
   const now = yield* DateTime.now;
   const payload = {
-    iss: "t3-env:env",
+    iss: "mines-env:env",
     aud: "https://relay.example.test",
     sub: "env",
     jti: "publish-jti",

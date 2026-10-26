@@ -6,11 +6,13 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   // Playwright reads package.json and browsers.json beside its runtime modules.
   "playwright-core",
   "node-pty",
+  "node-datachannel",
+  "@node-datachannel/",
+  "detect-libc",
   "ffi-rs",
   "@yuuang/",
   "@ff-labs/",
   "@napi-rs/keyring",
-  "@clerk/electron-passkeys",
   "node-gyp-build",
   "node-addon-api",
   "bufferutil",
@@ -61,8 +63,8 @@ export function findInlinedExternalPackages(source: string): {
   readonly inlined: ReadonlyArray<string>;
   readonly inlinedPackages: ReadonlyArray<string>;
 } {
-  // Rolldown marks each inlined module with a `//#region <path>` comment.
-  const regionPattern = /\/\/#region\s+(\S+)/g;
+  // Rolldown emits region markers or standalone source-path comments for inlined modules.
+  const regionPattern = /\/\/#region\s+(\S+)|^\/\/ (\S+\/[^/\s]+\.(?:[cm]?[jt]sx?|json))\s*$/gm;
   const packagePattern = /node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//g;
 
   let regionCount = 0;
@@ -70,7 +72,7 @@ export function findInlinedExternalPackages(source: string): {
   const inlinedPackages = new Set<string>();
   for (const region of source.matchAll(regionPattern)) {
     regionCount += 1;
-    const regionPath = region[1] ?? "";
+    const regionPath = region[1] ?? region[2] ?? "";
     for (const candidate of regionPath.matchAll(packagePattern)) {
       const name = candidate[1];
       if (name === undefined || name === ".pnpm") continue;

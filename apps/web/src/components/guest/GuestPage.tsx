@@ -79,7 +79,7 @@ interface GuestEntry {
 let capturedEntry: GuestEntry | null = null;
 
 // A reload keeps the tab's session, so it keeps which messages still wait for a row too.
-const AWAITING_ROWS_KEY = "t3:guest-awaiting-rows";
+const AWAITING_ROWS_KEY = "mines:guest-awaiting-rows";
 const AWAITING_ROWS_LIMIT = 50;
 
 function readAwaitingRowIds(): ReadonlySet<GuestMessageId> {
@@ -259,7 +259,7 @@ function GuestSession({ shareId }: { readonly shareId: string }) {
   }, [shareId]);
 
   if (stream.ended || (rejected && stream.view !== null)) {
-    return <Notice title="This link has ended" detail="The owner stopped sharing this thread." />;
+    return <Notice title="This link has ended" detail="The owner stopped sharing this mine." />;
   }
   if (stream.view !== null) {
     if (stream.projection === null) return <Notice title="Connecting..." />;
@@ -311,7 +311,7 @@ function NameForm({
   };
   return (
     <form className="m-auto flex w-full max-w-xs flex-col gap-3 p-6" onSubmit={submit}>
-      <h1 className="text-base font-medium">Join a shared thread</h1>
+      <h1 className="text-base font-medium">Join a shared mine</h1>
       <label className="flex flex-col gap-1.5 text-sm" htmlFor="guest-name">
         Your name
         <Input

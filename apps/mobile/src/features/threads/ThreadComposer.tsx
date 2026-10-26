@@ -1,7 +1,7 @@
 import { useSidebarWorkspaceTabs } from "../workspace/useSystemWorkspaceTabBar";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
-import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import type { ComposerTextPaste } from "../../native/MinesComposerEditor.types";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -19,7 +19,7 @@ import {
   type ModelSelection,
   type ProviderInteractionMode,
   type RuntimeMode,
-  type ServerConfig as T3ServerConfig,
+  type ServerConfig as MinesServerConfig,
   type UsageLimitsReport,
 } from "@t3tools/contracts";
 import {
@@ -110,6 +110,7 @@ import {
   ComposerDictationToolbar,
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
+import { ComposerLiveVoiceControl } from "../voice-input/ComposerLiveVoiceControl";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
 import {
   rememberModelOptions,
@@ -241,7 +242,7 @@ export interface ThreadComposerProps {
   readonly selectedThread: EnvironmentThreadShell;
   readonly reportedModelSelection?: ModelSelection | null;
   readonly hasCompactableConversation: boolean;
-  readonly serverConfig: T3ServerConfig | null;
+  readonly serverConfig: MinesServerConfig | null;
   readonly queueCount: number;
   readonly activeThreadBusy: boolean;
   readonly canStopThread: boolean;
@@ -577,17 +578,22 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onUsageLimits:
       usageLimitsOffered && draftAttachments.length === 0 ? openUsageLimits : undefined,
   });
+  const [liveVoiceActive, setLiveVoiceActive] = useState(false);
   const voiceInput = useVoiceInputController({
     ownerKey: composerDraftKey,
-    label: props.selectedThread.title || "Untitled thread",
+    label: props.selectedThread.title || "Untitled mine",
     readDraftMessage: () => getComposerDraftSnapshot(composerDraftKey).text,
     subscribeToDraftChanges: (onChange) => appAtomRegistry.subscribe(composerDraftsAtom, onChange),
     selection: composerMenu.selection,
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
+    disabled: liveVoiceActive,
   });
   const isSubmissionLocked =
-    props.interactionLocked === true || queuedEdit?.saving === true || voiceInput.blocksSubmission;
+    props.interactionLocked === true ||
+    queuedEdit?.saving === true ||
+    voiceInput.blocksSubmission ||
+    liveVoiceActive;
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
     voiceInput.elapsedSeconds,
@@ -706,7 +712,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     armAgentAwarenessLiveActivityForLocalWork({
       environmentId: props.environmentId,
       threadTitle: props.selectedThread.title,
-      projectTitle: props.environmentLabel ?? "T3 Code",
+      projectTitle: props.environmentLabel ?? "mines",
     });
   };
 
@@ -987,7 +993,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   ))}
                   {stripAttachments.length > compactAttachmentLimit ? (
                     <View className="size-[30px] items-center justify-center rounded-lg bg-subtle-strong">
-                      <Text className="text-foreground-muted text-2xs font-t3-bold">
+                      <Text className="text-foreground-muted text-2xs font-mines-bold">
                         +{stripAttachments.length - compactAttachmentLimit}
                       </Text>
                     </View>
@@ -1001,6 +1007,20 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 }
               >
                 {modelControl}
+                {!props.isDraft && selectedProviderStatus?.driver === "codex" ? (
+                  <ComposerLiveVoiceControl
+                    key={`${props.environmentId}:${props.selectedThread.id}:${currentModelSelection.instanceId}:${currentModelSelection.model}`}
+                    environmentId={props.environmentId}
+                    threadId={props.selectedThread.id}
+                    modelSelection={currentModelSelection}
+                    connected={props.connectionState === "connected" && !props.hidden}
+                    startDisabled={
+                      isSubmissionLocked || props.activeThreadBusy || !props.canOperateThread
+                    }
+                    size={hasSidebarTabBar ? "large" : "regular"}
+                    onActiveChange={setLiveVoiceActive}
+                  />
+                ) : null}
                 <ComposerDictationStartAction
                   size={hasSidebarTabBar ? "large" : "regular"}
                   state={voiceInput.state}

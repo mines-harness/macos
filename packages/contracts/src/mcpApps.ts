@@ -80,9 +80,9 @@ export class McpAppRequestError extends Schema.TaggedError<McpAppRequestError>()
       case "not-an-app":
         return "This tool call has no MCP app.";
       case "provider-unsupported":
-        return "This thread's provider cannot run MCP app requests.";
+        return "This mine's provider cannot run MCP app requests.";
       case "session-stopped":
-        return "The app's thread is not running. Send a message in the thread that created it to use the app again.";
+        return "The app's mine is not running. Send a message in the mine that created it to use the app again.";
       case "tool-not-callable":
         return "This app cannot call that tool.";
       case "unsupported-content":

@@ -51,6 +51,25 @@ function ChatRouteGlobalShortcuts() {
     primaryEnvironmentId,
     resolveEnvironmentLabel: () => null,
   }).length;
+  const startMine = () => {
+    if (!legacySidebarEnabled && projectGroupCount > 1) {
+      openCommandPalette({ open: "new-thread-in" });
+      return;
+    }
+    void startNewThreadFromContext({
+      activeDraftThread,
+      activeThread: activeThread ?? undefined,
+      defaultProjectRef,
+      handleNewThread,
+    });
+  };
+  useEffect(
+    () =>
+      window.desktopBridge?.onMenuAction((action) => {
+        if (action === "new-thread") startMine();
+      }),
+    [startMine],
+  );
   const terminalOpen = useTerminalUiStateStore((state) =>
     routeThreadRef
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
@@ -112,16 +131,7 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
-        if (!legacySidebarEnabled && projectGroupCount > 1) {
-          openCommandPalette({ open: "new-thread-in" });
-          return;
-        }
-        void startNewThreadFromContext({
-          activeDraftThread,
-          activeThread: activeThread ?? undefined,
-          defaultProjectRef,
-          handleNewThread,
-        });
+        startMine();
         return;
       }
 
@@ -134,7 +144,7 @@ function ChatRouteGlobalShortcuts() {
             stackedThreadToast({
               type: "info",
               title: "Preview is desktop-only",
-              description: "Open T3 Code in the desktop app to use the in-app preview.",
+              description: "Open mines in the desktop app to use the in-app preview.",
             }),
           );
           return;
@@ -172,6 +182,7 @@ function ChatRouteGlobalShortcuts() {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
   }, [
+    startMine,
     activeDraftThread,
     activeThread,
     clearSelection,
@@ -181,12 +192,10 @@ function ChatRouteGlobalShortcuts() {
     defaultProjectRef,
     previewOpen,
     primaryEnvironmentId,
-    projectGroupCount,
     routeThreadRef,
     scratchEnvironmentId,
     selectedThreadKeysSize,
     startScratchThread,
-    legacySidebarEnabled,
     terminalOpen,
   ]);
 

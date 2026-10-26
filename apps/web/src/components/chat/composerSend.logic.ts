@@ -31,7 +31,7 @@ export function loadBalancingSendWarning(input: {
   return {
     title: "Choose a machine to continue",
     description: noMachineReadsEveryThread
-      ? "No machine can read every attached thread. Choose a machine in the composer or remove the threads."
+      ? "No machine can read every attached mine. Choose a machine in the composer or remove the mines."
       : "No eligible machine has available resources. Choose a machine in the composer to override.",
   };
 }

@@ -1,5 +1,25 @@
+import * as MineTransferService from "../mineTransfer/MineTransferService.ts";
+import * as MineTransferGate from "../mineTransfer/MineTransferGate.ts";
+import * as WorkspaceTransfer from "../workspace/WorkspaceTransfer.ts";
+import * as HostCatalogService from "../catalog/HostCatalogService.ts";
+import * as CatalogIdentityVerifier from "../catalog/CatalogIdentityVerifier.ts";
+import * as CatalogRunContextService from "../catalog/CatalogRunContextService.ts";
+import * as HostCatalogLifecycle from "../catalog/HostCatalogLifecycle.ts";
+import * as HostGroupCatalogLifecycle from "../catalog/HostGroupCatalogLifecycle.ts";
+import * as GroupStore from "../groupChat/GroupStore.ts";
+import * as RemoteGroupTransport from "../groupChat/RemoteGroupTransport.ts";
+import * as PeerRuntime from "../peer/runtimeLayer.ts";
+import * as MinesPushPublisher from "../peer/MinesPushPublisher.ts";
+import * as CloudTaskService from "../cloud/CloudTaskService.ts";
+import * as ProviderVoiceService from "../provider/ProviderVoiceService.ts";
+import * as LiveVoiceSessions from "../provider/LiveVoiceSessions.ts";
+import * as GroupChatService from "../groupChat/GroupChatService.ts";
+import * as SharedGroupService from "../groupChat/SharedGroupService.ts";
+import * as SharedGroupTransport from "../groupChat/SharedGroupTransport.ts";
+import * as GroupPeerStore from "../groupChat/GroupPeerStore.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
+import * as AccountFailoverService from "./AccountFailoverService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -55,6 +75,7 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
   OrchestrationEventStore.layer,
@@ -162,6 +183,13 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   ),
 );
 
+const layerHostCatalogProvided = HostCatalogService.layer.pipe(
+  Layer.provide(Layer.merge(PeerRuntime.layerSignaling, CatalogIdentityVerifier.layer)),
+);
+const layerCatalogRunContextProvided = CatalogRunContextService.layer.pipe(
+  Layer.provide(Layer.merge(layerHostCatalogProvided, ProjectionStore.layer)),
+);
+
 const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -173,6 +201,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      WorkspaceRunLease.layer,
     ),
   ),
 );
@@ -208,13 +237,20 @@ const layerCheckpointCaptureServiceProvided = CheckpointCaptureService.layer.pip
   ),
 );
 const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
-  Layer.provide(Layer.merge(layerCheckpointCaptureServiceProvided, ProjectionStore.layer)),
+  Layer.provide(
+    Layer.mergeAll(
+      layerCheckpointCaptureServiceProvided,
+      ProjectionStore.layer,
+      WorkspaceRunLease.layer,
+    ),
+  ),
 );
 
 const layerOrchestratorProvided = Orchestrator.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       layerCheckpointServiceProvided,
+      MineTransferGate.layer,
       CommandPolicy.layer,
       layerStores,
       layerEventSinkProvided,
@@ -239,6 +275,7 @@ const layerAgentSessionImporterProvided = AgentSessionImporter.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       AgentSessionScanner.layer,
+      ProjectionStore.layer,
       layerProjectService,
       layerOrchestratorProvided,
       layerEventSinkProvided,
@@ -347,6 +384,10 @@ const layerMcpAppRequestsProvided = McpAppRequests.layer.pipe(
 );
 
 export const layer = Layer.mergeAll(
+  ProviderVoiceService.layer.pipe(
+    Layer.provide(layerThreadManagementProvided),
+    Layer.provide(LiveVoiceSessions.layer),
+  ),
   layerCommandOutputHubProvided,
   layerOrchestratorProvided,
   layerMcpAppRequestsProvided,
@@ -359,7 +400,81 @@ export const layer = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
+const layerAccountFailoverProvided = AccountFailoverService.layer.pipe(
+  Layer.provide(Layer.merge(layerThreadManagementProvided, layerProviderSwitchServiceProvided)),
+);
+
+const layerSharedGroupTransportProvided = SharedGroupTransport.layer.pipe(
+  Layer.provide(Layer.merge(PeerRuntime.layerTrust, PeerRuntime.layerSignaling)),
+);
+const layerRemoteGroupTransportProvided = RemoteGroupTransport.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      PeerRuntime.layerTrust,
+      PeerRuntime.layerSignaling,
+      layerSharedGroupTransportProvided,
+    ),
+  ),
+);
+
+const layerGroupChatProvided = GroupChatService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadManagementProvided,
+      layerOrchestratorProvided,
+      ProjectStore.layer,
+      layerAccountFailoverProvided,
+      layerRemoteGroupTransportProvided,
+    ),
+  ),
+);
+
 export const layerProduction = Layer.mergeAll(
+  MineTransferService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerThreadManagementProvided,
+        layerEffectWorkerProvided,
+        layerEventSinkProvided,
+        GroupStore.layer,
+        WorkspaceRunLease.layer,
+        MineTransferGate.layer,
+        ThreadCommandExecutor.layer,
+        WorkspaceTransfer.layer.pipe(Layer.provide(GitVcsDriver.layer)),
+      ),
+    ),
+    Layer.provide(layerProjectService),
+  ),
+  MinesPushPublisher.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerThreadManagementProvided,
+        PeerRuntime.layerTrust,
+        PeerRuntime.layerSignaling,
+      ),
+    ),
+  ),
+  PeerRuntime.layer,
+  layerRemoteGroupTransportProvided,
+  layerHostCatalogProvided,
+  HostCatalogLifecycle.layer.pipe(
+    Layer.provide(Layer.merge(layerHostCatalogProvided, layerEventInfrastructure)),
+  ),
+  HostGroupCatalogLifecycle.layer.pipe(
+    Layer.provide(Layer.merge(layerHostCatalogProvided, GroupStore.layer)),
+  ),
+  CloudTaskService.layer,
+  layerGroupChatProvided,
+  SharedGroupService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerGroupChatProvided,
+        layerSharedGroupTransportProvided,
+        PeerRuntime.layerTrust,
+        GroupPeerStore.layer,
+      ),
+    ),
+  ),
   layer.pipe(Layer.provide(layerProjectService)),
   layerProjectService,
   layerManagedProjectFoldersProvided,
@@ -376,6 +491,7 @@ export const layerProduction = Layer.mergeAll(
         ProjectionStore.layer,
         layerThreadManagementProvided,
         layerOrchestratorProvided,
+        layerAccountFailoverProvided,
       ),
     ),
   ),
@@ -383,6 +499,7 @@ export const layerProduction = Layer.mergeAll(
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
 ).pipe(
+  Layer.provide(layerCatalogRunContextProvided),
   Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerScheduledTaskProvided))),
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(layerEventInfrastructure),

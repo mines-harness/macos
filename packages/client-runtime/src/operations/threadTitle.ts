@@ -51,5 +51,5 @@ export function deriveThreadTitleSeed(input: ThreadTitleSeedInput): string {
     }
   }
 
-  return "New thread";
+  return "New mine";
 }

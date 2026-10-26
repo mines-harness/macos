@@ -255,7 +255,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       Effect.map((result) => result.capabilities),
     );
 
-    const checkProvider = catalogService.refreshInBackground.pipe(
+    const checkProvider = (
+      effectiveConfig.enabled ? catalogService.refreshInBackground : Effect.void
+    ).pipe(
       Effect.andThen(
         modelCatalog.pipe(
           Effect.flatMap((catalog) =>

@@ -8,8 +8,8 @@ import {
   deactivateManagedRelayAuthentication,
 } from "./managedAuth";
 
-vi.mock("@clerk/react", () => ({
-  useAuth: vi.fn(),
+vi.mock("./MinesAuthProvider", () => ({
+  useMinesAuth: vi.fn(),
 }));
 
 vi.mock("../lib/runtime", () => ({

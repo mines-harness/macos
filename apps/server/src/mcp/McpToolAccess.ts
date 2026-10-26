@@ -28,7 +28,7 @@ import {
 } from "./threadAccess.ts";
 
 /** Private constructors only enforce types; the token also blocks runtime construction. */
-const builtHere: unique symbol = Symbol("t3/mcp/McpToolAccess/builtHere");
+const builtHere: unique symbol = Symbol("mines/mcp/McpToolAccess/builtHere");
 
 const refuseOutsideConstruction = (token: symbol) => {
   if (token !== builtHere) {
@@ -52,7 +52,7 @@ let handlersLayer: <Tools extends Record<string, Tool.Any>, EX, RX>(
   layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>,
 ) => HandlersLayer<Tools, EX, RX>;
 
-/** t3code/no-raw-mcp-registration confines Effect's unchecked registration API to McpHttpServer. */
+/** mines/no-raw-mcp-registration confines Effect's unchecked registration API to McpHttpServer. */
 export class Declaration<out Handler> {
   readonly #handle: Handler;
   private constructor(token: typeof builtHere, handle: Handler) {
@@ -151,7 +151,7 @@ const escalationDenied = (refusal: DispatchModeRefusal) =>
       refusal.mode === "runtime"
         ? "runtime_mode_escalation_denied"
         : "interaction_mode_escalation_denied",
-    message: `Thread ${refusal.threadId} now runs in ${refusal.runtimeMode}/${refusal.interactionMode} mode, above this caller's. Its user changed it while this call ran.`,
+    message: `Mine ${refusal.threadId} now runs in ${refusal.runtimeMode}/${refusal.interactionMode} mode, above this caller's. Its user changed it while this call ran.`,
   });
 
 export interface StartedModes {
@@ -182,7 +182,7 @@ export const startsThreads = <P, A, E, R>(
   );
 
 const fullAccessRequired =
-  "Changing projects or environment settings needs a live full-access/default calling thread or a full-access client.";
+  "Changing projects or environment settings needs a live full-access/default calling mine or a full-access client.";
 
 /** Recheck after waits before writing; caller modes may have changed. */
 export const writesEnvironment = <P, A, E, R>(

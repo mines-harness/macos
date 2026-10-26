@@ -8,9 +8,9 @@ export function useWorkspaceSidebarHeaderItem() {
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const label = panes.primarySidebarVisible
     ? layout.primarySidebarOverlaysContent
-      ? "Hide thread sidebar"
+      ? "Hide mine sidebar"
       : "Maximize content"
-    : "Show thread sidebar";
+    : "Show mine sidebar";
   return useMemo(
     () =>
       withNativeGlassHeaderItem({

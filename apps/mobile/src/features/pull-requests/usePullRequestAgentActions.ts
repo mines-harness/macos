@@ -32,17 +32,17 @@ export function usePullRequestAgentActions(
     ...links.threads.map((thread) => ({
       id: `${task}:${thread.id}`,
       title: thread.title,
-      subtitle: thread.archivedAt ? "Archived thread" : "Continue thread",
+      subtitle: thread.archivedAt ? "Archived mine" : "Continue mine",
       image: "bubble.left.and.bubble.right",
       attributes: { disabled: task !== "ask" && Boolean(thread.archivedAt) },
     })),
-    ...(links.canAsk ? [{ id: `${task}:new`, title: "Start a new thread", image: "plus" }] : []),
+    ...(links.canAsk ? [{ id: `${task}:new`, title: "Start a new mine", image: "plus" }] : []),
   ];
   const menuAction = (task: PullRequestAgentTask) => {
     const action = actions.find((action) => action.task === task);
     return {
       id: task,
-      title: action?.title ?? "Open thread",
+      title: action?.title ?? "Open mine",
       image: action?.icon,
       attributes: { disabled: disabled || !links.canAsk || action?.disabled },
       ...(links.threads.length > 1 ? { subactions: threadActions(task) } : {}),

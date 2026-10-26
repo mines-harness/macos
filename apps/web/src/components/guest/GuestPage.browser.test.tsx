@@ -306,12 +306,14 @@ describe("GuestPage", () => {
     const container = document.createElement("div");
     container.style.cssText = "height: 600px; width: 900px; display: flex; flex-direction: column;";
     await using screen = await render(<GuestPage />, { container });
-    await expect.element(screen.getByText("Reply 11")).toBeInTheDocument();
+    await expect.element(screen.getByText("Reply 11")).toBeVisible();
     const scroller = () =>
       screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
     const expectAtEnd = () =>
       vi.waitFor(() => {
         const node = scroller();
+        expect(node.clientHeight).toBeGreaterThan(0);
+        expect(node.scrollHeight).toBeGreaterThan(node.clientHeight);
         expect(node.scrollHeight - node.scrollTop - node.clientHeight).toBeLessThan(2);
       });
     await expectAtEnd();

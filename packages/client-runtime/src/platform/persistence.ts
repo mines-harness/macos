@@ -2,6 +2,8 @@ import {
   type EnvironmentId,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ThreadDetailSnapshot,
+  type OrchestrationV2ThreadHistoryPage,
+  type OrchestrationV2BodyRangeResult,
   type ServerConfig,
   type ThreadId,
   type VcsListRefsResult,
@@ -80,6 +82,53 @@ export class ConnectionRegistrationStore extends Context.Service<
 export class EnvironmentCacheStore extends Context.Service<
   EnvironmentCacheStore,
   {
+    readonly loadBodyRange?: (
+      environmentId: EnvironmentId,
+      threadId: ThreadId,
+      key: string,
+    ) => Effect.Effect<Option.Option<OrchestrationV2BodyRangeResult>, ConnectionPersistenceError>;
+    readonly saveBodyRange?: (
+      environmentId: EnvironmentId,
+      threadId: ThreadId,
+      key: string,
+      body: OrchestrationV2BodyRangeResult,
+    ) => Effect.Effect<void, ConnectionPersistenceError>;
+    readonly loadHistoryPage?: (
+      environmentId: EnvironmentId,
+      threadId: ThreadId,
+      cursor: string,
+    ) => Effect.Effect<Option.Option<OrchestrationV2ThreadHistoryPage>, ConnectionPersistenceError>;
+    readonly saveHistoryPage?: (
+      environmentId: EnvironmentId,
+      threadId: ThreadId,
+      cursor: string,
+      page: OrchestrationV2ThreadHistoryPage,
+    ) => Effect.Effect<void, ConnectionPersistenceError>;
+    readonly protectThread?: (
+      environmentId: EnvironmentId,
+      threadId: ThreadId,
+    ) => Effect.Effect<() => void>;
+    readonly currentOwnerId?: () => string;
+    readonly captureOwner?: () => () => boolean;
+    readonly foregroundActivity?: () => { setBusy(busy: boolean): void; dispose(): void };
+    readonly backgroundPrefetchAllowed?: Effect.Effect<boolean>;
+    readonly awaitForegroundIdle?: Effect.Effect<void>;
+    readonly prefetchAllowed?: Effect.Effect<boolean>;
+    readonly inspectHistoryCache?: Effect.Effect<
+      {
+        readonly budgetBytes: number;
+        readonly entries: ReadonlyArray<{
+          readonly environmentId: EnvironmentId;
+          readonly kind: "tail" | "page" | "shell";
+          readonly bytes: number;
+        }>;
+      },
+      ConnectionPersistenceError
+    >;
+    readonly clearHistoryCache?: Effect.Effect<void, ConnectionPersistenceError>;
+    readonly setHistoryCacheBudget?: (
+      bytes: number,
+    ) => Effect.Effect<void, ConnectionPersistenceError>;
     readonly loadShell: (
       environmentId: EnvironmentId,
     ) => Effect.Effect<Option.Option<DeferredShellSnapshot>, ConnectionPersistenceError>;

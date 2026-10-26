@@ -1,4 +1,4 @@
-/* oxlint-disable t3code/no-global-process-runtime -- This bootstrap runs before dependencies are installed. */
+/* oxlint-disable mines/no-global-process-runtime -- This bootstrap runs before dependencies are installed. */
 // @effect-diagnostics globalDate:off globalFetch:off - bootstrap has no Effect dependencies.
 // @effect-diagnostics nodeBuiltinImport:off - standalone collector installed outside the checkout.
 import * as NodeCrypto from "node:crypto";

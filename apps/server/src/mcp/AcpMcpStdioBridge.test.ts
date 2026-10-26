@@ -297,7 +297,7 @@ describe("AcpMcpStdioBridge", () => {
       const fiber = yield* mcpToolSession({
         endpoint: "http://127.0.0.1:1/mcp",
         authorization: "Bearer bridge-test",
-        clientName: "t3-code-acp-cli",
+        clientName: "mines-acp-cli",
         fetchImplementation: pendingFetch(started),
       }).pipe(
         Effect.flatMap((session) => session.call("orchestrator_capabilities", {})),

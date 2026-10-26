@@ -160,7 +160,7 @@ it.effect.each(["initial", "waiting"])(
       assert.equal(error.reason, "rollback-target-invalid");
       assert.equal(
         error.message,
-        `Rollback target ${checkpointId} for provider thread ${providerThreadId} on thread ${threadId} is incomplete or invalid.`,
+        `Rollback target ${checkpointId} for provider thread ${providerThreadId} on mine ${threadId} is incomplete or invalid.`,
       );
       assert.equal(error.cause, undefined);
       assert.equal(resolveRuntimePolicy.mock.calls.length, 0);
@@ -549,7 +549,7 @@ const seedRollbackHistory = Effect.gen(function* () {
         parentCheckpointId: null,
         ordinalWithinScope: ordinal,
         appRunOrdinal: ordinal === 0 ? null : ordinal,
-        ref: CheckpointRef.make(`refs/t3/rollback-history/${ordinal}`),
+        ref: CheckpointRef.make(`refs/mines/rollback-history/${ordinal}`),
         status: ordinal === 7 ? "stale" : "ready",
         files: [],
         capturedAt: now,

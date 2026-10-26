@@ -55,10 +55,22 @@ describe("environment maintenance access", () => {
 });
 
 describe("environment release checks", () => {
+  it("does not fetch any releases when the mines repository is missing or upstream", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    await expect(findEnvironmentUpdate("1.0.0", new AbortController().signal, "")).rejects.toThrow(
+      "disabled",
+    );
+    await expect(
+      findEnvironmentUpdate("1.0.0", new AbortController().signal, "pingdotgg/t3code"),
+    ).rejects.toThrow("disabled");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   const signal = new AbortController().signal;
   const feed = (...tags: ReadonlyArray<string>) =>
     new Response(
-      `<feed><id>tag:github.com,2008:https://github.com/pingdotgg/t3code/releases</id>${tags
+      `<feed><id>tag:github.com,2008:https://github.com/mines-test/mines/releases</id>${tags
         .map((tag) => `<entry><id>tag:github.com,2008:Repository/1/${tag}</id></entry>`)
         .join("")}</feed>`,
     );
@@ -67,7 +79,7 @@ describe("environment release checks", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
-        url === "https://github.com/pingdotgg/t3code/releases.atom"
+        url === "https://github.com/mines-test/mines/releases.atom"
           ? feed(
               "desktop-preview",
               "v1.0.0-preview.20260924.3",
@@ -78,14 +90,18 @@ describe("environment release checks", () => {
           : new Response(null, { status: 403 }),
       ),
     );
-    expect(await findEnvironmentUpdate("1.0.0-nightly.20260923.1", signal)).toBe(
-      "1.0.0-nightly.20260924.2",
-    );
-    expect(await findEnvironmentUpdate("1.0.0-nightly.20260924.2", signal)).toBeNull();
-    expect(await findEnvironmentUpdate("1.0.0-preview.20260923.1", signal)).toBe(
-      "1.0.0-preview.20260924.3",
-    );
-    expect(await findEnvironmentUpdate("1.0.0-preview.20260925.1", signal)).toBeNull();
+    expect(
+      await findEnvironmentUpdate("1.0.0-nightly.20260923.1", signal, "mines-test/mines"),
+    ).toBe("1.0.0-nightly.20260924.2");
+    expect(
+      await findEnvironmentUpdate("1.0.0-nightly.20260924.2", signal, "mines-test/mines"),
+    ).toBeNull();
+    expect(
+      await findEnvironmentUpdate("1.0.0-preview.20260923.1", signal, "mines-test/mines"),
+    ).toBe("1.0.0-preview.20260924.3");
+    expect(
+      await findEnvironmentUpdate("1.0.0-preview.20260925.1", signal, "mines-test/mines"),
+    ).toBeNull();
   });
 
   it("finds a published preview beyond the ten-entry feed and first API page", async () => {
@@ -93,11 +109,11 @@ describe("environment release checks", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
-        if (url === "https://github.com/pingdotgg/t3code/releases.atom") return feed(...nightlies);
-        if (url === "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=1") {
+        if (url === "https://github.com/mines-test/mines/releases.atom") return feed(...nightlies);
+        if (url === "https://api.github.com/repos/mines-test/mines/releases?per_page=100&page=1") {
           return Response.json(Array.from({ length: 100 }, () => ({ tag_name: "v2.0.0" })));
         }
-        if (url === "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=2") {
+        if (url === "https://api.github.com/repos/mines-test/mines/releases?per_page=100&page=2") {
           return Response.json([
             { tag_name: "v1.0.0-preview.20260925.1", draft: true },
             { tag_name: "v1.0.0-preview.20260924.3" },
@@ -106,15 +122,17 @@ describe("environment release checks", () => {
         throw new Error(`Unexpected release request: ${url}`);
       }),
     );
-    expect(await findEnvironmentUpdate("1.0.0-preview.20260923.1", signal)).toBe(
-      "1.0.0-preview.20260924.3",
-    );
+    expect(
+      await findEnvironmentUpdate("1.0.0-preview.20260923.1", signal, "mines-test/mines"),
+    ).toBe("1.0.0-preview.20260924.3");
   });
 
   it("reports failed checks instead of claiming the server is current", async () => {
     for (const status of [403, 429]) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
-      await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow(String(status));
+      await expect(findEnvironmentUpdate("1.0.0", signal, "mines-test/mines")).rejects.toThrow(
+        String(status),
+      );
     }
     vi.stubGlobal(
       "fetch",
@@ -122,10 +140,10 @@ describe("environment release checks", () => {
         url.endsWith(".atom") ? feed("v1.0.0") : Response.json([{ tag_name: "v1.0.0" }]),
       ),
     );
-    await expect(findEnvironmentUpdate("1.0.0-nightly.20260923.1", signal)).rejects.toThrow(
-      "No nightly release",
-    );
+    await expect(
+      findEnvironmentUpdate("1.0.0-nightly.20260923.1", signal, "mines-test/mines"),
+    ).rejects.toThrow("No nightly release");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "invalid" })));
-    await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow();
+    await expect(findEnvironmentUpdate("1.0.0", signal, "mines-test/mines")).rejects.toThrow();
   });
 });

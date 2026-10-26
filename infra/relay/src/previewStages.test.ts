@@ -20,10 +20,10 @@ describe("preview stages", () => {
   });
 
   it("matches only tunnels of the exact stage", () => {
-    expect(isPreviewTunnelName(`t3coderelay-managedendpoint-pr-42-${KEY}`, "pr-42")).toBe(true);
-    expect(isPreviewTunnelName(`t3coderelay-managedendpoint-pr-42-${KEY}`, "pr-4")).toBe(false);
-    expect(isPreviewTunnelName(`t3coderelay-managedendpoint-prod-${KEY}`, "pr-42")).toBe(false);
-    expect(isPreviewTunnelName(`t3coderelay-managedendpoint-pr-42-xyz`, "pr-42")).toBe(false);
+    expect(isPreviewTunnelName(`minesrelay-managedendpoint-pr-42-${KEY}`, "pr-42")).toBe(true);
+    expect(isPreviewTunnelName(`minesrelay-managedendpoint-pr-42-${KEY}`, "pr-4")).toBe(false);
+    expect(isPreviewTunnelName(`minesrelay-managedendpoint-prod-${KEY}`, "pr-42")).toBe(false);
+    expect(isPreviewTunnelName(`minesrelay-managedendpoint-pr-42-xyz`, "pr-42")).toBe(false);
   });
 
   it("matches only hostnames of the exact stage under the tunnel zone", () => {
@@ -37,8 +37,8 @@ describe("preview stages", () => {
 
   it("targets only this stage's tunnels and the records that point at them", () => {
     const zone = "tunnels.example.com";
-    const mine = `t3coderelay-managedendpoint-pr-42-${KEY}`;
-    const otherStage = `t3coderelay-managedendpoint-pr-7-${KEY}`;
+    const mine = `minesrelay-managedendpoint-pr-42-${KEY}`;
+    const otherStage = `minesrelay-managedendpoint-pr-7-${KEY}`;
     const otherKey = "fedcba9876543210";
     const targets = previewSweepTargets({
       stage: "pr-42",

@@ -1,20 +1,15 @@
-export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"] as const;
+export const BUILT_IN_THEME_IDS = ["mines-chat", "grove", "ocean", "ember", "iris"] as const;
 
-export const MOBILE_DEFAULT_THEME_ID = "t3-code";
+export const MOBILE_DEFAULT_THEME_ID = "mines";
 
 export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
 
-/** Reserve appearance keywords, built-ins, and legacy aliases so custom themes cannot capture stored preferences. */
+/** Reserve appearance keywords and built-ins so custom themes cannot capture stored preferences. */
 export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "system",
   "light",
   "dark",
   ...BUILT_IN_THEME_IDS,
-  "t3-chat-dark",
-  "t3-grove",
-  "t3-ocean",
-  "t3-ember",
-  "t3-iris",
 ]);
 
 /** The mobile default id is valid in saved themes but cannot be published because web/desktop cannot resolve it. */
@@ -105,7 +100,7 @@ export type ThemeDefinition = Readonly<{
   managed?: boolean;
 }>;
 
-export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
+export const MINES_LIGHT_THEME_COLORS: ThemeColors = {
   searchMatchBackground: "#ffde8b",
   searchMatchForeground: "#21180a",
   searchMatchActiveBackground: "#eea52b",
@@ -169,14 +164,14 @@ export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
   terminalScrollbarHover: "#bdbdbd",
 };
 
-export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
+export const MINES_DARK_THEME_COLORS: ThemeColors = {
   searchMatchBackground: "#8c6c1f",
   searchMatchForeground: "#f5f5f5",
   searchMatchActiveBackground: "#eea52b",
   searchMatchActiveForeground: "#21180a",
-  canvas: "#0a0a0a",
-  chrome: "#0a0a0a",
-  toolbar: "#0a0a0a",
+  canvas: "#000000",
+  chrome: "#000000",
+  toolbar: "#000000",
   toolbarForeground: "#f5f5f5",
   toolbarBorder: "#191919",
   toolbarControl: "#111111",
@@ -225,7 +220,7 @@ export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
   sidebarRowActive: "#1a1b1b",
   sidebarRowSelected: "#111111",
   sidebarBorder: "#141414",
-  terminalBackground: "#0a0a0a",
+  terminalBackground: "#000000",
   terminalForeground: "#f5f5f5",
   terminalCursor: "#b4cbff",
   terminalSelection: "#343a47",
@@ -233,9 +228,9 @@ export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
   terminalScrollbarHover: "#363636",
 };
 
-export const T3_CHAT_THEME: ThemeDefinition = {
-  id: "t3-chat",
-  label: "T3 Chat",
+export const MINES_CHAT_THEME: ThemeDefinition = {
+  id: "mines-chat",
+  label: "mines Chat",
   appearance: "light",
   colors: {
     canvas: "oklch(0.982446 0.010114 325.653)",
@@ -909,7 +904,7 @@ export const IRIS_THEME: ThemeDefinition = {
 };
 
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
-  T3_CHAT_THEME,
+  MINES_CHAT_THEME,
   GROVE_THEME,
   OCEAN_THEME,
   EMBER_THEME,

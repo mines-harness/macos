@@ -20,6 +20,8 @@ import { RpcClientError } from "effect/rpc";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
+import { RpcCatalogExecution, catalogBytesToBase64 } from "../catalog/execution.ts";
+import { flushCatalogSession } from "../catalog/peer.ts";
 
 export class EnvironmentRpcUnavailableError extends Schema.TaggedError<EnvironmentRpcUnavailableError>()(
   "EnvironmentRpcUnavailableError",
@@ -49,6 +51,10 @@ export type EnvironmentRpcTag = keyof WsRpcProtocolClient & string;
 type RpcMethod<TTag extends EnvironmentRpcTag> = WsRpcProtocolClient[TTag];
 
 export type EnvironmentSubscriptionRpcTag =
+  | typeof WS_METHODS.voiceSubscribe
+  | typeof WS_METHODS.catalogSubscribe
+  | typeof WS_METHODS.sharedGroupsSubscribe
+  | typeof WS_METHODS.groupsSubscribe
   | typeof WS_METHODS.codexAuthCallbackSubscribe
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe
@@ -198,6 +204,58 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
   });
   const session = yield* currentSession();
   yield* authorizeRequest(tag, input);
+  const capturesContext =
+    tag === ORCHESTRATION_V2_WS_METHODS.launchThread ||
+    tag === WS_METHODS.groupsSend ||
+    (tag === ORCHESTRATION_V2_WS_METHODS.dispatchCommand &&
+      typeof input === "object" &&
+      input !== null &&
+      "type" in input &&
+      input.type === "message.dispatch");
+  let preparedInput = input;
+  if (capturesContext) {
+    const guard = yield* RpcCatalogExecution;
+    const unavailable = (cause?: unknown) =>
+      new EnvironmentRpcUnavailableError({
+        environmentId: supervisor.target.environmentId,
+        message:
+          cause instanceof Error
+            ? cause.message
+            : "Project context has not synchronized with this computer. Try sending again after it connects.",
+      });
+    const capture = yield* Effect.try({ try: guard.capture, catch: unavailable });
+    if (capture) {
+      const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+      if (Option.isNone(prepared)) return yield* unavailable();
+      yield* Effect.tryPromise({
+        try: async (signal) => {
+          capture.assertCurrent();
+          await capture.persist();
+          capture.assertCurrent();
+          if (prepared.value.peerSession)
+            await flushCatalogSession(
+              prepared.value.peerSession,
+              capture.accountId,
+              capture.stateVector,
+              signal,
+            );
+          else await capture.flushLocal(supervisor.target.environmentId, signal);
+          capture.assertCurrent();
+        },
+        catch: unavailable,
+      }).pipe(
+        Effect.timeoutOrElse({ duration: "20 seconds", orElse: () => Effect.fail(unavailable()) }),
+      );
+      if ((yield* currentSession()) !== session) return yield* unavailable();
+      preparedInput = {
+        ...input,
+        catalogContextRevision: {
+          accountId: capture.accountId,
+          stateVector: catalogBytesToBase64(capture.stateVector),
+        },
+      };
+    }
+  }
   const observer = yield* EnvironmentRpcRequestObserver;
   const method = session.client[tag] as (
     input: EnvironmentRpcInput<TTag>,
@@ -207,7 +265,7 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
     environmentLabel: supervisor.target.label,
     method: tag,
   });
-  return yield* method(input).pipe(Effect.ensuring(completeObservation));
+  return yield* method(preparedInput).pipe(Effect.ensuring(completeObservation));
 });
 
 export function runStreamGuarded<TTag extends EnvironmentStreamCommandRpcTag>(

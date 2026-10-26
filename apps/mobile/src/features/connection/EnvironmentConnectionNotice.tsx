@@ -77,7 +77,7 @@ export function EnvironmentConnectionNotice(props: {
           />
         )}
 
-        <Text className="text-center text-lg font-t3-bold text-foreground">
+        <Text className="text-center text-lg font-mines-bold text-foreground">
           {noticeTitle(props.connection.phase, props.environmentLabel)}
         </Text>
         <Text className="text-center text-sm leading-normal text-foreground-muted">

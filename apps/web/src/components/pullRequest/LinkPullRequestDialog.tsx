@@ -130,7 +130,7 @@ function LinkPullRequestDialog({
         <DialogHeader>
           <DialogTitle>Link pull request</DialogTitle>
           <DialogDescription>
-            Attach a pull request to this thread by its URL, or by its number for this thread's
+            Attach a pull request to this mine by its URL, or by its number for this mine's
             repository.
           </DialogDescription>
         </DialogHeader>

@@ -93,7 +93,7 @@ it.effect.each(["expired", "resolved"] as const)(
       assert.equal(error.reason, "request-not-ready");
       assert.equal(
         error.message,
-        `Runtime request ${requestId} on thread ${threadId} is not ready for response execution.`,
+        `Runtime request ${requestId} on mine ${threadId} is not ready for response execution.`,
       );
       assert.isUndefined(error.cause);
       assert.equal(getSession.mock.calls.length, 0);

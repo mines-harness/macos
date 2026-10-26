@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+    />
+    <title>Opening mines</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      img {
+        grid-area: 1 / 1;
+        object-fit: contain;
+        pointer-events: none;
+      }
+      #mine {
+        width: 112px;
+        height: 112px;
+      }
+      #boom {
+        width: 280px;
+        height: 210px;
+        visibility: hidden;
+      }
+      html[data-state="ready"] #mine {
+        visibility: hidden;
+      }
+      html[data-state="ready"] #boom {
+        visibility: visible;
+      }
+    </style>
+  </head>
+  <body aria-label="Opening mines">
+    <img id="mine" src="mine.png" alt="mines" />
+    <img id="boom" src="boom.png" alt="Boom!" />
+  </body>
+</html>

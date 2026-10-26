@@ -2,11 +2,13 @@ import { EnvironmentId, ProjectId, type AgentSessionProjectCandidate } from "@t3
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  groupOnboardingProjects,
   partitionOnboardingProjects,
   onboardingProjectKey,
   resolveOnboardingLandingProject,
   resolveOnboardingProjectId,
+  groupImportSections,
+  updateImportSelection,
+  importSelectionCounts,
 } from "./projectImport.logic";
 
 const now = Date.parse("2026-08-22T12:00:00.000Z");
@@ -27,9 +29,125 @@ function candidate(
   };
 }
 
-const github = (repository: string) => ({
-  remoteKey: `github.com/${repository.toLowerCase()}`,
-  repository,
+it("previews actual project and direct-mine sections without inventing repository sections", () => {
+  const project = {
+    ...candidate("/code/app"),
+    key: "app",
+    sourceSection: { id: "work", title: "Work", order: 1 },
+    threads: [
+      { key: "one", title: "First", source: "codex" as const, lastActiveAt: null },
+      {
+        key: "two",
+        title: "Second",
+        source: "codex" as const,
+        lastActiveAt: null,
+        sourceSection: { id: "studio", title: "Studio", order: 0 },
+      },
+    ],
+  };
+  const legacy = { ...candidate("/code/legacy"), key: "legacy" };
+  const groups = groupImportSections([project, legacy]);
+  expect(
+    groups.map((group) => [
+      group.title,
+      group.projects.map((view) => [view.candidate.key, view.threadKeys]),
+    ]),
+  ).toEqual([
+    ["Studio", [["app", ["two"]]]],
+    ["Work", [["app", ["one"]]]],
+    ["Other projects", [["legacy", undefined]]],
+  ]);
+});
+
+it("keeps mine selection stable across section aliases and reselecting a whole project", () => {
+  const project = {
+    ...candidate("/code/app"),
+    key: "app",
+    threads: [
+      { key: "one", title: "First", source: "codex" as const, lastActiveAt: null },
+      { key: "two", title: "Second", source: "codex" as const, lastActiveAt: null },
+    ],
+  };
+  const initial = { projects: new Set(["app"]), threads: new Map<string, ReadonlySet<string>>() };
+  const partial = updateImportSelection(
+    initial,
+    [project],
+    [{ projectKey: "app", threadKeys: ["one"], checked: false }],
+  );
+  expect([...partial.projects]).toEqual(["app"]);
+  expect([...partial.threads.get("app")!]).toEqual(["two"]);
+  const none = updateImportSelection(
+    partial,
+    [project],
+    [{ projectKey: "app", threadKeys: ["two"], checked: false }],
+  );
+  expect(none.projects.size).toBe(0);
+  const all = updateImportSelection(none, [project], [{ projectKey: "app", checked: true }]);
+  expect([...all.projects]).toEqual(["app"]);
+  expect(all.threads.size).toBe(0);
+});
+
+it("shows projectless source roots directly and nests their subagents across execution workspaces", () => {
+  const root = {
+    ...candidate("/cwd/root"),
+    key: "root-cwd",
+    sourceProject: null,
+    threads: [
+      {
+        key: "root",
+        sourceThreadId: "native-root",
+        kind: "thread" as const,
+        sourceProject: null,
+        title: "Real conversation",
+        source: "codex" as const,
+        lastActiveAt: null,
+      },
+      {
+        key: "child",
+        sourceThreadId: "native-child",
+        sourceParentThreadId: "native-root",
+        kind: "subagent" as const,
+        sourceProject: null,
+        agentName: "Ada",
+        title: "UUID",
+        source: "codex" as const,
+        lastActiveAt: null,
+      },
+    ],
+  };
+  const other = {
+    ...candidate("/cwd/worker"),
+    key: "worker-cwd",
+    sourceProject: null,
+    threads: [
+      {
+        key: "grandchild",
+        sourceThreadId: "native-grandchild",
+        sourceParentThreadId: "native-child",
+        kind: "subagent" as const,
+        sourceProject: null,
+        title: "UUID2",
+        source: "codex" as const,
+        lastActiveAt: null,
+      },
+    ],
+  };
+  const groups = groupImportSections([root, other]);
+  expect(groups.flatMap((group) => group.projects)).toEqual([]);
+  const nodes = groups.flatMap((group) => group.threads);
+  expect(nodes.map((node) => node.thread.key)).toEqual(["root"]);
+  expect(nodes[0]?.children[0]?.children[0]?.thread.key).toBe("grandchild");
+  const selected = updateImportSelection(
+    { projects: new Set<string>(), threads: new Map() },
+    [root, other],
+    [{ projectKey: root.key, threadKeys: ["root"], checked: true }],
+  );
+  expect([...selected.projects]).toEqual(["root-cwd", "worker-cwd"]);
+  expect(selected.threads.size).toBe(0);
+  expect(importSelectionCounts([root, other], selected)).toEqual({
+    conversations: 1,
+    subagents: 2,
+  });
 });
 
 describe("partitionOnboardingProjects", () => {
@@ -67,71 +185,6 @@ describe("partitionOnboardingProjects", () => {
     const { git: _git, ...legacy } = candidate("/projects/legacy");
 
     expect(partitionOnboardingProjects([legacy], now).recent).toEqual([legacy]);
-  });
-});
-
-describe("groupOnboardingProjects", () => {
-  it("groups clones by origin, keeps local repos separate, and folds non-git folders away", () => {
-    const main = candidate("/code/t3code", {
-      git: github("pingdotgg/t3code"),
-      threadCount: 79,
-      lastActiveAt: "2026-08-21T12:00:00.000Z",
-    });
-    const clone = candidate("/code/clones/t3code-2", {
-      git: github("pingdotgg/t3code"),
-      threadCount: 13,
-      lastActiveAt: "2026-08-10T12:00:00.000Z",
-    });
-    const older = candidate("/code/fleet", {
-      git: github("t3dotgg/fleet"),
-      threadCount: 295,
-      lastActiveAt: "2026-08-22T00:00:00.000Z",
-    });
-    const local = candidate("/code/scratch-repo", { title: "scratch-repo" });
-    const folder = candidate("/tmp/notes", { git: null });
-
-    const grouped = groupOnboardingProjects([main, clone, older, local, folder]);
-
-    expect(grouped.other).toEqual([folder]);
-    expect(
-      grouped.repositories.map((group) => ({
-        label: group.label,
-        paths: group.candidates.map((item) => item.path),
-        threadCount: group.threadCount,
-        lastActiveAt: group.lastActiveAt,
-      })),
-    ).toEqual([
-      {
-        label: "t3dotgg/fleet",
-        paths: ["/code/fleet"],
-        threadCount: 295,
-        lastActiveAt: "2026-08-22T00:00:00.000Z",
-      },
-      {
-        label: "pingdotgg/t3code",
-        paths: ["/code/t3code", "/code/clones/t3code-2"],
-        threadCount: 92,
-        lastActiveAt: "2026-08-21T12:00:00.000Z",
-      },
-      {
-        label: "scratch-repo",
-        paths: ["/code/scratch-repo"],
-        threadCount: 3,
-        lastActiveAt: "2026-08-20T12:00:00.000Z",
-      },
-    ]);
-  });
-
-  // regression: #10547 project import broke on servers that predate git identity
-  it("lists candidates without git identity as standalone repositories", () => {
-    const { git: _git, ...legacy } = candidate("/code/legacy", { title: "legacy" });
-
-    const grouped = groupOnboardingProjects([legacy]);
-
-    expect(grouped.other).toEqual([]);
-    expect(grouped.repositories.map((group) => [group.label, group.repository])).toEqual([
-      ["legacy", null],
-    ]);
   });
 });
 

@@ -149,6 +149,9 @@ describe("Antigravity subscription limits", () => {
       expect(
         requests.filter((request) => request.url.endsWith(":retrieveUserQuotaSummary")),
       ).toHaveLength(4);
+      expect(requests.filter((request) => request.url.endsWith(":fetchAvailableModels"))).toEqual(
+        [],
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
@@ -193,6 +196,114 @@ describe("Antigravity subscription limits", () => {
       expect(limits.unavailable).toBeUndefined();
       expect(limits.windows).toHaveLength(4);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("complements partner summaries with the reported Gemini quota and its reset", () =>
+    Effect.gen(function* () {
+      const { probe } = yield* fixture({
+        summary: { groups: [summary.groups[1]] },
+        models: {
+          models: {
+            chat_23310: {
+              modelProvider: "MODEL_PROVIDER_GOOGLE",
+              quotaInfo: { remainingFraction: 1 },
+            },
+            "gemini-3.8-flash-tiered": {
+              modelProvider: "MODEL_PROVIDER_GOOGLE",
+              quotaInfo: { remainingFraction: 1, resetTime: "2026-10-26T07:56:17Z" },
+            },
+            "claude-a": {
+              quotaInfo: { remainingFraction: 0.1 },
+              weeklyQuotaInfo: { remainingFraction: 0.1 },
+            },
+            "gpt-a": { quotaInfo: { remainingFraction: 0.1 } },
+          },
+        },
+      });
+      const limits = yield* probe;
+      expect(limits.windows.map((window) => window.id).toSorted()).toEqual([
+        "3p-5h",
+        "3p-weekly",
+        "gemini-quota",
+      ]);
+      expect(limits.windows.find((window) => window.id === "gemini-quota")).toEqual({
+        id: "gemini-quota",
+        label: "Gemini · Usage 5h",
+        kind: "other",
+        usedPercent: 0,
+        resetsAt: "2026-10-26T07:56:17.000Z",
+      });
+      expect(limits.windows.find((window) => window.id === "3p-5h")?.usedPercent).toBeCloseTo(56);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("complements Gemini summaries without duplicating their model aliases", () =>
+    Effect.gen(function* () {
+      const { probe } = yield* fixture({
+        summary: { groups: [summary.groups[0]] },
+        models: {
+          models: {
+            "gemini-a": { quotaInfo: { remainingFraction: 0.1 } },
+            "claude-a": { quotaInfo: { remainingFraction: 0.6 } },
+          },
+        },
+      });
+      const limits = yield* probe;
+      expect(limits.windows.map((window) => window.id).toSorted()).toEqual([
+        "claude-quota",
+        "gemini-5h",
+        "gemini-weekly",
+      ]);
+      expect(limits.windows.find((window) => window.id === "claude-quota")?.usedPercent).toBe(40);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "does not replace an explicitly disabled or unknown Gemini summary with model aliases",
+    () =>
+      Effect.gen(function* () {
+        for (const bucket of [
+          { bucketId: "gemini-5h", window: "5h", remainingFraction: 0, disabled: true },
+          { bucketId: "gemini-weekly", window: "weekly", resetTime: "2026-10-26T07:56:17Z" },
+        ]) {
+          const { probe, requests } = yield* fixture({
+            summary: { groups: [...summary.groups.slice(1), { buckets: [bucket] }] },
+            models: { models: { "gemini-a": { quotaInfo: { remainingFraction: 1 } } } },
+          });
+          const limits = yield* probe;
+          expect(limits.windows.map((window) => window.id).toSorted()).toEqual([
+            "3p-5h",
+            "3p-weekly",
+          ]);
+          expect(
+            requests.filter((request) => request.url.endsWith(":fetchAvailableModels")),
+          ).toEqual([]);
+        }
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "merges grouped and top-level summary buckets without losing the most-used reading",
+    () =>
+      Effect.gen(function* () {
+        const { probe, requests } = yield* fixture({
+          summary: {
+            groups: [summary.groups[1]],
+            buckets: [
+              ...summary.groups[0]!.buckets,
+              { bucketId: "3p-5h", window: "5h", remainingFraction: 0.9 },
+              { bucketId: "3p-weekly", window: "weekly", remainingFraction: 0.9, disabled: true },
+            ],
+          },
+        });
+        const limits = yield* probe;
+        expect(limits.windows).toHaveLength(4);
+        expect(limits.windows.find((window) => window.id === "3p-5h")?.usedPercent).toBeCloseTo(56);
+        expect(limits.windows.find((window) => window.id === "3p-weekly")?.usedPercent).toBe(100);
+        expect(requests.filter((request) => request.url.endsWith(":fetchAvailableModels"))).toEqual(
+          [],
+        );
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   it.effect("re-reads changed credentials and clears cached access after sign-out", () =>

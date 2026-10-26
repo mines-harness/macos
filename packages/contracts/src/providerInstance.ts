@@ -53,6 +53,10 @@ export const ProviderInstanceConfig = Schema.Struct({
   accentColor: Schema.optional(TrimmedNonEmptyString),
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
+  removed: Schema.optionalKey(Schema.Boolean),
+  quotaFailoverPriority: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1000 })),
+  ),
   config: Schema.optionalKey(Schema.Unknown),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
@@ -67,6 +71,12 @@ export const ProviderInstanceMutation = Schema.Union([
     operation: Schema.Literal("upsert"),
     instanceId: ProviderInstanceId,
     instance: ProviderInstanceConfig,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal("duplicate"),
+    instanceId: ProviderInstanceId,
+    sourceInstanceId: ProviderInstanceId,
+    displayName: Schema.optionalKey(TrimmedNonEmptyString),
   }),
   Schema.Struct({
     operation: Schema.Literal("remove"),

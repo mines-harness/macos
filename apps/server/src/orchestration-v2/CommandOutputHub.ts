@@ -60,7 +60,7 @@ export interface CommandOutputHubShape {
 }
 
 export class CommandOutputHub extends Context.Service<CommandOutputHub, CommandOutputHubShape>()(
-  "t3/orchestration-v2/CommandOutputHub",
+  "mines/orchestration-v2/CommandOutputHub",
 ) {}
 
 const isCommandOutputError = Schema.is(OrchestrationV2CommandOutputError);
@@ -249,7 +249,7 @@ export const make = Effect.gen(function* () {
           if (lost !== undefined) {
             return yield* new OrchestrationV2CommandOutputError({
               threadId: target.threadId,
-              message: "Lost the thread's event stream.",
+              message: "Lost the mine's event stream.",
               cause: Cause.squash(lost),
             });
           }

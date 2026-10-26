@@ -102,7 +102,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
         stackedThreadToast({
           type: "error",
           title: "Workspace path is unavailable",
-          description: "This thread does not have a workspace path to save into.",
+          description: "This mine does not have a workspace path to save into.",
         }),
       );
       return;

@@ -591,7 +591,7 @@ it.effect.each([
       const emptyCompaction = projection.turnItems.some(
         (turnItem) =>
           turnItem.type === "error" &&
-          turnItem.failure.message === "Start a conversation before compacting this thread.",
+          turnItem.failure.message === "Start a conversation before compacting this mine.",
       );
       assert.equal(emptyCompaction, rejected);
       assert.deepEqual(opened, rejected ? [] : [target.instanceId]);

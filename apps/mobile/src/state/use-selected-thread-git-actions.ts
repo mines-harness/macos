@@ -84,7 +84,7 @@ export function useSelectedThreadGitActions() {
           Cause.fail(
             new EnvironmentAuthorizationError({
               requiredScope: AuthOrchestrationOperateScope,
-              message: "This connection cannot update the thread's branch.",
+              message: "This connection cannot update the mine's branch.",
             }),
           ),
         );

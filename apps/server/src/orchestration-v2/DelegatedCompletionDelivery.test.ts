@@ -667,6 +667,11 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
       const projection = yield* orchestrator.getThreadProjection(threadId);
       const message = projection.messages.find((candidate) => candidate.id === messageId);
       assert.deepEqual(message?.delegatedCompletion?.taskIds, [firstTaskId, secondTaskId]);
+      assert.equal(
+        projection.runs.find((candidate) => candidate.userMessageId === messageId)
+          ?.contextContinuationOfRunId,
+        runId,
+      );
       assert.include(message?.text ?? "", String(firstTaskId));
       assert.include(message?.text ?? "", String(secondTaskId));
       assert.include(message?.text ?? "", "task_status");

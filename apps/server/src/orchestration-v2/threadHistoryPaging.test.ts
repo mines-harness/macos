@@ -201,7 +201,7 @@ describe("threadHistoryPaging", () => {
       .slice(0, 12)
       .map((row) =>
         row.item.type === "command_execution"
-          ? { ...row, item: { ...row.item, output: "x".repeat(200_000) } }
+          ? { ...row, item: { ...row.item, output: "x".repeat(80_000) } }
           : row,
       );
     const bounded = buildBoundedThreadProjection({

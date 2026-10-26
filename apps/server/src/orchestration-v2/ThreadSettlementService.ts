@@ -147,6 +147,7 @@ export function isAutoSettlementCandidate(
   thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestUserAuthoredMessageAt">,
   nowMs: number,
 ): boolean {
+  if (thread.historyOrigin === "v1_import" && thread.latestRunId === null) return false;
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
   if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
   if (thread.pendingRuntimeRequest !== null) return false;
@@ -249,7 +250,7 @@ export class ThreadSettlementServiceV2 extends Context.Service<
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly drain: Effect.Effect<void>;
   }
->()("t3/orchestration-v2/ThreadSettlementService/ThreadSettlementServiceV2") {}
+>()("mines/orchestration-v2/ThreadSettlementService/ThreadSettlementServiceV2") {}
 
 function autoSettlementConfigured(settings: import("@t3tools/contracts").ServerSettings): boolean {
   if (settings.sidebarAutoSettleOnMerge || settings.sidebarAutoSettleAfterDays !== null) {
@@ -491,7 +492,7 @@ export const make = Effect.gen(function* () {
       if (thread.branch === null) return null;
       const cwd = lookupCwdByThreadId.get(thread.id);
       if (cwd === undefined) {
-        return yield* Effect.die(new Error("thread project not found"));
+        return yield* Effect.die(new Error("mine project not found"));
       }
       const refresh = group.filter((member) => shellClosedThreads.delete(member.id)).length > 0;
       return yield* git.branchPullRequest({ cwd, branch: thread.branch }, { refresh });

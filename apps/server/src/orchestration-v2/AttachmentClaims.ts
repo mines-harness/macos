@@ -123,7 +123,7 @@ export const claimPendingAttachments = Effect.fn("AttachmentClaims.claimPendingA
             Effect.mapError(
               (cause) =>
                 new AttachmentClaimError({
-                  message: `Failed to claim attachment '${attachment.name}' for this thread.`,
+                  message: `Failed to claim attachment '${attachment.name}' for this mine.`,
                   cause,
                 }),
             ),

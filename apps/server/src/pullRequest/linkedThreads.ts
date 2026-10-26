@@ -50,7 +50,7 @@ export const listLinkedPullRequestThreads = Effect.fn("listLinkedPullRequestThre
     (cause) =>
       new PullRequestOperationError({
         operation: "linkedThreads",
-        detail: "Could not load linked threads.",
+        detail: "Could not load linked mines.",
         cause,
       }),
   ),

@@ -302,7 +302,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     void runProjectScript(
       {
         id: "chat-code-block",
-        name: "Chat code block",
+        name: "Mine code block",
         command,
         icon: "play",
         runOnWorktreeCreate: false,

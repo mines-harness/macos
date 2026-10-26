@@ -151,9 +151,9 @@
       "types": "./src/projectSettings.ts",
       "import": "./src/projectSettings.ts"
     },
-    "./t3ProjectFile": {
-      "types": "./src/t3ProjectFile.ts",
-      "import": "./src/t3ProjectFile.ts"
+    "./minesProjectFile": {
+      "types": "./src/minesProjectFile.ts",
+      "import": "./src/minesProjectFile.ts"
     },
     "./orchestrationTiming": {
       "types": "./src/orchestrationTiming.ts",
@@ -387,9 +387,9 @@
       "types": "./src/orchestrationV2Timeline.ts",
       "import": "./src/orchestrationV2Timeline.ts"
     },
-    "./t3McpToolPresentation": {
-      "types": "./src/t3McpToolPresentation.ts",
-      "import": "./src/t3McpToolPresentation.ts"
+    "./minesMcpToolPresentation": {
+      "types": "./src/minesMcpToolPresentation.ts",
+      "import": "./src/minesMcpToolPresentation.ts"
     },
     "./Array": {
       "types": "./src/Array.ts",
@@ -494,6 +494,38 @@
     "./cloneUrl": {
       "types": "./src/cloneUrl.ts",
       "import": "./src/cloneUrl.ts"
+    },
+    "./minesContacts": {
+      "types": "./src/minesContacts.ts",
+      "import": "./src/minesContacts.ts"
+    },
+    "./minesPeerTrust": {
+      "types": "./src/minesPeerTrust.ts",
+      "import": "./src/minesPeerTrust.ts"
+    },
+    "./minesSharedGroupAccess": {
+      "types": "./src/minesSharedGroupAccess.ts",
+      "import": "./src/minesSharedGroupAccess.ts"
+    },
+    "./minesPeerTransport": {
+      "types": "./src/minesPeerTransport.ts",
+      "import": "./src/minesPeerTransport.ts"
+    },
+    "./minesPeerSignaling": {
+      "types": "./src/minesPeerSignaling.ts",
+      "import": "./src/minesPeerSignaling.ts"
+    },
+    "./minesPeerAdapters": {
+      "types": "./src/minesPeerAdapters.ts",
+      "import": "./src/minesPeerAdapters.ts"
+    },
+    "./minesPeerPairing": {
+      "types": "./src/minesPeerPairing.ts",
+      "import": "./src/minesPeerPairing.ts"
+    },
+    "./minesPush": {
+      "types": "./src/minesPush.ts",
+      "import": "./src/minesPush.ts"
     }
   },
   "scripts": {
@@ -505,6 +537,7 @@
     "@noble/hashes": "catalog:",
     "@t3tools/contracts": "workspace:*",
     "effect": "catalog:",
+    "fflate": "0.8.3",
     "jose": "catalog:",
     "mdast-util-directive": "catalog:",
     "mdast-util-to-hast": "^13.2.1",

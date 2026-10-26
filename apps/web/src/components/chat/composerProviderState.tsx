@@ -22,7 +22,6 @@ import type { ComposerControlSize } from "./ComposerControl";
 import {
   getReasoningTraitStep,
   shouldRenderTraitsControls,
-  TraitsMenuContent,
   TraitsPicker,
   type PromptUltrathink,
 } from "./TraitsPicker";
@@ -212,10 +211,7 @@ export function getComposerReasoningStep(input: {
   };
 }
 
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-): ReactNode {
+function renderTraitsControl(Component: typeof TraitsPicker, input: TraitsRenderInput): ReactNode {
   const {
     provider,
     instanceId,
@@ -273,10 +269,6 @@ function renderTraitsControl(
       {...(isComposerOwned ? { isComposerOwned } : {})}
     />
   );
-}
-
-export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsMenuContent, input);
 }
 
 export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {

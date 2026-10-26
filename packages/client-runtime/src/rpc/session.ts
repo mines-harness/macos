@@ -42,6 +42,7 @@ import {
   withoutEnvironmentThemes,
 } from "../state/serverConfigProjection.ts";
 import { environmentMismatchError } from "../connection/errors.ts";
+import { layerPeerSocket } from "@t3tools/shared/minesPeerAdapters";
 
 const SOCKET_OPEN_TIMEOUT = "15 seconds";
 
@@ -206,9 +207,11 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         Effect.asVoid,
       ),
     });
-    const layerSocket = Socket.layerWebSocket(connection.socketUrl, {
-      openTimeout: SOCKET_OPEN_TIMEOUT,
-    }).pipe(Layer.provide(Layer.succeed(Socket.WebSocketConstructor, webSocketConstructor)));
+    const layerSocket = connection.peerSession
+      ? layerPeerSocket(connection.peerSession, connection.socketUrl)
+      : Socket.layerWebSocket(connection.socketUrl, {
+          openTimeout: SOCKET_OPEN_TIMEOUT,
+        }).pipe(Layer.provide(Layer.succeed(Socket.WebSocketConstructor, webSocketConstructor)));
     const layerProtocol = Layer.effect(
       RpcClient.Protocol,
       RpcClient.makeProtocolSocket({

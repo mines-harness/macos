@@ -14,6 +14,11 @@ describe("settings pairing URL helpers", () => {
     );
   });
 
+  it("does not offer hosted pairing without an explicitly configured site", () => {
+    vi.stubEnv("VITE_HOSTED_APP_URL", "");
+    expect(resolveHostedPairingUrl("https://my-host.example", "secret")).toBeNull();
+  });
+
   it("uses hosted pairing URLs for HTTPS endpoints", () => {
     vi.stubEnv("VITE_HOSTED_APP_URL", "https://preview.t3.codes");
 

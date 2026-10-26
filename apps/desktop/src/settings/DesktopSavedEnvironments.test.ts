@@ -117,7 +117,7 @@ function layer(
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ MINES_HOME: baseDir })),
     ),
   );
 
@@ -147,7 +147,7 @@ const withSavedEnvironments = <A, E, R>(
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "t3-desktop-saved-environments-test-",
+      prefix: "mines-desktop-saved-environments-test-",
     });
     return yield* effect.pipe(Effect.provide(layer(baseDir, options)));
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);

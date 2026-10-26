@@ -25,9 +25,9 @@ export function encodeComposerContextClipboardHtml(
   html?: string,
 ): string {
   if (html !== undefined)
-    return `<div data-t3-context-fragment="${encodeURIComponent(fragment)}">${html}</div>`;
+    return `<div data-mines-context-fragment="${encodeURIComponent(fragment)}">${html}</div>`;
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return `<pre data-t3-context-fragment="${encodeURIComponent(fragment)}">${escaped}</pre>`;
+  return `<pre data-mines-context-fragment="${encodeURIComponent(fragment)}">${escaped}</pre>`;
 }
 
 export function decodeComposerContextClipboardHtml(
@@ -35,7 +35,7 @@ export function decodeComposerContextClipboardHtml(
 ): ComposerContextClipboardFragment | null {
   // Percent encoding can expand each UTF-16 code unit to nine characters.
   if (!html || html.length > MAX_FRAGMENT_CHARS * 9 + HTML_WRAPPER_SLACK_CHARS) return null;
-  const encoded = /data-t3-context-fragment=["']([^"']+)["']/.exec(html)?.[1];
+  const encoded = /data-mines-context-fragment=["']([^"']+)["']/.exec(html)?.[1];
   if (!encoded) return null;
   try {
     return decodeComposerContextFragment(decodeURIComponent(encoded));

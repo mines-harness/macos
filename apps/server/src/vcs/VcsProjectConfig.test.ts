@@ -14,15 +14,31 @@ const layerTest = VcsProjectConfig.layer.pipe(
 );
 
 describe("VcsProjectConfig", () => {
-  it.layer(layerTest)("discovers .t3code/vcs.json from nested workspaces", (it) => {
+  it.layer(layerTest)("keeps old install project configuration separate", (it) => {
+    it.effect("does not read or copy .t3code configuration", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "mines-vcs-isolated-" });
+        const legacy = path.join(root, ".t3code", "vcs.json");
+        yield* fs.makeDirectory(path.dirname(legacy), { recursive: true });
+        yield* fs.writeFileString(legacy, '{"vcsKind":"jj"}');
+        const service = yield* VcsProjectConfig.VcsProjectConfig;
+        assert.equal(yield* service.resolveKind({ cwd: root }), "auto");
+        assert.equal(yield* fs.readFileString(legacy), '{"vcsKind":"jj"}');
+        assert.isFalse(yield* fs.exists(path.join(root, ".mines", "vcs.json")));
+      }),
+    );
+  });
+  it.layer(layerTest)("discovers .mines/vcs.json from nested workspaces", (it) => {
     it.effect("returns the configured kind", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const root = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-vcs-config-test-",
+          prefix: "mines-vcs-config-test-",
         });
-        const configDir = path.join(root, ".t3code");
+        const configDir = path.join(root, ".mines");
         const nested = path.join(root, "packages", "app");
         yield* fileSystem.makeDirectory(configDir, { recursive: true });
         yield* fileSystem.makeDirectory(nested, { recursive: true });
@@ -50,9 +66,9 @@ describe("VcsProjectConfig", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const root = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-vcs-config-test-",
+          prefix: "mines-vcs-config-test-",
         });
-        const configDir = path.join(root, ".t3code");
+        const configDir = path.join(root, ".mines");
         const cwd = path.join(root, "invalid\0child");
         yield* fileSystem.makeDirectory(configDir, { recursive: true });
         yield* fileSystem.writeFileString(
@@ -64,7 +80,7 @@ describe("VcsProjectConfig", () => {
         const kind = yield* config.resolveKind({ cwd });
 
         assert.equal(kind, "jj");
-        const failedCandidate = path.join(cwd, ".t3code", "vcs.json");
+        const failedCandidate = path.join(cwd, ".mines", "vcs.json");
         const [error] = messages[0] as ReadonlyArray<unknown>;
         assert.instanceOf(error, VcsProjectConfig.VcsProjectConfigError);
         assert.equal(
@@ -92,9 +108,9 @@ describe("VcsProjectConfig", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const root = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-vcs-config-test-",
+          prefix: "mines-vcs-config-test-",
         });
-        const configDir = path.join(root, ".t3code");
+        const configDir = path.join(root, ".mines");
         yield* fileSystem.makeDirectory(configDir, { recursive: true });
         yield* fileSystem.writeFileString(path.join(configDir, "vcs.json"), "{not json");
 

@@ -88,15 +88,15 @@ function setUserInputDraftCustomAnswer(
 export function useSelectedThreadRequests() {
   const respondToApproval = useAtomCommand(
     threadEnvironment.respondToApproval,
-    "thread approval response",
+    "mine approval response",
   );
   const respondToUserInput = useAtomCommand(
     threadEnvironment.respondToUserInput,
-    "thread user input response",
+    "mine user input response",
   );
   const dismissUserInput = useAtomCommand(
     threadEnvironment.dismissUserInput,
-    "thread user input dismissal",
+    "mine user input dismissal",
   );
   const { selectedThread: selectedThreadShell } = useThreadSelection();
   const pendingRequests = useSelectedThreadPendingRequests();

@@ -57,6 +57,309 @@ const layerTest = Layer.mergeAll(
   ),
 );
 
+it.effect("guards metadata title repair against a concurrent rename without provider effects", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:guarded-title");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-guarded-title"),
+      threadId,
+      projectId: ProjectId.make("project:guarded-title"),
+      title: "Generated placeholder",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("guarded-title-first"),
+      threadId,
+      title: "Native title",
+      expectedTitle: "Generated placeholder",
+    });
+    assert.equal((yield* projections.getThreadRecords(threadId, [])).thread.title, "Native title");
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("guarded-title-user"),
+      threadId,
+      title: "My chosen title",
+    });
+    const stale = yield* Effect.exit(
+      orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("guarded-title-stale"),
+        threadId,
+        title: "Other source title",
+        expectedTitle: "Generated placeholder",
+      }),
+    );
+    assert.equal(stale._tag, "Failure");
+    assert.equal(
+      (yield* projections.getThreadRecords(threadId, [])).thread.title,
+      "My chosen title",
+    );
+    const sql = yield* SqlClient.SqlClient;
+    assert.deepEqual(yield* sql`SELECT * FROM orchestration_v2_effect_outbox`, []);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "repairs imported lineage atomically while preserving a newer title and rejecting stale or fork lineage",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("import:codex:native-child");
+      const parentThreadId = ThreadId.make("import:codex:native-parent");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-import-lineage"),
+        threadId,
+        projectId: ProjectId.make("project:import-lineage"),
+        title: "Old imported title",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: "kept-branch",
+        worktreePath: null,
+        createdBy: "system",
+        creationSource: "server",
+      });
+      const initial = (yield* projections.getThreadRecords(threadId, [])).thread;
+      const importedAt = yield* DateTime.now;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("seed-import-origin"),
+            type: "thread.metadata-updated",
+            threadId,
+            occurredAt: importedAt,
+            payload: { ...initial, historyOrigin: "v1_import", importedAt },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("rename-before-lineage"),
+        threadId,
+        title: "My newer title",
+      });
+      const importedLineage = {
+        parentThreadId,
+        relationshipToParent: "subagent" as const,
+        rootThreadId: parentThreadId,
+      };
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("repair-import-lineage"),
+        threadId,
+        expectedLineage: initial.lineage,
+        importedLineage,
+      });
+      const repaired = yield* projections.getThreadRecords(threadId, ["runs"]);
+      assert.deepEqual(repaired.thread.lineage, importedLineage);
+      assert.equal(repaired.thread.creationSource, "provider");
+      assert.equal(repaired.thread.title, "My newer title");
+      assert.equal(repaired.thread.branch, "kept-branch");
+      assert.equal(DateTime.formatIso(repaired.thread.importedAt!), DateTime.formatIso(importedAt));
+      assert.deepEqual(repaired.runs, []);
+      const stale = yield* Effect.exit(
+        orchestrator.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("stale-import-lineage"),
+          threadId,
+          expectedLineage: initial.lineage,
+          importedLineage,
+        }),
+      );
+      assert.equal(stale._tag, "Failure");
+      const forkLineage = {
+        parentThreadId,
+        relationshipToParent: "fork" as const,
+        rootThreadId: parentThreadId,
+      };
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("seed-user-fork-lineage"),
+            type: "thread.metadata-updated",
+            threadId,
+            occurredAt: importedAt,
+            payload: { ...repaired.thread, lineage: forkLineage },
+          },
+        ],
+      });
+      const fork = yield* Effect.exit(
+        orchestrator.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("keep-user-fork-lineage"),
+          threadId,
+          expectedLineage: forkLineage,
+          importedLineage,
+        }),
+      );
+      assert.equal(fork._tag, "Failure");
+      assert.deepEqual(
+        (yield* projections.getThreadRecords(threadId, [])).thread.lineage,
+        forkLineage,
+      );
+      const sql = yield* SqlClient.SqlClient;
+      assert.deepEqual(yield* sql`SELECT * FROM orchestration_v2_effect_outbox`, []);
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("clears only an imported automatic settlement at its original source timestamp", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const sink = yield* EventSink.EventSinkV2;
+    const sourceAt = DateTime.makeUnsafe("2026-09-01T10:00:00.000Z");
+    const manualAt = DateTime.makeUnsafe("2026-10-01T10:00:00.000Z");
+    for (const kind of ["automatic", "manual", "unsettled"] as const) {
+      const threadId = ThreadId.make(`import:codex:settlement-${kind}`);
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`create-import-settlement-${kind}`),
+        threadId,
+        projectId: ProjectId.make("project:import-settlement"),
+        title: "My current title",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: "kept-branch",
+        worktreePath: null,
+        createdBy: "system",
+        creationSource: "server",
+      });
+      const original = (yield* projections.getThreadRecords(threadId, [])).thread;
+      const settledAt = kind === "manual" ? manualAt : sourceAt;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make(`seed-import-settlement-${kind}`),
+            type: "thread.metadata-updated",
+            threadId,
+            occurredAt: sourceAt,
+            payload: {
+              ...original,
+              historyOrigin: "v1_import",
+              settledOverride: "settled",
+              settledAt,
+              unsettledAt: kind === "unsettled" ? manualAt : null,
+            },
+          },
+        ],
+      });
+      const result = yield* Effect.exit(
+        orchestrator.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`repair-import-settlement-${kind}`),
+          threadId,
+          clearImportedSettlement: sourceAt,
+        }),
+      );
+      const current = yield* projections.getThreadRecords(threadId, ["runs"]);
+      assert.equal(result._tag, kind === "automatic" ? "Success" : "Failure");
+      assert.equal(current.thread.settledOverride, kind === "automatic" ? null : "settled");
+      assert.equal(current.thread.settledAt === null, kind === "automatic");
+      assert.equal(current.thread.title, "My current title");
+      assert.equal(current.thread.branch, "kept-branch");
+      assert.equal(
+        DateTime.formatIso(current.thread.updatedAt),
+        DateTime.formatIso(original.updatedAt),
+      );
+      assert.deepEqual(current.runs, []);
+    }
+    const sql = yield* SqlClient.SqlClient;
+    assert.deepEqual(yield* sql`SELECT * FROM orchestration_v2_effect_outbox`, []);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "guards imported auto-settlement repair against a later manual settle with the same timestamp",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sink = yield* EventSink.EventSinkV2;
+      const stamp = DateTime.makeUnsafe("2026-09-01T10:00:00.000Z");
+      for (const manual of [false, true]) {
+        const threadId = ThreadId.make(`import:codex:event-settlement-${manual}`);
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`create-event-settlement-${manual}`),
+          threadId,
+          projectId: ProjectId.make("project:event-settlement"),
+          title: "Retained title",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "system",
+          creationSource: "server",
+        });
+        const original = (yield* projections.getThreadRecords(threadId, [])).thread;
+        const settled = {
+          ...original,
+          historyOrigin: "v1_import" as const,
+          settledOverride: "settled" as const,
+          settledAt: stamp,
+          unsettledAt: null,
+        };
+        const eventId = EventId.make(`automatic-event:${threadId}`);
+        yield* sink.write({
+          commandId: CommandId.make(`server:auto-settle:${threadId}:fixture`),
+          events: [
+            {
+              id: eventId,
+              type: "thread.settled",
+              threadId,
+              occurredAt: stamp,
+              payload: settled,
+            },
+          ],
+        });
+        if (manual)
+          yield* sink.write({
+            commandId: CommandId.make(`user:settle:${threadId}`),
+            events: [
+              {
+                id: EventId.make(`manual-event:${threadId}`),
+                type: "thread.settled",
+                threadId,
+                occurredAt: stamp,
+                payload: settled,
+              },
+            ],
+          });
+        const result = yield* Effect.exit(
+          orchestrator.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make(`repair-event-settlement-${manual}`),
+            threadId,
+            clearImportedSettlement: stamp,
+            expectedSettlementEventId: eventId,
+          }),
+        );
+        assert.equal(result._tag, manual ? "Failure" : "Success");
+        const current = (yield* projections.getThreadRecords(threadId, [])).thread;
+        assert.equal(current.settledOverride, manual ? "settled" : null);
+        assert.equal(current.title, original.title);
+        assert.equal(DateTime.formatIso(current.updatedAt), DateTime.formatIso(original.updatedAt));
+      }
+      const sql = yield* SqlClient.SqlClient;
+      assert.deepEqual(yield* sql`SELECT * FROM orchestration_v2_effect_outbox`, []);
+    }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect(
   "records approval feedback and targets only its runtime request without dispatching a parent turn",
   () =>
@@ -1253,7 +1556,7 @@ it.effect.each([false, true])("rejects thread.create for an existing id (deleted
     assert.ok(Result.isFailure(outcome), "duplicate create must be rejected");
     const refused = outcome.failure;
     assert.equal(refused._tag, "OrchestratorThreadAlreadyExistsError");
-    assert.equal(refused.message, `Thread ${threadId} already exists. Use a new thread id.`);
+    assert.equal(refused.message, `Mine ${threadId} already exists. Use a new mine id.`);
     assert.deepEqual(yield* projections.getThread(threadId), before);
     assert.equal(yield* orchestrator.getThreadEventSequence(threadId), sequence);
     const retried = yield* orchestrator.dispatch(duplicate).pipe(Effect.flip);

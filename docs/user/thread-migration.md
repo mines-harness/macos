@@ -1,22 +1,23 @@
-# Threads from older T3 Code versions
+<a id="threads-from-older-t3-code-versions"></a>
 
-On your first V2 launch, T3 Code copies the V1 database, `state.sqlite`, into `statev2.sqlite`
-in the same data directory and migrates the copy. Your threads appear automatically, with full
-transcripts imported as needed. You do not need to run an import command.
+# Older histories and recovery copies
 
-V1 continues using its original database while V2 uses the copy. The database import can run while
-V1 is open. Opening V2 again resumes your V2 history. The copy happens only once: later conversations
-and changes in either version do not sync to the other. Settings, attachments, and workspace files
-remain shared.
+A fresh mines installation uses its own data directory. It does not automatically
+copy mines's database, browser profile, credentials, cookies, or drafts. Use the
+explicit history import flow for supported Codex, Claude Code, OpenCode, and
+Antigravity sources; the import report explains whether each mine can resume
+natively or is a transcript only.
 
-The V2 desktop app uses a separate browser profile, so browser cookies and caches do not carry
-over from V1. You may need to sign in again to websites opened inside the app. On its first launch,
-the V2 desktop app copies stashed prompts, unsent drafts, layout, and theme from V1. Anything you
-change in V2 afterwards stays in V2.
+## Existing legacy databases
 
-The migrated thread keeps its title, project, provider and model selection, permission and
+The inherited V1-to-V2 database converter applies only when a legacy database is
+already present in the mines server's explicitly chosen data directory. It is not
+an automatic importer for another app's live installation. Work from a stopped,
+backed-up copy and retain the original until you have checked the result.
+
+The migrated mine keeps its title, project, provider and model selection, permission and
 interaction modes, branch or worktree, archive state, settlement state, snooze and pin state, and
-linked pull request. T3 Code also brings over user and assistant messages, their timestamps, and
+linked pull request. mines also brings over user and assistant messages, their timestamps, and
 supported attachments. Large histories may appear in stages while the server imports transcripts.
 
 The migration does not recreate the old provider's live session. It also does not convert old run
@@ -24,23 +25,25 @@ records, checkpoints and diffs, tool activity, approval history, or proposed pla
 new format. These items may be absent from a migrated timeline even though the conversation text is
 present.
 
-## Continuing a migrated thread
+<a id="continuing-a-migrated-thread"></a>
 
-The first new message starts a fresh provider session. T3 Code selects intact user and assistant
+## Continuing a migrated mine
+
+The first new message starts a fresh provider session. mines selects intact user and assistant
 messages using the same [handoff budget](./portable-handoffs.md) as a provider switch. Omitted text
-remains in the thread and can be retrieved by the agent. The migration retains its separate
+remains in the mine and can be retrieved by the agent. The migration retains its separate
 32,000-character recovery excerpt; neither that excerpt nor the handoff replaces the full imported
 transcript.
 
-Before continuing a long or important thread, read the recent transcript and include any older
-requirements the agent still needs in your next message. Starting a new thread and pasting a short
+Before continuing a long or important mine, read the recent transcript and include any older
+requirements the agent still needs in your next message. Starting a new mine and pasting a short
 handoff is also a good choice when the old conversation contains conflicting instructions.
 
 ## Keeping a recovery copy
 
-T3 Code does not currently have a whole-thread export command. Before a major server update, stop
+mines does not currently have a whole-mine export command. Before a major server update, stop
 the server and copy its `userdata` directory to a safe location. The default is
-`~/.t3/userdata`; a server started with `--home-dir <path>` uses `<path>/userdata`.
+`~/.mines/userdata`; a server started with `--home-dir <path>` uses `<path>/userdata`.
 
 If a migrated transcript is missing from the app, keep that copy unchanged. You can inspect the
 old transcript without starting a server against it:
@@ -49,7 +52,7 @@ old transcript without starting a server against it:
 sqlite3 -readonly /path/to/recovery-copy/state.sqlite
 ```
 
-At the SQLite prompt, list recent legacy threads:
+At the SQLite prompt, list recent legacy mines:
 
 ```sql
 .headers on

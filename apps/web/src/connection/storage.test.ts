@@ -2,7 +2,7 @@ import {
   ConnectionTransientError,
   PrimaryConnectionTarget,
 } from "@t3tools/client-runtime/connection";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 import { ConnectionCatalogDocument, Persistence } from "@t3tools/client-runtime/platform";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -133,13 +133,12 @@ describe("IndexedDB connection recovery", () => {
       yield* Effect.gen(function* () {
         const cache = yield* Persistence.EnvironmentCacheStore;
         const environmentId = EnvironmentId.make("env");
-        const threadId = ThreadId.make("thread");
-        expect(Option.isNone(yield* cache.loadThread(environmentId, threadId))).toBe(true);
+        expect(Option.isNone(yield* cache.loadServerConfig(environmentId))).toBe(true);
         expect(open).toHaveBeenCalledTimes(1);
 
         first.dispatchEvent(new Event("close"));
         const recovered = yield* Effect.all(
-          [cache.loadThread(environmentId, threadId), cache.loadThread(environmentId, threadId)],
+          [cache.loadServerConfig(environmentId), cache.loadServerConfig(environmentId)],
           { concurrency: 2 },
         );
         expect(recovered.every(Option.isNone)).toBe(true);
@@ -189,7 +188,7 @@ describe("IndexedDB connection closed without a close event", () => {
 
       yield* Effect.gen(function* () {
         const cache = yield* Persistence.EnvironmentCacheStore;
-        const loaded = yield* cache.loadThread(EnvironmentId.make("env"), ThreadId.make("thread"));
+        const loaded = yield* cache.loadServerConfig(EnvironmentId.make("env"));
         expect(Option.isNone(loaded)).toBe(true);
         expect(open).toHaveBeenCalledTimes(2);
       }).pipe(Effect.provide(ConnectionStorage.layer));

@@ -59,7 +59,7 @@ export class EventSinkStreamError extends Schema.TaggedError<EventSinkStreamErro
   override get message(): string {
     return this.threadId === undefined
       ? "Failed to stream orchestration V2 events."
-      : `Failed to stream orchestration V2 events for thread ${this.threadId}.`;
+      : `Failed to stream orchestration V2 events for mine ${this.threadId}.`;
   }
 }
 
@@ -192,10 +192,13 @@ export interface EventSinkV2Shape {
   readonly readByCommandId: (input: {
     readonly commandId: CommandId;
   }) => Stream.Stream<OrchestrationV2StoredEvent, EventSinkV2Error>;
+  readonly latestSettlement: (
+    threadId: ThreadId,
+  ) => Effect.Effect<OrchestrationV2StoredEvent | undefined, EventSinkV2Error>;
 }
 
 export class EventSinkV2 extends Context.Service<EventSinkV2, EventSinkV2Shape>()(
-  "t3/orchestration-v2/EventSink/EventSinkV2",
+  "mines/orchestration-v2/EventSink/EventSinkV2",
 ) {}
 
 const layerBase: Layer.Layer<
@@ -730,7 +733,7 @@ const layerBase: Layer.Layer<
         Effect.flatMap(
           Option.match({
             onNone: () =>
-              Effect.fail(`Command ${commandId} was already used by a thread command.` as const),
+              Effect.fail(`Command ${commandId} was already used by a mine command.` as const),
             onSome: Effect.succeed,
           }),
         ),
@@ -985,6 +988,14 @@ const layerBase: Layer.Layer<
                 cause,
               }),
           ),
+        ),
+      latestSettlement: (threadId) =>
+        eventStore.read({ threadId, eventType: "thread.settled" }).pipe(
+          Stream.runFold(
+            () => undefined as OrchestrationV2StoredEvent | undefined,
+            (_last, stored) => stored,
+          ),
+          Effect.mapError((cause) => new EventSinkStreamError({ threadId, cause })),
         ),
     } satisfies EventSinkV2Shape);
   }),

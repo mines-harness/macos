@@ -52,4 +52,10 @@ export const make = ElectronTheme.of({
     ),
 });
 
-export const layer = Layer.succeed(ElectronTheme, make);
+export const layer = Layer.effect(
+  ElectronTheme,
+  Effect.sync(() => {
+    Electron.nativeTheme.themeSource = "dark";
+    return make;
+  }),
+);

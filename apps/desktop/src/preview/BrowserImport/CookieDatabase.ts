@@ -46,7 +46,7 @@ export const bareHost = (host: string): string => (host.startsWith(".") ? host.s
 /** Copy before reading to avoid live WAL writes and never open the source browser database for writing. */
 export const snapshotCookieDatabase = Effect.fn("CookieDatabase.snapshotCookieDatabase")(function* (
   cookiePath: string,
-  tempPrefix = "t3code-cookie-import-",
+  tempPrefix = "mines-cookie-import-",
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

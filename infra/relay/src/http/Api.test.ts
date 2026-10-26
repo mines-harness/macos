@@ -581,7 +581,7 @@ describe("relay managed tunnel recovery", () => {
         privateKey: keyPair.privateKey,
         typ: RELAY_MANAGED_TUNNEL_RECOVERY_TYP,
         payload: {
-          iss: "t3-env:environment-1",
+          iss: "mines-env:environment-1",
           aud: "https://relay.example.test",
           sub: "environment-1",
           jti: "recovery-proof",
@@ -644,7 +644,7 @@ describe("relay managed tunnel recovery", () => {
         privateKey: keyPair.privateKey,
         typ: RELAY_MANAGED_TUNNEL_RECOVERY_TYP,
         payload: {
-          iss: "t3-env:environment-1",
+          iss: "mines-env:environment-1",
           aud: "https://relay.example.test",
           sub: "environment-1",
           jti: "registration-origin-proof",
@@ -1085,7 +1085,7 @@ describe("relay environment unlink", () => {
                 environmentId: "environment-1",
                 hostname: "dev-0123456789abcdef.example.test",
                 tunnelId: "tunnel-1",
-                tunnelName: `t3coderelay-managedendpoint-dev-${endpointKey}`,
+                tunnelName: `minesrelay-managedendpoint-dev-${endpointKey}`,
                 dnsRecordId: "dns-1",
                 readyAt: "2026-07-28T00:00:00.000Z",
                 tunnelReleasedAt: null,

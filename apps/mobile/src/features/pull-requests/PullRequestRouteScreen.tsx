@@ -188,7 +188,7 @@ function PullRequestIdentity(props: {
         ) : (
           <View className="min-h-8 flex-row items-center gap-1.5">
             <SymbolView name={status.icon} size={14} tintColorClassName={status.tint} />
-            <Text className={`text-xs font-t3-medium ${status.text}`}>{status.label}</Text>
+            <Text className={`text-xs font-mines-medium ${status.text}`}>{status.label}</Text>
           </View>
         )}
         <PullRequestDiffStats additions={pr.additions} deletions={pr.deletions} compact />
@@ -200,12 +200,12 @@ function PullRequestIdentity(props: {
           <View className="h-3 w-12 rounded bg-subtle-strong" />
         )}
       </View>
-      <Text selectable className="text-xl font-t3-bold leading-7">
+      <Text selectable className="text-xl font-mines-bold leading-7">
         {pr.title}
       </Text>
       <View className="flex-row items-center gap-2">
         <PullRequestAvatar actor={pr.author} size={20} />
-        <Text className="min-w-0 flex-1 text-xs font-t3-medium" numberOfLines={1}>
+        <Text className="min-w-0 flex-1 text-xs font-mines-medium" numberOfLines={1}>
           {pr.author?.login ?? "Unknown author"}
         </Text>
         <Text className="shrink text-right text-2xs text-foreground-muted" numberOfLines={1}>

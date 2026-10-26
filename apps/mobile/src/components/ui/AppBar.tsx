@@ -129,9 +129,7 @@ export function AppBar(props: AppBarProps) {
             <ScreenHeaderButton
               axisBehavior={usesNativeWorkspaceColumns ? "horizontalOnly" : undefined}
               accessibilityLabel={
-                panes.primarySidebarVisible
-                  ? `Maximize ${props.title.toLowerCase()}`
-                  : "Show threads"
+                panes.primarySidebarVisible ? `Maximize ${props.title.toLowerCase()}` : "Show mines"
               }
               icon={
                 panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"

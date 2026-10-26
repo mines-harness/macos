@@ -84,6 +84,7 @@ const SHELL_SYNCHRONIZATION_ERROR_MESSAGE = "Could not synchronize environment d
 export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
   const cache = yield* Persistence.EnvironmentCacheStore;
+  const isCurrentOwner = cache.captureOwner?.() ?? (() => true);
   const snapshotLoader = yield* ShellSnapshotLoader.ShellSnapshotLoader;
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
@@ -138,6 +139,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         lastPersisted = snapshot;
         return;
       }
+      if (!isCurrentOwner()) return;
       const saved = yield* cache.saveShell(environmentId, snapshot).pipe(
         Effect.as(true),
         Effect.catch((error) =>

@@ -8,8 +8,7 @@ import {
 } from "./composerDraftStore";
 import { createMemoryStorage, type StateStorage } from "./lib/storage";
 
-export const PROMPT_STASH_STORAGE_KEY = "t3code:prompt-stash:v2";
-const LEGACY_PROMPT_STASH_STORAGE_KEY = "t3code:prompt-stash:v1";
+export const PROMPT_STASH_STORAGE_KEY = "mines:prompt-stash:v2";
 const PROMPT_STASH_STORAGE_VERSION = 2;
 
 export const MAX_STASH_ENTRIES = 20;
@@ -186,9 +185,6 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
 }));
 
 {
-  try {
-    baseStashStorage.removeItem(LEGACY_PROMPT_STASH_STORAGE_KEY);
-  } catch {}
   const persisted = readPersistedEntries();
   if (persisted) {
     usePromptStashStore.setState({ entries: persisted });

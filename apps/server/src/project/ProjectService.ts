@@ -138,7 +138,7 @@ export class ProjectService extends Context.Service<
       readonly projectIds?: ReadonlyArray<ProjectId>;
     }) => Effect.Effect<ReadonlyArray<OrchestrationProjectShell>, ProjectOperationError>;
   }
->()("t3/project/ProjectService") {}
+>()("mines/project/ProjectService") {}
 
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
@@ -431,11 +431,11 @@ export const make = Effect.gen(function* () {
       committed.receipt.threadId !== command.threadId ||
       committed.receipt.commandType !== command.type
     ) {
-      return yield* Effect.fail("The thread deletion command ID belongs to a different command.");
+      return yield* Effect.fail("The mine deletion command ID belongs to a different command.");
     }
     if (committed.receipt.status === "rejected") {
       return yield* Effect.fail(
-        committed.receipt.error ?? "Thread deletion was previously rejected.",
+        committed.receipt.error ?? "Mine deletion was previously rejected.",
       );
     }
   });

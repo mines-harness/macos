@@ -387,11 +387,11 @@ export function useImplementPlanInNewThread(input: ImplementPlanInNewThreadInput
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not start implementation thread",
+            title: "Could not start implementation mine",
             description:
               error instanceof Error
                 ? error.message
-                : "An error occurred while creating the new thread.",
+                : "An error occurred while creating the new mine.",
           }),
         );
       }

@@ -52,7 +52,7 @@ export function ComposerFeedback({
             label="Copy ID"
             tone="text"
             onPress={() =>
-              copyTextWithHaptic(submission.feedbackId, { target: "Codex feedback thread ID" })
+              copyTextWithHaptic(submission.feedbackId, { target: "Codex feedback ID" })
             }
           />
         ) : null}

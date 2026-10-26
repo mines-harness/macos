@@ -93,7 +93,7 @@ describe("Claude Agent SDK replay fixtures", () => {
         assert.equal(refused._tag, "OrchestratorSubagentThreadReadOnlyError");
         assert.equal(
           userFacingDispatchErrorMessage(refused),
-          "This subagent is run by its provider and cannot take messages. Message the parent thread instead.",
+          "This subagent is run by its provider and cannot take messages. Message the parent mine instead.",
         );
         assert.equal(yield* orchestrator.getThreadEventSequence(child.thread.id), before);
         const after = yield* orchestrator.getThreadProjection(child.thread.id);

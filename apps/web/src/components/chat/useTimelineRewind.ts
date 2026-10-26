@@ -113,7 +113,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     if (!supportsConversationRollback) {
       setThreadError(
         activeThread.id,
-        "This provider does not support reverting conversation history. Start a new thread instead.",
+        "This provider does not support reverting conversation history. Start a new mine instead.",
       );
       return;
     }
@@ -194,9 +194,9 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     const localApi = readLocalApi();
     const confirmed =
       localApi == null
-        ? window.confirm("Roll back this thread to the selected checkpoint?")
+        ? window.confirm("Roll back this mine to the selected checkpoint?")
         : await localApi.dialogs.confirm(
-            "Roll back this thread to the selected checkpoint?\nThis action cannot be undone.",
+            "Roll back this mine to the selected checkpoint?\nThis action cannot be undone.",
           );
     if (!confirmed) return;
 
@@ -216,7 +216,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
       const error = squashAtomCommandFailure(result);
       setThreadError(
         activeThread.id,
-        error instanceof Error ? error.message : "Failed to revert thread state.",
+        error instanceof Error ? error.message : "Failed to revert mine state.",
       );
     }
     useComposerDraftStore.setState((store) => {
@@ -256,7 +256,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     if (!targetThreadReady) {
       setThreadError(
         activeThread.id,
-        "The fork was created, but its thread data did not reach this client. Reconnect and try opening it from the sidebar.",
+        "The fork was created, but its mine data did not reach this client. Reconnect and try opening it from the sidebar.",
       );
       return;
     }

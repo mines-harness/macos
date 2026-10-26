@@ -190,6 +190,65 @@ describe("UsageAggregator", () => {
     expect(result.buckets[0]?.costSource).toBe("providerReported");
   });
 
+  it("retains reported and estimated costs separately in a mixed bucket even with price overrides", () => {
+    const aggregator = new UsageAggregator({
+      timeZone: "UTC",
+      sinceDay: "2026-08-01",
+      untilDay: "2026-08-31",
+      rates,
+      priceOverrides: rates,
+    });
+    aggregator.add(record({ reportedCostUsd: 1.25 }));
+    aggregator.add(record());
+    const [bucket] = aggregator.finish().buckets;
+    expect(bucket).toMatchObject({
+      providerReportedCostUsd: 1.25,
+      providerReportedRecords: 1,
+      estimatedCostUsd: expect.closeTo(0.004625),
+    });
+  });
+
+  it("produces exact rolling generated totals and a local-day year calendar from the same deduplicated stream", () => {
+    const now = Date.parse("2026-08-07T04:37:00.000Z");
+    const aggregator = new UsageAggregator({
+      timeZone: "America/Los_Angeles",
+      sinceDay: "2026-08-06",
+      untilDay: "2026-08-06",
+      rates,
+      overviewAtMs: now,
+    });
+    const add = (timestamp: string, outputTokens: number, extra: Partial<UsageRecord> = {}) =>
+      aggregator.add(
+        record({
+          timestampMs: Date.parse(timestamp),
+          totals: { ...record().totals, outputTokens, reasoningTokens: outputTokens },
+          ...extra,
+        }),
+        "/history",
+      );
+    add("2025-01-01T00:00:00.000Z", 100);
+    add("2026-07-08T04:37:00.000Z", 20);
+    add("2026-07-31T04:37:00.000Z", 10);
+    add("2026-08-06T04:37:00.000Z", 5, { dedupeKey: "same", reportedCostUsd: 1.25 });
+    add("2026-08-06T04:37:00.000Z", 5, { dedupeKey: "same", reportedCostUsd: 1.25 });
+    add("2026-08-07T04:37:00.000Z", 500);
+    const result = aggregator.finish();
+    expect(result.overview?.sources[0]).toMatchObject({
+      provider: "claude",
+      sourcePath: "/history",
+      firstRecordedAt: "2025-01-01T00:00:00.000Z",
+      generatedTokens: { last24h: 5, last7d: 15, last30d: 35, lifetime: 135 },
+    });
+    expect(result.overview?.sources[0]?.daily.map((day) => [day.day, day.outputTokens])).toEqual([
+      ["2026-07-07", 20],
+      ["2026-07-30", 10],
+      ["2026-08-05", 5],
+    ]);
+    expect(result.overview?.sources[0]?.daily.at(-1)?.providerReportedCostUsd).toBe(1.25);
+    expect(result.duplicatesDropped).toBe(1);
+    expect(result.buckets).toHaveLength(1);
+  });
+
   it("folds a mapped model into its target and prices it there", () => {
     const aggregator = new UsageAggregator({
       timeZone: "UTC",

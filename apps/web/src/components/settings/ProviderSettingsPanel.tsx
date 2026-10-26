@@ -21,7 +21,7 @@ import {
   ProviderDriverKind,
   type ProjectId,
   type ProviderInstanceConfig,
-  type ProviderInstanceId,
+  ProviderInstanceId,
   type ServerProvider,
   resolveEnvironmentMachineKind,
   resolveProjectProviderInstanceEnabled,
@@ -47,6 +47,7 @@ import {
   useToggleEnvironmentModelFavorite,
 } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { deriveAvailableInstanceId } from "./AddProviderInstanceDialog.logic";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
@@ -125,6 +126,7 @@ import {
   buildProviderInstanceOverridePatch,
   classifyProviderEnvironmentAccess,
   isProviderSettingsEnvironmentAvailable,
+  hasDiscoveredProviderAccount,
   type ProviderEnvironmentAccess,
   type ProviderOperateAccess,
   resolveRemoteOperateAccess,
@@ -137,12 +139,6 @@ function modelListChanges(current: ReadonlyArray<string>, next: ReadonlyArray<st
   return [...new Set([...currentSet, ...nextSet])]
     .filter((model) => currentSet.has(model) !== nextSet.has(model))
     .map((model) => ({ model, selected: nextSet.has(model) }));
-}
-
-function providerConfigString(config: unknown, key: string): string | null {
-  if (config === null || typeof config !== "object") return null;
-  const value = (config as Record<string, unknown>)[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 const PROVIDER_SETTINGS = providerClients.definitions.map((definition) => ({
@@ -585,10 +581,6 @@ export function EnvironmentProviderSettings({
   const updateProvider = useAtomCommand(serverEnvironment.updateProvider, {
     reportFailure: false,
   });
-  const uninstallAcpRegistryManagedBinary = useAtomCommand(
-    serverEnvironment.uninstallAcpRegistryManagedBinary,
-    { reportFailure: false },
-  );
   const acceptAcpRegistryUrlAuth = useAtomCommand(serverEnvironment.acceptAcpRegistryUrlAuth, {
     reportFailure: false,
   });
@@ -729,6 +721,7 @@ export function EnvironmentProviderSettings({
     Array<[ProviderInstanceId, ProviderInstanceConfig]>
   >();
   for (const [rawId, instance] of Object.entries(settings.providerInstances ?? {})) {
+    if (instance.removed === true) continue;
     const driver = instance.driver;
     const list = instancesByDriver.get(driver) ?? [];
     list.push([rawId as ProviderInstanceId, instance]);
@@ -754,10 +747,11 @@ export function EnvironmentProviderSettings({
     const hasDefaultSlot = providerSettings.hasDefaultInstance || explicitInstance !== undefined;
     if (
       hasDefaultSlot &&
-      (driver === "codex" ||
-        driver === "claudeAgent" ||
-        isDirty ||
-        resolveProviderInstanceEnabled(explicitInstance ?? { driver }) ||
+      explicitInstance?.removed !== true &&
+      (isDirty ||
+        hasDiscoveredProviderAccount(
+          serverProviders.find((provider) => provider.instanceId === defaultInstanceId),
+        ) ||
         defaultInstanceId === targetInstanceId)
     ) {
       rows.push({
@@ -849,47 +843,61 @@ export function EnvironmentProviderSettings({
       persistInstance(instanceId, next),
   );
 
-  const deleteInstance = useStableCallback(
-    async (instanceId: ProviderInstanceId, instance: ProviderInstanceConfig) => {
-      const updateResult = await persistProviderInstance({
-        operation: "remove",
-        instanceId,
+  const deleteInstance = useStableCallback(async (instanceId: ProviderInstanceId) => {
+    const updateResult = await persistProviderInstance({
+      operation: "remove",
+      instanceId,
+    });
+    if (updateResult._tag === "Failure") {
+      const error = squashAtomCommandFailure(updateResult);
+      toastManager.add({
+        type: "error",
+        title: "Could not delete provider instance",
+        description: error instanceof Error ? error.message : "The settings update failed.",
       });
-      if (updateResult._tag === "Failure") {
-        const error = squashAtomCommandFailure(updateResult);
+      return;
+    }
+
+    if (selectedRow?.instanceId === instanceId) {
+      setSelectedInstanceId(rows.find((row) => row.instanceId !== instanceId)?.instanceId ?? null);
+    }
+  });
+
+  const duplicateInstance = useStableCallback(
+    async (sourceInstanceId: ProviderInstanceId, instance: ProviderInstanceConfig) => {
+      const existing = new Set([
+        ...Object.keys(settings.providerInstances),
+        ...serverProviders.map((provider) => provider.instanceId),
+      ]);
+      const instanceId = ProviderInstanceId.make(
+        deriveAvailableInstanceId(() => `${sourceInstanceId.slice(0, 59)}_copy`, "", existing),
+      );
+      const displayName = `${instance.displayName?.trim() || PROVIDER_DISPLAY_NAMES[instance.driver] || instance.driver} copy`;
+      const result = await persistProviderInstance({
+        operation: "duplicate",
+        instanceId,
+        sourceInstanceId,
+        displayName,
+      });
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
-          title: "Could not delete provider instance",
+          title: "Could not duplicate provider instance",
           description: error instanceof Error ? error.message : "The settings update failed.",
         });
         return;
       }
-
-      if (instance.driver !== ProviderDriverKind.make("acpRegistry")) return;
-      if (providerConfigString(instance.config, "source") === "local") return;
-      const agentId = providerConfigString(instance.config, "agentId");
-      if (agentId === null) return;
-
-      // Concurrent removals race client snapshots; let the server decide whether the agent remains in use.
-      const uninstallResult = await uninstallAcpRegistryManagedBinary({
-        environmentId,
-        input: { agentId },
-      });
-      if (uninstallResult._tag === "Failure" && !isAtomCommandInterrupted(uninstallResult)) {
-        const error = squashAtomCommandFailure(uninstallResult);
-        toastManager.add({
-          type: "warning",
-          title: "Provider deleted, but managed files remain",
-          description: error instanceof Error ? error.message : "Managed binary cleanup failed.",
-        });
-      }
+      setSelectedInstanceId(instanceId);
     },
   );
 
   const resetDefaultInstance = useStableCallback(async (driverKind: ProviderDriverKind) => {
     const result = await persistProviderInstance({
-      operation: "remove",
+      operation: "upsert",
       instanceId: defaultInstanceIdForDriver(driverKind),
+      instance: { driver: driverKind },
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
@@ -922,6 +930,7 @@ export function EnvironmentProviderSettings({
     updateInstance,
     enableInstance,
     deleteInstance,
+    duplicateInstance,
     resetDefaultInstance,
     writeProjectOverride,
     updateModelPreferences: stableUpdateModelPreferences,
@@ -1201,7 +1210,8 @@ interface ProviderInstanceRowActions {
     instanceId: ProviderInstanceId,
     next: ProviderInstanceConfig,
   ) => Promise<void>;
-  readonly deleteInstance: (
+  readonly deleteInstance: (instanceId: ProviderInstanceId) => Promise<void>;
+  readonly duplicateInstance: (
     instanceId: ProviderInstanceId,
     instance: ProviderInstanceConfig,
   ) => Promise<void>;
@@ -1382,11 +1392,8 @@ function ProviderInstanceRow({
         ) : null
       }
       onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
-      onDelete={
-        mode === "editor" && !isDefault
-          ? () => actions.deleteInstance(instanceId, instance)
-          : undefined
-      }
+      onDelete={readOnly ? undefined : () => actions.deleteInstance(instanceId)}
+      onDuplicate={readOnly ? undefined : () => actions.duplicateInstance(instanceId, instance)}
       headerAction={
         mode === "editor" && isDefault && isDirty ? (
           <SettingResetButton

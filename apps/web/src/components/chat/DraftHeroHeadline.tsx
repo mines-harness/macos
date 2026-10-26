@@ -6,6 +6,8 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { FolderPlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useRef, useState } from "react";
+import { catalogHostId, resolveCatalogContext } from "@t3tools/client-runtime/catalog";
+import { useMinesCatalog } from "~/catalog/useMinesCatalog";
 
 import { openCommandPalette } from "~/commandPaletteBus";
 import { shortcutLabelForCommand } from "~/keybindings";
@@ -43,6 +45,7 @@ import { InlineButton } from "../ui/button";
 import { DraftProjectName } from "./DraftProjectName";
 import { DraftHeroProjectHeading } from "./DraftHeroProjectHeading";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { DraftParticipantPicker } from "./DraftParticipantPicker";
 
 const ADD_PROJECT_VALUE = "add-project";
 
@@ -66,6 +69,7 @@ export function DraftHeroHeadline({
   const threads = useThreadShells();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { snapshot: catalogSnapshot } = useMinesCatalog();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   const setLogicalProjectDraftThreadId = useComposerDraftStore(
@@ -122,6 +126,20 @@ export function DraftHeroHeadline({
         ) ?? null);
   const activeProjectKey = activeProjectGroup?.projectKey ?? "";
   const activeProjectDisplayName = activeProjectGroup?.displayName ?? activeProjectTitle;
+  const activeContextPath =
+    activeProjectRef === null
+      ? ""
+      : resolveCatalogContext(catalogSnapshot, {
+          entityId: catalogHostId(
+            "project",
+            activeProjectRef.environmentId,
+            activeProjectRef.projectId,
+          ),
+          environmentId: activeProjectRef.environmentId,
+        })
+          .layers.map((layer) => layer.title)
+          .join("/");
+  const activeContextName = activeContextPath || activeProjectDisplayName;
   const hasResolvedProject = activeProjectTitle !== null;
   const canChooseProject = projectPickerEntries.length > 0;
   const shouldShowProjectMenu = canChooseProject;
@@ -257,12 +275,12 @@ export function DraftHeroHeadline({
           }
         >
           <DraftProjectName
-            value={isScratchDraft ? "No project" : (activeProjectDisplayName ?? "Choose a project")}
+            value={isScratchDraft ? "No project" : (activeContextName ?? "Choose a project")}
             singleLine
           />
         </TooltipTrigger>
-        {activeProjectDisplayName && !isScratchDraft ? (
-          <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
+        {activeContextName && !isScratchDraft ? (
+          <TooltipPopup side="top">{activeContextName}</TooltipPopup>
         ) : null}
       </Tooltip>
       <ComboboxPopup align="center" className="w-72 overflow-hidden">
@@ -308,7 +326,7 @@ export function DraftHeroHeadline({
       onClick={openAddProject}
       className="pointer-events-auto inline min-w-0 max-w-full cursor-pointer border-muted-foreground/35 border-b border-dotted text-muted-foreground/60 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      <DraftProjectName value={activeProjectTitle ?? "Add a project"} singleLine />
+      <DraftProjectName value={activeContextName ?? "Add a project"} singleLine />
     </button>
   );
 
@@ -340,7 +358,7 @@ export function DraftHeroHeadline({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
       {hasResolvedProject && !isScratchDraft ? (
-        <DraftHeroProjectHeading projectName={activeProjectDisplayName ?? "Choose a project"}>
+        <DraftHeroProjectHeading projectName={activeContextName ?? "Choose a project"}>
           {projectSelector}
         </DraftHeroProjectHeading>
       ) : (
@@ -354,11 +372,19 @@ export function DraftHeroHeadline({
           )}
         </h1>
       )}
-      {scratchWorkspaceRoot === null ? null : (
-        <p className="mt-2 flex h-6 w-full items-center justify-center text-sm">
-          {isScratchDraft ? projectSelector : orStartWithoutProject}
-        </p>
-      )}
+      <div className="mt-2 flex min-h-6 w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm">
+        {scratchWorkspaceRoot !== null
+          ? isScratchDraft
+            ? projectSelector
+            : orStartWithoutProject
+          : null}
+        {draftId && (activeProjectRef?.environmentId ?? primaryEnvironmentId) ? (
+          <DraftParticipantPicker
+            draftId={draftId}
+            environmentId={activeProjectRef?.environmentId ?? primaryEnvironmentId!}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

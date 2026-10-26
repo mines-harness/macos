@@ -100,13 +100,13 @@ export function ComponentCatalogScreen() {
         {page === "controls" ? (
           <>
             <View className="gap-3">
-              <AppText className="text-lg font-t3-semibold">Lists and selection</AppText>
+              <AppText className="text-lg font-mines-semibold">Lists and selection</AppText>
               <ListSection>
                 <ListRow icon="folder" label="Projects" detail="4" onPress={() => setSheet(true)} />
                 <ListToggleRow
                   icon="bell.badge"
                   label="Notifications"
-                  description="Updates from your active threads"
+                  description="Updates from your active mines"
                   value={enabled}
                   onValueChange={setEnabled}
                 />
@@ -137,7 +137,7 @@ export function ComponentCatalogScreen() {
             </View>
             <View className="gap-3">
               <NativeAppBarExample />
-              <AppText className="text-lg font-t3-semibold">Buttons</AppText>
+              <AppText className="text-lg font-mines-semibold">Buttons</AppText>
               <View className="flex-row flex-wrap gap-2">
                 <Button label="Primary" tone="primary" onPress={announceAction} />
                 <Button label="Secondary" onPress={announceAction} />
@@ -158,7 +158,7 @@ export function ComponentCatalogScreen() {
         ) : null}
         {page === "forms" ? (
           <View className="gap-3">
-            <AppText className="text-lg font-t3-semibold">Forms</AppText>
+            <AppText className="text-lg font-mines-semibold">Forms</AppText>
             <AppTextInput
               accessibilityLabel="Example name"
               placeholder="Name"
@@ -202,7 +202,7 @@ export function ComponentCatalogScreen() {
         ) : null}
         {page === "feedback" ? (
           <View className="gap-3">
-            <AppText className="text-lg font-t3-semibold">Feedback and presentation</AppText>
+            <AppText className="text-lg font-mines-semibold">Feedback and presentation</AppText>
             <Notice message="This action could not finish. Try again." tone="danger" />
             {notice ? (
               <Toast
@@ -265,7 +265,7 @@ export function ComponentCatalogScreen() {
             <Progress label="Connecting" />
             <View className="items-start">
               <FloatingActionButton
-                label="New thread"
+                label="New mine"
                 icon="plus"
                 variant="extended"
                 tone="primary"

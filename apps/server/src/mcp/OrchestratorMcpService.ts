@@ -206,7 +206,7 @@ export interface OrchestratorMcpServiceShape {
 export class OrchestratorMcpService extends Context.Service<
   OrchestratorMcpService,
   OrchestratorMcpServiceShape
->()("t3/mcp/OrchestratorMcpService") {}
+>()("mines/mcp/OrchestratorMcpService") {}
 
 const isThreadManagementError = Schema.is(ThreadManagementService.ThreadManagementError);
 
@@ -805,7 +805,7 @@ function threadTitle(input: {
   readonly index: number;
 }): string {
   const detail = input.title?.trim() || input.prompt?.trim();
-  if (!detail) return `${input.parentTitle} thread ${input.index + 1}`;
+  if (!detail) return `${input.parentTitle} mine ${input.index + 1}`;
   return detail.length > 80 ? `${detail.slice(0, 77)}...` : detail;
 }
 
@@ -999,9 +999,9 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
     case "handoff":
       return item.summary ?? `${item.strategy} handoff to ${item.toProviderInstanceId}`;
     case "fork":
-      return `Forked to thread ${item.targetThreadId}.`;
+      return `Forked to mine ${item.targetThreadId}.`;
     case "thread_created":
-      return `Created thread ${item.targetThreadId} with ${item.targetProviderInstanceId} (${item.targetModel}).`;
+      return `Created mine ${item.targetThreadId} with ${item.targetProviderInstanceId} (${item.targetModel}).`;
     case "secret_request":
       return `Asked the user for ${item.label}: ${item.secretStatus}.`;
     case "subagent":
@@ -1118,10 +1118,7 @@ const make = Effect.gen(function* () {
       )
       .pipe(
         Effect.mapError((error) =>
-          failure(
-            "orchestration_error",
-            `Unable to read thread ${threadId}: ${errorMessage(error)}`,
-          ),
+          failure("orchestration_error", `Unable to read mine ${threadId}: ${errorMessage(error)}`),
         ),
       );
 
@@ -1190,7 +1187,7 @@ const make = Effect.gen(function* () {
         : Effect.fail(
             failure(
               "target_required",
-              "Pass projectId: this MCP client is not running inside a T3 thread.",
+              "Pass projectId: this MCP client is not running inside a mine.",
             ),
           );
 
@@ -1201,7 +1198,7 @@ const make = Effect.gen(function* () {
       .getThreadShell(threadId)
       .pipe(Effect.mapError(threadManagementFailure));
     if (shell === null || shell.deletedAt !== null) {
-      return yield* threadNotFound(threadManagement, threadId, `Thread ${threadId} was not found.`);
+      return yield* threadNotFound(threadManagement, threadId, `Mine ${threadId} was not found.`);
     }
     return yield* loadProjectThread(shell.projectId, threadId);
   });
@@ -1243,7 +1240,7 @@ const make = Effect.gen(function* () {
   ) => {
     const notActive = failure(
       "parent_not_active",
-      "The calling provider no longer owns an active thread run.",
+      "The calling provider no longer owns an active mine run.",
     );
     const activeRun = ThreadManagementService.latestActiveRun(parent);
     if (parent.thread.archivedAt === null && activeRun === undefined) {
@@ -1276,7 +1273,7 @@ const make = Effect.gen(function* () {
       return yield* threadNotFound(
         threadManagement,
         threadId,
-        `Thread ${threadId} is no longer available.`,
+        `Mine ${threadId} is no longer available.`,
       );
     }
     const target = yield* threadManagement
@@ -1490,7 +1487,7 @@ const make = Effect.gen(function* () {
     if (task === undefined || task.childThreadId === null) {
       return yield* failure(
         "task_not_found",
-        `Delegated task ${taskId} does not belong to thread ${scope.thread.threadId}.`,
+        `Delegated task ${taskId} does not belong to mine ${scope.thread.threadId}.`,
       );
     }
     const childControls = yield* threadManagement
@@ -1804,8 +1801,8 @@ const make = Effect.gen(function* () {
         return yield* failure(
           "invalid_request",
           parent === undefined
-            ? "bindToCurrentThread needs an agent running inside a T3 thread."
-            : "bindToCurrentThread binds to this thread, which belongs to a different project.",
+            ? "bindToCurrentThread needs an agent running inside a mine."
+            : "bindToCurrentThread binds to this mine, which belongs to a different project.",
         );
       }
       const modelSelection =
@@ -1878,8 +1875,8 @@ const make = Effect.gen(function* () {
           return yield* failure(
             "invalid_request",
             parent === undefined
-              ? "bindToCurrentThread needs an agent running inside a T3 thread."
-              : "bindToCurrentThread binds to this thread, which belongs to a different project.",
+              ? "bindToCurrentThread needs an agent running inside a mine."
+              : "bindToCurrentThread binds to this mine, which belongs to a different project.",
           );
         }
         const threadId =
@@ -2440,7 +2437,7 @@ const make = Effect.gen(function* () {
                     refusal.mode === "runtime"
                       ? "runtime_mode_escalation_denied"
                       : "interaction_mode_escalation_denied",
-                    `Thread ${refusal.threadId} now runs in ${refusal.runtimeMode}/${refusal.interactionMode} mode, above this thread's; its user changed it while the task was being cancelled.`,
+                    `Mine ${refusal.threadId} now runs in ${refusal.runtimeMode}/${refusal.interactionMode} mode, above this mine's; its user changed it while the task was being cancelled.`,
                   ),
             ),
           ),
@@ -2520,7 +2517,7 @@ const make = Effect.gen(function* () {
         ) {
           return yield* failure(
             "parent_not_active",
-            "Thread creation requires an active run owned by this MCP provider session.",
+            "Mine creation requires an active run owned by this MCP provider session.",
           );
         }
         const parentNodeId = parentRun.rootNodeId;
@@ -2594,7 +2591,7 @@ const make = Effect.gen(function* () {
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to create thread ${index + 1}: ${errorMessage(error)}`,
+                      `Unable to create mine ${index + 1}: ${errorMessage(error)}`,
                     ),
                   ),
                 );
@@ -2632,7 +2629,7 @@ const make = Effect.gen(function* () {
                         ? threadManagementFailure(error)
                         : failure(
                             "orchestration_error",
-                            `Unable to start thread ${index + 1}: ${errorMessage(error)}`,
+                            `Unable to start mine ${index + 1}: ${errorMessage(error)}`,
                           ),
                     ),
                   );
@@ -2658,7 +2655,7 @@ const make = Effect.gen(function* () {
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to record thread ${index + 1} in the parent timeline: ${errorMessage(error)}`,
+                      `Unable to record mine ${index + 1} in the parent timeline: ${errorMessage(error)}`,
                     ),
                   ),
                 );
@@ -2689,7 +2686,7 @@ const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.mapError((error) =>
-            failure("orchestration_error", `Unable to list threads: ${errorMessage(error)}`),
+            failure("orchestration_error", `Unable to list mines: ${errorMessage(error)}`),
           ),
         );
       const nowMs = yield* Clock.currentTimeMillis;
@@ -2850,7 +2847,7 @@ const make = Effect.gen(function* () {
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
-                  `Unable to send to thread ${input.threadId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                  `Unable to send to mine ${input.threadId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                 ),
           ),
         );
@@ -2930,7 +2927,7 @@ const make = Effect.gen(function* () {
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
-                  `Unable to interrupt thread ${input.threadId}: ${errorMessage(error)}`,
+                  `Unable to interrupt mine ${input.threadId}: ${errorMessage(error)}`,
                 ),
           ),
         );

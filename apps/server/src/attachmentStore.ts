@@ -220,7 +220,7 @@ export function planAttachmentClaim(input: {
   }
 
   if (!toSafeThreadAttachmentSegment(input.threadId)) {
-    return { ok: false, reason: "invalid thread id" };
+    return { ok: false, reason: "invalid mine id" };
   }
   if (requestedSegment !== PENDING_ATTACHMENT_THREAD_SEGMENT) {
     return { ok: false, reason: "attachment must be a pending upload" };

@@ -26,7 +26,7 @@ export class ThreadMetadataMcpService extends Context.Service<
       input: ThreadMetadataMcpUpdateInput,
     ) => Effect.Effect<ThreadMetadataMcpUpdateResult, OrchestratorMcpFailure>;
   }
->()("t3/mcp/ThreadMetadataMcpService") {}
+>()("mines/mcp/ThreadMetadataMcpService") {}
 
 function failure(code: OrchestratorMcpFailure["code"], message: string): OrchestratorMcpFailure {
   return new OrchestratorMcpFailure({ code, message });
@@ -154,7 +154,7 @@ const make = Effect.gen(function* () {
     if (threadId === undefined) {
       return yield* failure(
         "target_required",
-        "Pass threadId: this MCP client is not running inside a T3 thread.",
+        "Pass threadId: this MCP client is not running inside a mine.",
       );
     }
     const shell = yield* threadManagement
@@ -163,12 +163,12 @@ const make = Effect.gen(function* () {
         Effect.mapError((error) =>
           failure(
             "orchestration_error",
-            `Unable to locate thread ${threadId}: ${errorMessage(error)}`,
+            `Unable to locate mine ${threadId}: ${errorMessage(error)}`,
           ),
         ),
       );
     if (shell === null || shell.deletedAt !== null) {
-      return yield* threadNotFound(threadManagement, threadId, `Thread ${threadId} was not found.`);
+      return yield* threadNotFound(threadManagement, threadId, `Mine ${threadId} was not found.`);
     }
     const target = yield* threadManagement
       .getProjectThreadRecords({ projectId: shell.projectId, threadId }, [])
@@ -196,7 +196,7 @@ const make = Effect.gen(function* () {
         Effect.mapError((error) =>
           failure(
             "orchestration_error",
-            `Unable to ${input.action} for thread ${threadId}: ${errorMessage(error)}`,
+            `Unable to ${input.action} for mine ${threadId}: ${errorMessage(error)}`,
           ),
         ),
       );
@@ -213,7 +213,7 @@ const make = Effect.gen(function* () {
     if (thread === null) {
       return yield* failure(
         "orchestration_error",
-        `Thread ${threadId} metadata update completed without a resultant state.`,
+        `Mine ${threadId} metadata update completed without a resultant state.`,
       );
     }
     return resultFromThread({

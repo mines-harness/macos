@@ -1,6 +1,7 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
 import { cn } from "~/lib/utils";
+import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
 
 const PopoverCreateHandle = PopoverPrimitive.createHandle;
 
@@ -57,6 +58,7 @@ function PopoverPopup({
   width?: keyof typeof popoverPopupWidthClassName;
   touchBackdrop?: boolean;
 }) {
+  const titlebarHeight = useNativeTitlebarHeight();
   // Viewport rekeys on close; persistent single-trigger forms need stable containers for drafts and submit
   // guards.
   const Viewport = keepMounted ? "div" : PopoverPrimitive.Viewport;
@@ -74,7 +76,9 @@ function PopoverPopup({
         alignOffset={alignOffset}
         anchor={anchor}
         collisionAvoidance={collisionAvoidance}
-        collisionPadding={variant === "panel" ? 0 : undefined}
+        collisionPadding={
+          variant === "panel" ? 0 : { top: titlebarHeight + 5, right: 5, bottom: 5, left: 5 }
+        }
         className={cn(
           "h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none",
           variant === "panel"
@@ -87,6 +91,7 @@ function PopoverPopup({
       >
         <PopoverPrimitive.Popup
           className={cn(
+            "[-webkit-app-region:no-drag]",
             "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
             variant !== "panel" && "dropdown-glass",
             tooltipStyle &&

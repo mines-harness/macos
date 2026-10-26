@@ -15,7 +15,7 @@ import {
   type RetainedLiveItem,
 } from "./LiveStreamBudget.ts";
 
-const COALESCE_WINDOW = Duration.millis(50);
+const COALESCE_WINDOW = Duration.millis(40);
 const MAX_PENDING_UPDATES = 512;
 
 type ThreadLiveEvent = Extract<OrchestrationV2ThreadStreamItem, { readonly kind: "event" }>;

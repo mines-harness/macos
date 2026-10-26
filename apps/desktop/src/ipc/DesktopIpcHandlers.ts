@@ -2,8 +2,11 @@ import * as Effect from "effect/Effect";
 
 import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./methods/providerAuth.ts";
 import * as DesktopIpc from "./DesktopIpc.ts";
+import { installMenuBar } from "./methods/menuBar.ts";
 import { installNotificationBadge } from "./methods/notificationBadge.ts";
 import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
+import { getMinesCatalog, setMinesCatalog, clearMinesCatalog } from "./methods/minesCatalog.ts";
+import { getMinesAccountToken, setMinesAccountToken } from "./methods/minesAccount.ts";
 import {
   clearConnectionCatalog,
   getConnectionCatalog,
@@ -87,6 +90,7 @@ import {
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
   yield* installNotificationBadge();
+  yield* installMenuBar();
   yield* PreviewIpc.installPreviewEventForwarding();
 
   yield* ipc.handle(AppActivationIpc.setReady);
@@ -107,6 +111,11 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(getClientSettings);
   yield* ipc.handle(setClientSettings);
   yield* ipc.handle(getConnectionCatalog);
+  yield* ipc.handle(getMinesAccountToken);
+  yield* ipc.handle(setMinesAccountToken);
+  yield* ipc.handle(getMinesCatalog);
+  yield* ipc.handle(setMinesCatalog);
+  yield* ipc.handle(clearMinesCatalog);
   yield* ipc.handle(getSnapShotState);
   yield* ipc.handle(setupSnapShot);
   yield* ipc.handle(previewSnapShotConfig);

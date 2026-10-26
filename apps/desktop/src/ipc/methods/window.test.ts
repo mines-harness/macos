@@ -179,7 +179,7 @@ describe("getRelayTelemetryEnabled", () => {
       assert.isFalse(
         yield* getRelayTelemetryEnabled.handler().pipe(
           Effect.provideService(HostProcess.Environment, {
-            T3CODE_TELEMETRY_ENABLED: "false",
+            MINES_TELEMETRY_ENABLED: "false",
           }),
         ),
       );
@@ -198,7 +198,7 @@ it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-remote-editors-" });
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "mines-remote-editors-" });
       for (const app of ["Cursor", "Visual Studio Code", "WebStorm"]) {
         const executable = path.join(
           home,

@@ -17,7 +17,7 @@ import { configuredHostedAppUrl } from "~/hostedPairing";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
-/** A shareable link to a prompt on the hosted app, or null when the prompt cannot fit in one. */
+/** A shareable prompt link, or null when the prompt cannot fit in one. */
 export function promptLinkFor(
   prompt: string,
   context?: {

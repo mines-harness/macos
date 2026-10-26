@@ -6,7 +6,7 @@ import "./index.css";
 
 import { prepareProviderAuthDelivery } from "./providerAuthDelivery";
 import { isElectron } from "./env";
-import { hasCloudPublicConfig } from "./cloud/publicConfig";
+import { hasMinesIdentityConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
 import {
   syncDocumentElectronPlatformClasses,
@@ -27,8 +27,6 @@ if (isElectron) {
   syncDocumentWindowControlsOverlayClass();
 }
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
-
 let chunkLoadFailed = false;
 let reloadScheduled = false;
 window.addEventListener("vite:preloadError", (event) => {
@@ -41,13 +39,9 @@ window.addEventListener("vite:preloadError", (event) => {
 
 const app = <AppRoot router={router} />;
 
-// Split by runtime to keep Clerk out of local startup and clerk-js out of browser builds.
-const managedAuthShellModule =
-  clerkPublishableKey && hasCloudPublicConfig()
-    ? isElectron
-      ? import("./components/clerk/ElectronManagedAuthShell")
-      : import("./components/clerk/BrowserManagedAuthShell")
-    : null;
+const managedAuthShellModule = hasMinesIdentityConfig()
+  ? import("./components/account/MinesManagedAuthShell")
+  : null;
 
 export const startup = Promise.all([
   managedAuthShellModule?.then((module) => module.default) ?? null,
@@ -59,11 +53,7 @@ export const startup = Promise.all([
     if (!chunkLoadFailed) clearChunkReloadGuard();
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
-        {ManagedAuthShell && clerkPublishableKey ? (
-          <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
-        ) : (
-          app
-        )}
+        {ManagedAuthShell ? <ManagedAuthShell>{app}</ManagedAuthShell> : app}
       </React.StrictMode>,
     );
   })

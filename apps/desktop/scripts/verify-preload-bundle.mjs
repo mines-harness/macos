@@ -10,9 +10,10 @@ const expectedDesktopBridgeApis = [
   "getClientPlatform",
   "getLocalEnvironmentBootstraps",
   "getPathForFile",
+  "getMinesAccountToken",
+  "setMinesAccountToken",
   "pickFolder",
 ];
-const clerkPasskeysGlobal = "__clerk_internal_electron_passkeys";
 const preloadExecutionTimeoutMs = 1_000;
 const desktopPackage = JSON.parse(
   NodeFS.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -90,7 +91,7 @@ const createSandboxModules = (exposedGlobals) => {
 const executeBundle = (source, sandboxModules) => {
   const sandboxProcess = {
     contextIsolated: true,
-    // oxlint-disable-next-line t3code/no-global-process-runtime -- This standalone CI verifier supplies the preload's host platform without loading Effect.
+    // oxlint-disable-next-line mines/no-global-process-runtime -- This standalone CI verifier supplies the preload's host platform without loading Effect.
     platform: process.platform,
     versions: { electron: electronVersion },
   };
@@ -137,7 +138,6 @@ export const verifyPreloadBundle = (source) => {
     (api) => typeof desktopBridge?.[api] !== "function",
   );
   if (!exposedGlobals.has("desktopBridge")) missingApis.unshift("desktopBridge exposure");
-  if (!exposedGlobals.has(clerkPasskeysGlobal)) missingApis.push(`${clerkPasskeysGlobal} exposure`);
 
   if (missingApis.length > 0) {
     throw new Error(`Desktop preload bundle is missing executable APIs: ${missingApis.join(", ")}`);

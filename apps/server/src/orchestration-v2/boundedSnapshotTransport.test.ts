@@ -46,6 +46,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import { subscribeOrchestrationV2Thread } from "../ws.ts";
+import { bodyWindow } from "./threadBodyRanges.ts";
 import * as OrchestrationHttp from "./http.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -82,6 +83,11 @@ const management = Layer.unwrap(
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     return Layer.mock(ThreadManagementService.ThreadManagementService)({
       ensureLegacyTranscript: () => Effect.void,
+      getTurnItem: (input) =>
+        projections.getTurnItem(input).pipe(
+          Effect.map((item) => ({ item })),
+          Effect.orDie,
+        ),
       getThreadSnapshot: (id) => projections.getThreadSnapshot(id).pipe(Effect.orDie),
       getThreadSnapshotWindow: (id, options) =>
         projections.getThreadSnapshotWindow(id, options).pipe(Effect.orDie),
@@ -311,7 +317,7 @@ function bodiesEvents(at: DateTime.Utc): OrchestrationV2DomainEvent[] {
         parentCheckpointId: null,
         ordinalWithinScope: 1,
         appRunOrdinal: 1,
-        ref: CheckpointRef.make(`refs/t3/${BODIES}`),
+        ref: CheckpointRef.make(`refs/mines/${BODIES}`),
         status: "ready",
         files,
         capturedAt: at,
@@ -447,6 +453,24 @@ function itemIds(projection: OrchestrationV2ThreadProjection): string[] {
 }
 
 it.layer(TestLayer)("compact bounded snapshot transport", (it) => {
+  it.effect("serves revision-bound body ranges through the authenticated history API", () =>
+    withHttp(async (get) => {
+      const id = `turn-item:${BODIES}:reply`;
+      const base = `/api/orchestration/threads/${encodeURIComponent(BODIES)}/items/${encodeURIComponent(id)}/body`;
+      const body = bodyWindow("Fixed the import.", "text");
+      const response = await get(
+        `${base}?field=text&before=${body.range.totalBytes}&revision=${body.range.revision}`,
+      );
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      assert.deepStrictEqual(payload, body);
+      const stale = await get(`${base}?field=text&before=4&revision=stale`);
+      assert.strictEqual(stale.status, 400);
+      const malformed = await get(`${base}?field=text&before=-1&revision=${body.range.revision}`);
+      assert.strictEqual(malformed.status, 400);
+    }),
+  );
+
   describe.each([
     ["fork", FORK],
     ["long run with a retained interrupt request", LONG],

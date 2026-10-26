@@ -464,42 +464,54 @@ it.effect("runs a thread-bound automation on the provider the thread uses now", 
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
 });
 
-it.effect("retains automation and sender attribution while a message waits in the queue", () => {
-  const harness = makeHarness({ runSetup: () => Effect.never });
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const launched = yield* launches.launch(
-      launchInput({
-        command: "command:automation:queue",
-        thread: "thread:automation:queue",
-        message: "First message",
-        workspace: { type: "worktree", baseRef: "main" },
-      }),
-    );
-    const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
-    const senderThreadId = ThreadId.make("thread:agent-sender");
-    const queued = yield* threads.sendToThread({
-      projectId,
-      commandId: CommandId.make("command:automation:queued"),
-      threadId: launched.threadId,
-      messageId: MessageId.make("message:automation:queued"),
-      scheduledTaskId,
-      senderThreadId,
-      text: "Run the audit",
-      attachments: [],
-      mode: "queue",
-      createdBy: "agent",
-      creationSource: "mcp",
-    });
-    assert.equal(queued.delivery, "queued");
-    const projection = yield* threads.getThreadProjection(launched.threadId);
-    const message = projection.messages.find((item) => item.id === queued.message.id);
-    assert.equal(message?.scheduledTaskId, scheduledTaskId);
-    assert.equal(message?.senderThreadId, senderThreadId);
-    assert.equal(message?.text, "Run the audit");
-  }).pipe(Effect.provide(harness.layer));
-});
+it.effect(
+  "retains context revisions, automation, and sender attribution while a message waits in the queue",
+  () => {
+    const harness = makeHarness({ runSetup: () => Effect.never });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launchRevision = { accountId: "owner", stateVector: "AA==" };
+      const queuedRevision = { accountId: "owner", stateVector: "AQ==" };
+      const launched = yield* launches.launch({
+        ...launchInput({
+          command: "command:automation:queue",
+          thread: "thread:automation:queue",
+          message: "First message",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+        catalogContextRevision: launchRevision,
+      });
+      const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
+      const senderThreadId = ThreadId.make("thread:agent-sender");
+      const queued = yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:automation:queued"),
+        threadId: launched.threadId,
+        messageId: MessageId.make("message:automation:queued"),
+        scheduledTaskId,
+        senderThreadId,
+        text: "Run the audit",
+        attachments: [],
+        mode: "queue",
+        createdBy: "agent",
+        creationSource: "mcp",
+        catalogContextRevision: queuedRevision,
+      });
+      assert.equal(queued.delivery, "queued");
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      const message = projection.messages.find((item) => item.id === queued.message.id);
+      assert.equal(message?.scheduledTaskId, scheduledTaskId);
+      assert.equal(message?.senderThreadId, senderThreadId);
+      assert.equal(message?.text, "Run the audit");
+      assert.deepEqual(projection.runs[0]?.catalogContextRevision, launchRevision);
+      assert.deepEqual(
+        projection.runs.find((run) => run.id === message?.runId)?.catalogContextRevision,
+        queuedRevision,
+      );
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
 
 it.effect("provisions independent launches concurrently instead of behind a global semaphore", () =>
   Effect.gen(function* () {
@@ -1800,7 +1812,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
       ...launchInput({ command: "intake-launch", thread: "intake-thread" }),
       initialMessage: {
         messageId: MessageId.make("intake-first"),
-        text: "First [file](t3-context://v1/file/intake-file)",
+        text: "First [file](mines-context://v1/file/intake-file)",
         context: {
           version: 1 as const,
           records: [
@@ -2140,10 +2152,10 @@ it.effect.each([0, 1])("releases an async setup before its completion with exit 
 );
 
 it.effect.each([
-  { name: "is missing", baseRef: "t3/renamed", startFromOrigin: false, origin: true },
+  { name: "is missing", baseRef: "mines/renamed", startFromOrigin: false, origin: true },
   {
     name: "has no origin to come from",
-    baseRef: "t3/renamed",
+    baseRef: "mines/renamed",
     startFromOrigin: true,
     origin: false,
   },

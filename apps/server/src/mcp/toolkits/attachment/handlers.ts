@@ -27,7 +27,7 @@ export function resolveAttachmentReferences(
       ? Effect.fail(
           new OrchestratorMcpFailure({
             code: "invalid_request",
-            message: "Attachments must be pending uploads or already belong to the target thread.",
+            message: "Attachments must be pending uploads or already belong to the target mine.",
           }),
         )
       : Effect.succeed(canonical);
@@ -72,7 +72,7 @@ export const layer = McpToolAccess.toLayer(
           return {};
         }),
       ),
-      t3_thread_send_attachments: McpToolAccess.writesThreads(
+      mines_thread_send_attachments: McpToolAccess.writesThreads(
         (input) => [input.threadId],
         (input) =>
           Effect.gen(function* () {
@@ -80,7 +80,7 @@ export const layer = McpToolAccess.toLayer(
             if (projection.thread.archivedAt !== null)
               return yield* new OrchestratorMcpFailure({
                 code: "invalid_request",
-                message: "Unarchive the target thread before sending attachments.",
+                message: "Unarchive the target mine before sending attachments.",
               });
             const attachments = yield* resolveAttachmentReferences(
               input.attachments,

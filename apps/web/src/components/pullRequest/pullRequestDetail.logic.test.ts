@@ -843,7 +843,7 @@ describe("asking about a change rather than working on it", () => {
     expect(legacyText).toContain(base.url);
     expect(legacyText).toContain(prose);
     expect(legacyText).not.toContain("PLEASE IMPLEMENT THIS PLAN");
-    expect(legacyText).not.toContain("t3-context://");
+    expect(legacyText).not.toContain("mines-context://");
   });
 
   it("puts the reader's request in the composer and the selected lines in chips", () => {
@@ -1465,7 +1465,7 @@ describe("cached pull request detail", () => {
   // regression: #9294 corrupt cached PR chrome broke reopening
   it("shrugs off corrupt storage and no storage at all", () => {
     const storage = makeStorage();
-    storage.setItem("t3.pullRequests.detail:env-1:project-1:acme/web#7", "{not json");
+    storage.setItem("mines.pullRequests.detail:env-1:project-1:acme/web#7", "{not json");
     expect(readPullRequestDetailSnapshot(storage, "env-1", reference)).toBeNull();
     expect(readPullRequestDetailSnapshot(undefined, "env-1", reference)).toBeNull();
     const hosted = { ...reference, host: "github.com" };

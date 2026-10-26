@@ -10,7 +10,7 @@ import type {
   ProviderInstanceId,
   ServerProvider,
 } from "@t3tools/contracts";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { CopyIcon } from "lucide-react";
 
 import { writeTextToClipboard } from "../../hooks/useCopyToClipboard";
@@ -53,6 +53,12 @@ export function ProviderAuthenticationSection({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const browserRequest = useRef<{
+    environmentId: EnvironmentId;
+    instanceId: ProviderInstanceId;
+    previousFlowId: string | null;
+    tab: Window | null;
+  } | null>(null);
   const terminalQueue = useRef<ProviderAuthRespondInput[]>([]);
   const terminalSending = useRef(false);
   const auth = query.data;
@@ -90,7 +96,10 @@ export function ProviderAuthenticationSection({
         : needsExternalSetup
           ? "No in-app sign-in advertised. Follow the provider's docs to finish setup."
           : `Sign in on ${environmentLabel}.`;
-  const statusMessage = auth?.phase === "failed" ? auth.message : null;
+  const statusMessage =
+    auth?.phase === "failed" && (!signedIn || provider.setup?.canAuthenticate !== false)
+      ? auth.message
+      : null;
   const disabled = readOnly || pending || query.error !== null || isDiscovering;
   const draftId = `${auth?.flowId ?? ""}:${interaction?.id ?? ""}`;
   const values = draft.id === draftId ? draft.values : {};
@@ -132,11 +141,15 @@ export function ProviderAuthenticationSection({
     );
   }
 
-  async function openBrowser() {
-    if (!url || readOnly) return;
+  async function openBrowser(reservedTab: Window | null = null) {
+    if (!url || readOnly) {
+      reservedTab?.close();
+      return;
+    }
     const requiresConsent = interaction?.type === "browser" && interaction.requiresConsent;
     // Reserve tabs before awaiting consent; browsers block later opens.
-    const pending = requiresConsent && !window.desktopBridge ? window.open("", "_blank") : null;
+    const pending =
+      reservedTab ?? (requiresConsent && !window.desktopBridge ? window.open("", "_blank") : null);
     if (pending) pending.opener = null;
     try {
       if (requiresConsent && !(await send({ type: "browser", action: "accept" }))) {
@@ -151,6 +164,77 @@ export function ProviderAuthenticationSection({
       setError("Could not open the sign-in page. Copy the link and open it in your browser.");
     }
   }
+
+  async function signIn() {
+    if (pendingRef.current) return;
+    const tab = window.desktopBridge ? null : window.open("", "_blank");
+    if (tab) tab.opener = null;
+    const request = { environmentId, instanceId, previousFlowId: auth?.flowId ?? null, tab };
+    browserRequest.current = request;
+    const succeeded = await run(() =>
+      start({
+        environmentId,
+        input: {
+          instanceId,
+          ...(methodId && auth?.methods?.some((method) => method.id === methodId)
+            ? { methodId }
+            : {}),
+        },
+      }),
+    );
+    if (!succeeded && browserRequest.current === request) {
+      browserRequest.current = null;
+      tab?.close();
+    }
+  }
+
+  const openRequestedBrowser = useEffectEvent((tab: Window | null) => {
+    if (!window.desktopBridge && !tab) {
+      setError("Could not open the sign-in page. Copy the link and open it in your browser.");
+      return;
+    }
+    void openBrowser(tab);
+  });
+
+  useEffect(() => {
+    return () => {
+      browserRequest.current?.tab?.close();
+      browserRequest.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const request = browserRequest.current;
+    if (!request) return;
+    if (readOnly || request.environmentId !== environmentId || request.instanceId !== instanceId) {
+      browserRequest.current = null;
+      request.tab?.close();
+      return;
+    }
+    if (!auth?.flowId || auth.flowId === request.previousFlowId) return;
+    if (auth.phase === "failed" || auth.phase === "cancelled" || auth.phase === "succeeded") {
+      browserRequest.current = null;
+      request.tab?.close();
+      return;
+    }
+    if (interaction?.type === "terminal" || interaction?.type === "credentials") {
+      request.tab?.close();
+      request.tab = null;
+      return;
+    }
+    if (pending || auth.phase !== "waiting" || !url) return;
+    browserRequest.current = null;
+    openRequestedBrowser(request.tab);
+  }, [
+    auth?.flowId,
+    auth?.phase,
+    environmentId,
+    instanceId,
+    interaction?.type,
+    pending,
+    readOnly,
+    url,
+  ]);
 
   function updateDraft(name: string, value: string) {
     setDraft({ id: draftId, values: { ...values, [name]: value } });
@@ -274,19 +358,7 @@ export function ProviderAuthenticationSection({
                 size="sm"
                 variant="outline"
                 disabled={disabled || !provider.enabled || !provider.installed || !auth}
-                onClick={() =>
-                  void run(() =>
-                    start({
-                      environmentId,
-                      input: {
-                        instanceId,
-                        ...(methodId && auth?.methods?.some((method) => method.id === methodId)
-                          ? { methodId }
-                          : {}),
-                      },
-                    }),
-                  )
-                }
+                onClick={() => void signIn()}
               >
                 {signedIn
                   ? "Change account"
@@ -303,7 +375,7 @@ export function ProviderAuthenticationSection({
                 onClick={() => {
                   void ensureLocalApi()
                     .dialogs.confirm(
-                      `Sign out of ${provider.displayName ?? provider.driver} on ${environmentLabel}? This stops running threads that share this sign-in. Thread history is kept.`,
+                      `Sign out of ${provider.displayName ?? provider.driver} on ${environmentLabel}? This stops running mines that share this sign-in. Mine history is kept.`,
                     )
                     .then((confirmed) => {
                       if (confirmed) void run(() => logout(target));

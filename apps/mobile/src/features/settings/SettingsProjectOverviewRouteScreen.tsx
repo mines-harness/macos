@@ -256,7 +256,7 @@ function ProjectOverviewContent(props: {
           size={48}
         />
         <View className="min-w-0 flex-1">
-          <Text className="text-xl font-t3-semibold text-foreground" numberOfLines={2}>
+          <Text className="text-xl font-mines-semibold text-foreground" numberOfLines={2}>
             {displayName}
           </Text>
           <Text className="text-sm text-foreground-muted">
@@ -267,7 +267,7 @@ function ProjectOverviewContent(props: {
 
       <SettingsSection title="Project">
         <View className="gap-3 p-4">
-          <Text className="text-sm font-t3-medium text-foreground-muted">Name</Text>
+          <Text className="text-sm font-mines-medium text-foreground-muted">Name</Text>
           <View className="flex-row items-center gap-3">
             <AppTextInput
               accessibilityLabel="Project name"
@@ -340,10 +340,10 @@ function ProjectOverviewContent(props: {
           }
           description={
             props.hasOtherMembers
-              ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
+              ? "Deletes the selected machine's checkout entries and their mines. Other machines and files on disk are not touched."
               : props.members.length > 1
-                ? `Deletes all ${props.members.length} checkout entries and their threads on every machine. Files on disk are not touched.`
-                : "Deletes the project entry and its threads. Files on disk are not touched."
+                ? `Deletes all ${props.members.length} checkout entries and their mines on every machine. Files on disk are not touched.`
+                : "Deletes the project entry and its mines. Files on disk are not touched."
           }
           tone="danger"
           disabled={!canRemoveGroup || isRemoving}
@@ -369,7 +369,7 @@ function RemoveCheckoutAction(props: {
       onPress={props.onPress}
       className="self-start rounded-full border border-border bg-card px-3 py-1.5 disabled:opacity-40"
     >
-      <Text className="font-t3-medium text-xs text-danger-foreground">Remove checkout</Text>
+      <Text className="font-mines-medium text-xs text-danger-foreground">Remove checkout</Text>
     </Pressable>
   );
 }

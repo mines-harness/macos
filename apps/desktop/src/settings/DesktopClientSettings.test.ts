@@ -88,7 +88,7 @@ function layer(baseDir: string) {
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ MINES_HOME: baseDir })),
     ),
   );
 
@@ -104,7 +104,7 @@ const withClientSettings = <A, E, R>(
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "t3-desktop-client-settings-test-",
+      prefix: "mines-desktop-client-settings-test-",
     });
     return yield* effect.pipe(Effect.provide(layer(baseDir)));
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
@@ -117,7 +117,7 @@ describe("DesktopClientSettings", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
         const dotfiles = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-desktop-client-settings-dotfiles-",
+          prefix: "mines-desktop-client-settings-dotfiles-",
         });
         const linkedSettingsPath = `${dotfiles}/client-settings.json`;
         yield* fileSystem.writeFileString(linkedSettingsPath, "{}\n");

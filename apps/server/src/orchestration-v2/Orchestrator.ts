@@ -1,3 +1,4 @@
+import * as MineTransferGate from "../mineTransfer/MineTransferGate.ts";
 import type {
   GuestShareId,
   OrchestrationV2SearchThreadInput,
@@ -143,6 +144,7 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import { ProviderSwitchServiceV2 } from "./ProviderSwitchService.ts";
+import { accountFailoverHistory, MAX_ACCOUNT_FAILOVER_ATTEMPTS } from "./accountFailoverPolicy.ts";
 import { isAutomaticCompletionRun, queuedRunsInDeliveryOrder } from "./QueuedRunOrder.ts";
 import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
 import {
@@ -180,7 +182,7 @@ export class OrchestratorThreadAlreadyExistsError extends Schema.TaggedError<Orc
   { commandId: CommandId, threadId: ThreadId },
 ) {
   override get message(): string {
-    return `Thread ${this.threadId} already exists. Use a new thread id.`;
+    return `Mine ${this.threadId} already exists. Use a new mine id.`;
   }
 }
 
@@ -201,7 +203,7 @@ export class OrchestratorProjectionError extends Schema.TaggedError<Orchestrator
   },
 ) {
   override get message(): string {
-    return `Failed to load orchestration projection for thread ${this.threadId}.`;
+    return `Failed to load orchestration projection for mine ${this.threadId}.`;
   }
 }
 
@@ -236,7 +238,7 @@ export class OrchestratorSubagentThreadReadOnlyError extends Schema.TaggedError<
   { commandId: CommandId, threadId: ThreadId },
 ) {
   override get message(): string {
-    return "This subagent is run by its provider and cannot take messages. Message the parent thread instead.";
+    return "This subagent is run by its provider and cannot take messages. Message the parent mine instead.";
   }
 }
 
@@ -251,7 +253,7 @@ export class OrchestratorThreadAboveModeLimitError extends Schema.TaggedError<Or
   },
 ) {
   override get message(): string {
-    return `Thread ${this.threadId} now runs in ${this.runtimeMode}/${this.interactionMode} mode, above what this caller may change.`;
+    return `Mine ${this.threadId} now runs in ${this.runtimeMode}/${this.interactionMode} mode, above what this caller may change.`;
   }
 }
 
@@ -278,7 +280,7 @@ export class OrchestratorCommandIdConflictError extends Schema.TaggedError<Orche
   },
 ) {
   override get message(): string {
-    return `Command ${this.commandId} was already handled for thread ${this.receiptThreadId} and cannot be replayed for ${this.commandThreadId}.`;
+    return `Command ${this.commandId} was already handled for mine ${this.receiptThreadId} and cannot be replayed for ${this.commandThreadId}.`;
   }
 }
 
@@ -418,7 +420,7 @@ export interface OrchestratorV2Shape {
 }
 
 export class OrchestratorV2 extends Context.Service<OrchestratorV2, OrchestratorV2Shape>()(
-  "t3/orchestration-v2/Orchestrator/OrchestratorV2",
+  "mines/orchestration-v2/Orchestrator/OrchestratorV2",
 ) {}
 
 /** Run ordinals can skip values: a queued run moves past newer runs when it starts. */
@@ -577,7 +579,7 @@ function delegatedTasksStopEffect(command: {
 
 const WORKSPACE_PREPARATION_INPUT = "Preparing workspace";
 const RUNTIME_REQUEST_DELIVERY_FAILED_MESSAGE =
-  "T3 Code could not confirm that your answer reached the agent. If the run stays stuck, stop it and try again.";
+  "mines could not confirm that your answer reached the agent. If the run stays stuck, stop it and try again.";
 
 function withoutPreparationResult(
   item: Extract<OrchestrationV2TurnItem, { readonly type: "command_execution" }>,
@@ -974,6 +976,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const runtimePolicy = yield* RuntimePolicyV2;
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+  const transferGate = yield* Effect.serviceOption(MineTransferGate.MineTransferGate);
 
   const mapDispatchError =
     (command: OrchestrationV2ServerCommand) =>
@@ -1436,6 +1439,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         readonly queuedRunId?: RunId;
       },
     ) {
+      if (Option.isSome(transferGate)) {
+        const available = yield* transferGate.value
+          .assertAvailable(threadId)
+          .pipe(
+            Effect.as(true),
+            Effect.catchTags({ MineTransferError: () => Effect.succeed(false) }),
+          );
+        if (!available) return;
+      }
       if (!(yield* projectionStore.canStartQueuedRun(threadId))) return;
       const projection = yield* readCommandProjection(threadId);
       if (
@@ -2214,7 +2226,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Delegated task ${command.taskId} is not an app-owned task of thread ${command.parentThreadId}.`,
+        cause: `Delegated task ${command.taskId} is not an app-owned task of mine ${command.parentThreadId}.`,
       });
     }
     const state =
@@ -2223,7 +2235,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         : "disposed";
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
-    // task_status and t3_thread_read use distinct command IDs, so two
+    // task_status and mines_thread_read use distinct command IDs, so two
     // valid observations can race after their read preflight. Re-emit the
     // existing task row so the second dispatch is a successful idempotent
     // no-op rather than "already acknowledged/disposed" or empty-events.
@@ -2572,7 +2584,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is deleted.`,
+        cause: `Mine ${command.threadId} is deleted.`,
       });
     }
     const visitedAt = DateTime.make(command.visitedAt);
@@ -2580,7 +2592,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} visit time ${command.visitedAt} is not a valid timestamp.`,
+        cause: `Mine ${command.threadId} visit time ${command.visitedAt} is not a valid timestamp.`,
       });
     }
     const movesForward =
@@ -2644,7 +2656,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: "The pull request watch ended or its thread settled while it was read.",
+          cause: "The pull request watch ended or its mine settled while it was read.",
         });
       }
       yield* dispatchThreadMutation(command, events, effects);
@@ -2705,7 +2717,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const decided =
       thread.deletedAt !== null
-        ? Result.fail(`Thread ${command.threadId} is deleted.`)
+        ? Result.fail(`Mine ${command.threadId} is deleted.`)
         : decideGuestShareCommand({
             thread,
             command,
@@ -2809,7 +2821,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is deleted.`,
+        cause: `Mine ${command.threadId} is deleted.`,
       });
     }
     if (
@@ -2832,7 +2844,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is settled or archived and cannot watch pull requests.`,
+        cause: `Mine ${command.threadId} is settled or archived and cannot watch pull requests.`,
       });
     }
     // Child tasks report to their parent, which owns PR monitoring; child watches would cause unrelated wakes.
@@ -2844,7 +2856,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is a subagent; its parent thread watches pull requests.`,
+        cause: `Mine ${command.threadId} is a subagent; its parent mine watches pull requests.`,
       });
     }
     // Agent watches use the latest executed run to catch calls racing Stop; users can still watch.
@@ -2861,9 +2873,84 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} was stopped.`,
+          cause: `Mine ${command.threadId} was stopped.`,
         });
       }
+    }
+    if (
+      command.type === "thread.metadata.update" &&
+      command.clearImportedSettlement !== undefined
+    ) {
+      if (
+        thread.historyOrigin !== "v1_import" ||
+        !thread.id.startsWith("import:") ||
+        thread.createdBy !== "system" ||
+        thread.settledOverride !== "settled" ||
+        thread.settledAt === null ||
+        thread.unsettledAt !== null ||
+        DateTime.toEpochMillis(thread.settledAt) !==
+          DateTime.toEpochMillis(command.clearImportedSettlement)
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Mine ${command.threadId} no longer has its original imported settlement.`,
+        });
+      }
+      if (command.expectedSettlementEventId !== undefined) {
+        const latest = yield* eventSink.latestSettlement(thread.id).pipe(mapDispatchError(command));
+        const records = yield* projectionStore
+          .getThreadRecords(thread.id, ["runs"])
+          .pipe(mapDispatchError(command));
+        if (
+          latest?.event.id !== command.expectedSettlementEventId ||
+          !latest.commandId?.startsWith(`server:auto-settle:${thread.id}:`) ||
+          records.runs.length > 0
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Mine ${command.threadId} automatic settlement changed before import repair.`,
+          });
+        }
+      }
+    }
+    if (command.type === "thread.metadata.update" && command.importedLineage !== undefined) {
+      const expected = command.expectedLineage;
+      const lineage = command.importedLineage;
+      const prefix = /^import:[^:]+:/.exec(thread.id)?.[0];
+      if (
+        thread.historyOrigin !== "v1_import" ||
+        prefix === undefined ||
+        thread.lineage.relationshipToParent === "fork" ||
+        expected === undefined ||
+        expected.parentThreadId !== thread.lineage.parentThreadId ||
+        expected.relationshipToParent !== thread.lineage.relationshipToParent ||
+        expected.rootThreadId !== thread.lineage.rootThreadId ||
+        lineage.relationshipToParent !== "subagent" ||
+        lineage.parentThreadId === null ||
+        lineage.parentThreadId === thread.id ||
+        lineage.rootThreadId === thread.id ||
+        !lineage.parentThreadId.startsWith(prefix) ||
+        !lineage.rootThreadId.startsWith(prefix)
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Mine ${command.threadId} import lineage changed or cannot be repaired safely.`,
+        });
+      }
+    }
+    if (
+      command.type === "thread.metadata.update" &&
+      command.expectedTitle !== undefined &&
+      command.expectedTitle !== thread.title
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Mine ${command.threadId} title changed before the metadata update could be applied.`,
+      });
     }
     if (
       command.type === "thread.metadata.update" &&
@@ -2873,7 +2960,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} worktree changed before the metadata update could be applied.`,
+        cause: `Mine ${command.threadId} worktree changed before the metadata update could be applied.`,
       });
     }
     if (
@@ -2884,7 +2971,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} branch changed before the metadata update could be applied.`,
+        cause: `Mine ${command.threadId} branch changed before the metadata update could be applied.`,
       });
     }
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
@@ -2898,21 +2985,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} is no longer empty.`,
+          cause: `Mine ${command.threadId} is no longer empty.`,
         });
     }
     if (command.type === "thread.archive" && thread.archivedAt !== null) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is already archived.`,
+        cause: `Mine ${command.threadId} is already archived.`,
       });
     }
     if (command.type === "thread.unarchive" && thread.archivedAt === null) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is not archived.`,
+        cause: `Mine ${command.threadId} is not archived.`,
       });
     }
     if (
@@ -2931,7 +3018,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is archived.`,
+        cause: `Mine ${command.threadId} is archived.`,
       });
     }
     // Reject reorder after unpin so a raced request cannot restore a cleared pin.
@@ -2939,7 +3026,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is not pinned and cannot be reordered.`,
+        cause: `Mine ${command.threadId} is not pinned and cannot be reordered.`,
       });
     }
     if (
@@ -2949,7 +3036,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is not active and cannot be reordered.`,
+        cause: `Mine ${command.threadId} is not active and cannot be reordered.`,
       });
     }
     if (command.type === "thread.pull-request.sync") {
@@ -2983,7 +3070,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} changed before pull request discovery.`,
+          cause: `Mine ${command.threadId} changed before pull request discovery.`,
         });
       }
     }
@@ -3027,7 +3114,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} ${blocker}`,
+          cause: `Mine ${command.threadId} ${blocker}`,
         });
       }
 
@@ -3112,7 +3199,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: "The reset time has passed. Retry the thread manually.",
+          cause: "The reset time has passed. Retry the mine manually.",
         });
       }
       if (
@@ -3145,14 +3232,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} snooze wake time ${command.snoozedUntil} is not in the future.`,
+          cause: `Mine ${command.threadId} snooze wake time ${command.snoozedUntil} is not in the future.`,
         });
       }
       if (projection.runtimeRequests.some((request) => request.status === "pending")) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has a pending approval or user-input request and cannot be snoozed.`,
+          cause: `Mine ${command.threadId} has a pending approval or user-input request and cannot be snoozed.`,
         });
       }
       const queuedRuns = projection.runs.filter((run) => run.status === "queued");
@@ -3174,7 +3261,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has a queued run and cannot be snoozed.`,
+          cause: `Mine ${command.threadId} has a queued run and cannot be snoozed.`,
         });
       }
       snoozedUntil = parsedSnoozedUntil.value;
@@ -3187,7 +3274,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has no completed run to mark unread.`,
+          cause: `Mine ${command.threadId} has no completed run to mark unread.`,
         });
       }
       markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
@@ -3328,6 +3415,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   };
           return {
             ...thread,
+            ...(command.importedLineage === undefined
+              ? {}
+              : { lineage: command.importedLineage, creationSource: "provider" as const }),
+            ...(command.clearImportedSettlement === undefined
+              ? {}
+              : { settledOverride: null, settledAt: null }),
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
@@ -3379,7 +3472,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : command.regenerateTitle === false || command.title !== undefined
                 ? { titleRegeneration: null }
                 : {}),
-            updatedAt: now,
+            updatedAt:
+              command.importedLineage === undefined && command.clearImportedSettlement === undefined
+                ? now
+                : thread.updatedAt,
           };
         }
         case "thread.pull-request.link":
@@ -3849,9 +3945,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 detachedAt: now,
                 reason:
                   command.type === "thread.archive"
-                    ? "Thread archived."
+                    ? "Mine archived."
                     : command.type === "thread.settle"
-                      ? "Thread settled."
+                      ? "Mine settled."
                       : command.type === "thread.metadata.update"
                         ? "Workspace changed."
                         : command.type === "thread.runtime-mode.set"
@@ -3868,9 +3964,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 providerSessionId: session.id,
                 detail:
                   command.type === "thread.archive"
-                    ? "Thread archived."
+                    ? "Mine archived."
                     : command.type === "thread.settle"
-                      ? "Thread settled."
+                      ? "Mine settled."
                       : command.type === "thread.metadata.update"
                         ? "Workspace changed."
                         : command.type === "thread.runtime-mode.set"
@@ -3919,7 +4015,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Provider session ${command.providerSessionId} does not belong to thread ${command.threadId}.`,
+          cause: `Provider session ${command.providerSessionId} does not belong to mine ${command.threadId}.`,
         });
       }
       const now = yield* DateTime.now;
@@ -4120,7 +4216,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.sourceThreadId} is not a fork of ${command.targetThreadId}.`,
+        cause: `Mine ${command.sourceThreadId} is not a fork of ${command.targetThreadId}.`,
       });
     }
 
@@ -4283,8 +4379,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandType: input.command.type,
         cause:
           targetMessage.text.trim().toLowerCase() === "/compact"
-            ? "Wait for context compaction to finish before steering the thread."
-            : "Wait for sign-out to finish before steering the thread.",
+            ? "Wait for context compaction to finish before steering the mine."
+            : "Wait for sign-out to finish before steering the mine.",
       });
     }
     const rootNodeId = targetRun.rootNodeId;
@@ -4947,7 +5043,80 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
   ) {
+    if (Option.isSome(transferGate)) {
+      yield* transferGate.value.assertAvailable(command.threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorCommandRejectedError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause,
+            }),
+        ),
+      );
+    }
     let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+    if (
+      command.liveVoice !== undefined &&
+      (command.dispatchMode.type !== "start_immediately" ||
+        command.text !== "" ||
+        command.attachments.length > 0 ||
+        projection.runs.some(
+          (run) =>
+            run.status === "preparing" ||
+            run.status === "queued" ||
+            run.status === "starting" ||
+            run.status === "running" ||
+            run.status === "waiting",
+        ))
+    ) {
+      return yield* new OrchestratorCommandRejectedError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause:
+          "Live voice requires an idle mine and cannot be queued or combined with a text prompt.",
+      });
+    }
+    let accountFailoverOriginRunId: RunId | undefined;
+    if (command.accountFailoverOfRunId !== undefined) {
+      const source = usageLimitBlockedRun(projection.runs, projection.turnItems, null);
+      const now = yield* DateTime.now;
+      const history = source === null ? null : accountFailoverHistory(projection.runs, source);
+      const target = command.modelSelection;
+      if (
+        source?.id !== command.accountFailoverOfRunId ||
+        source.status !== "failed" ||
+        latestExecutedRun(projection.runs)?.id !== source.id ||
+        threadShellFromProjection(projection).lastErrorClass !== "usage_limit" ||
+        command.dispatchMode.type !== "start_immediately" ||
+        target === undefined ||
+        target.instanceId === source.providerInstanceId ||
+        !modelSelectionsEqual(projection.thread.modelSelection, source.modelSelection) ||
+        !modelSelectionsEqual(target, {
+          ...source.modelSelection,
+          instanceId: target.instanceId,
+        }) ||
+        history === null ||
+        history.attemptedInstanceIds.has(target.instanceId) ||
+        history.attemptedInstanceIds.size >= MAX_ACCOUNT_FAILOVER_ATTEMPTS ||
+        projection.thread.archivedAt !== null ||
+        projection.thread.deletedAt !== null ||
+        projection.thread.settledOverride === "settled" ||
+        projection.runtimeRequests.some((request) => request.status === "pending") ||
+        projection.runs.some((run) =>
+          ["queued", "preparing", "starting", "running"].includes(run.status),
+        ) ||
+        (projection.thread.snoozedUntil != null &&
+          DateTime.toEpochMillis(projection.thread.snoozedUntil) > DateTime.toEpochMillis(now))
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "This account failover no longer matches the stopped run.",
+        });
+      }
+      accountFailoverOriginRunId = history.originRunId;
+    }
     if (command.manualContinuationOfRunId !== undefined) {
       const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
       const limited = latestRootProviderFailure(source ?? null, projection.turnItems);
@@ -4964,7 +5133,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: "This thread can no longer be resumed from that run.",
+          cause: "This mine can no longer be resumed from that run.",
         });
       }
     }
@@ -5121,6 +5290,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const onlyMaintenanceHistory =
       userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
     if (
+      command.liveVoice === undefined &&
       !isNativeMaintenanceCommand(command) &&
       ((command.titleSeed !== undefined &&
         (yield* projectionStore
@@ -5155,6 +5325,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     }
     const modelSelection = command.modelSelection ?? projection.thread.modelSelection;
+    if (
+      command.liveVoice !== undefined &&
+      (yield* providerAdapters.get(modelSelection.instanceId).pipe(mapDispatchError(command)))
+        .driver !== "codex"
+    ) {
+      return yield* new OrchestratorCommandRejectedError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Live voice is only supported by a connected Codex account.",
+      });
+    }
     let dispatchMode = resolveMessageDispatchIntent(
       projection,
       command.dispatchMode,
@@ -5281,6 +5462,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
     }
+    if (command.contextContinuationOfRunId !== undefined) {
+      const source = projection.runs.find((run) => run.id === command.contextContinuationOfRunId);
+      if (!source || !["failed", "interrupted", "cancelled", "completed"].includes(source.status))
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Context can only be reused from a finished run in this mine.",
+        });
+    }
+    const contextContinuationOfRunId =
+      command.contextContinuationOfRunId ??
+      command.usageLimitContinuationOfRunId ??
+      command.manualContinuationOfRunId ??
+      delegatedCompletion?.parentRunId;
     const dispatchText =
       delegatedCompletion === undefined
         ? command.text
@@ -5300,7 +5495,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Proposed plan ${command.sourcePlanRef.planId} does not exist on thread ${command.sourcePlanRef.threadId}.`,
+        cause: `Proposed plan ${command.sourcePlanRef.planId} does not exist on mine ${command.sourcePlanRef.threadId}.`,
       });
     }
     if (
@@ -5424,7 +5619,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has a pending merge-back transfer; queued merge-back consumption is not implemented yet.`,
+          cause: `Mine ${command.threadId} has a pending merge-back transfer; queued merge-back consumption is not implemented yet.`,
         });
       }
       const queueProviderThread =
@@ -5522,6 +5717,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ordinal,
         providerInstanceId: modelSelection.instanceId,
         modelSelection,
+        ...(command.liveVoice === undefined ? {} : { liveVoice: command.liveVoice }),
         providerThreadId: queuedProviderThread.id,
         userMessageId: command.messageId,
         rootNodeId,
@@ -5546,6 +5742,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: null,
         checkpointId: null,
         contextHandoffId: null,
+        ...(contextContinuationOfRunId === undefined ? {} : { contextContinuationOfRunId }),
+        ...(command.catalogContextRevision === undefined
+          ? {}
+          : { catalogContextRevision: command.catalogContextRevision }),
         ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
         ...(command.restartContinuationOfRunId === undefined
           ? {}
@@ -5703,7 +5903,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} has pending merge-back transfers from multiple forks.`,
+        cause: `Mine ${command.threadId} has pending merge-back transfers from multiple forks.`,
       });
     }
     const pendingMergeBackTransfer = latestContextTransfer(pendingMergeBackTransfers);
@@ -5877,12 +6077,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         rootNodeId,
         activeAttemptId: attemptId,
         status: dispatchMode.type === "defer_start" ? "preparing" : "starting",
+        ...(command.liveVoice === undefined ? {} : { liveVoice: command.liveVoice }),
         queuePosition: null,
         requestedAt: now,
         startedAt: null,
         completedAt: null,
         checkpointId: null,
         contextHandoffId: legacyImportHandoff?.id ?? null,
+        ...(command.catalogContextRevision === undefined
+          ? {}
+          : { catalogContextRevision: command.catalogContextRevision }),
+        ...(contextContinuationOfRunId === undefined ? {} : { contextContinuationOfRunId }),
+        ...(accountFailoverOriginRunId === undefined ? {} : { accountFailoverOriginRunId }),
         ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
         ...(command.restartContinuationOfRunId === undefined
           ? {}
@@ -6559,6 +6765,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ordinal,
       providerInstanceId: modelSelection.instanceId,
       modelSelection,
+      ...(command.liveVoice === undefined ? {} : { liveVoice: command.liveVoice }),
       providerThreadId: providerThread.id,
       userMessageId: command.messageId,
       rootNodeId,
@@ -6575,6 +6782,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         mergeBackHandoff?.id ??
         legacyImportRecoveryHandoff?.id ??
         null,
+      ...(accountFailoverOriginRunId === undefined ? {} : { accountFailoverOriginRunId }),
+      ...(command.catalogContextRevision === undefined
+        ? {}
+        : { catalogContextRevision: command.catalogContextRevision }),
+      ...(contextContinuationOfRunId === undefined ? {} : { contextContinuationOfRunId }),
       ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
       ...(command.restartContinuationOfRunId === undefined
         ? {}
@@ -7267,7 +7479,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Delegated child thread ${childThreadId} did not create a run.`,
+          cause: `Delegated child mine ${childThreadId} did not create a run.`,
         });
       }
       const spawnTransferId = yield* mapDispatchError(command)(
@@ -7497,7 +7709,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Delegated task ${command.taskId} is not an app-owned task of thread ${command.parentThreadId}.`,
+        cause: `Delegated task ${command.taskId} is not an app-owned task of mine ${command.parentThreadId}.`,
       });
     }
     if (task.completionWake === command.completionWake) {
@@ -7632,7 +7844,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Target thread ${command.targetThreadId} belongs to another project.`,
+          cause: `Target mine ${command.targetThreadId} belongs to another project.`,
         });
       }
       if (
@@ -7642,7 +7854,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Target run ${command.targetRunId} does not belong to thread ${command.targetThreadId}.`,
+          cause: `Target run ${command.targetRunId} does not belong to mine ${command.targetThreadId}.`,
         });
       }
 
@@ -8216,7 +8428,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is not active.`,
+        cause: `Mine ${command.threadId} is not active.`,
       });
     }
     const queuedRun = projection.runs.find((candidate) => candidate.id === command.queuedRunId);
@@ -8927,7 +9139,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: "Another run is active on this thread.",
+        cause: "Another run is active on this mine.",
       });
     }
     const now = yield* DateTime.now;
@@ -10644,7 +10856,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Rollback ${command.requestId} is no longer the thread's current rollback.`,
+          cause: `Rollback ${command.requestId} is no longer the mine's current rollback.`,
         });
       }
       const now = yield* DateTime.now;
@@ -11594,7 +11806,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: `Thread ${command.threadId} changed before automatic settlement.`,
+            cause: `Mine ${command.threadId} changed before automatic settlement.`,
           });
         }
         yield* dispatchThreadMutation(
@@ -11774,7 +11986,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: `Thread ${command.threadId} is not active.`,
+            cause: `Mine ${command.threadId} is not active.`,
           });
         }
         const selectedRunId = command.type === "queued-run.start" ? command.runId : undefined;
@@ -11796,7 +12008,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             return yield* new OrchestratorDispatchError({
               commandId: command.commandId,
               commandType: command.type,
-              cause: "A queued user message can only be sent now while the thread is stopped.",
+              cause: "A queued user message can only be sent now while the mine is stopped.",
             });
           }
         }
@@ -11812,7 +12024,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: "Continue the limited thread before resuming its queue.",
+            cause: "Continue the limited mine before resuming its queue.",
           });
         }
         const now = yield* DateTime.now;
@@ -11959,6 +12171,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         storedEvents,
         replayed: true,
       } satisfies OrchestratorV2DispatchResult;
+    }
+
+    if (
+      Option.isSome(transferGate) &&
+      (command.type === "thread.unarchive" ||
+        (command.type === "thread.pull-request.watch" && command.watching) ||
+        command.type === "queue.resume" ||
+        command.type === "queued-run.start" ||
+        command.type === "thread.fork" ||
+        command.type === "thread.merge_back" ||
+        command.type === "prepared-run.release" ||
+        command.type === "prepared-run.retry")
+    ) {
+      yield* transferGate.value.assertAvailable(commandThreadId(command)).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorCommandRejectedError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause,
+            }),
+        ),
+      );
     }
 
     // Recheck under the lock; the user may have raised modes since sender preflight.

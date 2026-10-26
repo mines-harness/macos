@@ -51,7 +51,7 @@ export const buildInitialCursorProviderSnapshot = Effect.fn(
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Cursor is disabled in T3 Code settings.",
+        message: "Cursor is disabled in mines settings.",
       },
     });
   }
@@ -251,6 +251,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
 ): Effect.fn.Return<ServerProviderDraft, never, CursorSdkCatalog.CursorSdkCatalog> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = getCursorFallbackModels(cursorSettings);
+  const sdkApiKey = environment?.CURSOR_API_KEY?.trim();
 
   if (!cursorSettings.enabled) {
     return buildServerProvider({
@@ -259,16 +260,19 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       checkedAt,
       models: fallbackModels,
       probe: {
-        installed: false,
+        installed: true,
         version: null,
         status: "warning",
-        auth: { status: "unknown" },
-        message: "Cursor is disabled in T3 Code settings.",
+        auth: sdkApiKey
+          ? { status: "authenticated", type: authenticationType, label: "Saved Cursor credentials" }
+          : { status: "unknown" },
+        message: sdkApiKey
+          ? "Existing Cursor credentials found. Enable Cursor to use them in mines."
+          : "Cursor is disabled in mines settings.",
       },
     });
   }
 
-  const sdkApiKey = environment?.CURSOR_API_KEY?.trim();
   if (!sdkApiKey) {
     return buildServerProvider({
       presentation: CURSOR_PRESENTATION,
@@ -304,8 +308,8 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
     } else if (failure.planRequired) {
       message =
         authenticationType === "browser"
-          ? "Cursor needs a paid plan to run in T3 Code. Upgrade this account or sign in with a different one."
-          : "Cursor needs a paid plan to run in T3 Code. Upgrade the account that owns CURSOR_API_KEY or use a key from a paid account.";
+          ? "Cursor needs a paid plan to run in mines. Upgrade this account or sign in with a different one."
+          : "Cursor needs a paid plan to run in mines. Upgrade the account that owns CURSOR_API_KEY or use a key from a paid account.";
     }
     return buildServerProvider({
       presentation: CURSOR_PRESENTATION,

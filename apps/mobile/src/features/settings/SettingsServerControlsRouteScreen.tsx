@@ -43,7 +43,7 @@ import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 type SettingsPage = "new-threads" | "source-control" | "agent-behavior" | "maintenance";
 
 const PAGE_TITLES: Record<SettingsPage, string> = {
-  "new-threads": "New threads",
+  "new-threads": "New mines",
   "source-control": "Source control",
   "agent-behavior": "Agent behavior",
   maintenance: "Maintenance",
@@ -71,7 +71,7 @@ const SUBMODULE_CHOICES: ReadonlyArray<{
   {
     mode: null,
     label: "Inherit",
-    description: "Use the repository's t3.json, or initialize recursively.",
+    description: "Use the repository's mines.json, or initialize recursively.",
   },
   { mode: "recursive", label: "Recursive", description: "Initialize nested submodules too." },
   {
@@ -90,17 +90,17 @@ const WORKSPACE_CHOICES: ReadonlyArray<{
   {
     mode: null,
     label: "Inherit",
-    description: "Use the repository's t3.json, or the current checkout.",
+    description: "Use the repository's mines.json, or the current checkout.",
   },
   {
     mode: "local",
     label: "Current checkout",
-    description: "Start new threads in the existing workspace.",
+    description: "Start new mines in the existing workspace.",
   },
   {
     mode: "worktree",
     label: "New worktree",
-    description: "Give each new thread a separate checkout.",
+    description: "Give each new mine a separate checkout.",
   },
 ];
 
@@ -477,7 +477,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                         label="Continue after restart"
                         subtitle={
                           supportsContinuation
-                            ? "Resume interrupted threads after an update or restart."
+                            ? "Resume interrupted mines after an update or restart."
                             : "Update older servers to control restart continuation."
                         }
                         value={uniform("continueThreadsAfterServerUpdate")}

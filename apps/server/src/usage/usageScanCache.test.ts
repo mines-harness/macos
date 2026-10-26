@@ -4,6 +4,7 @@ import {
   decodeScanCache,
   encodeScanCache,
   makeScanCacheWriter,
+  pruneScanCache,
   type CachedFile,
   type ScanCache,
 } from "./usageScanCache.ts";
@@ -59,6 +60,15 @@ function cacheWith(entries: readonly [string, number, readonly UsageRecord[]][])
 }
 
 describe("scan cache round trip", () => {
+  it("keeps unchanged old live transcripts cached while expiring deleted history", () => {
+    const cache = cacheWith([
+      ["/live.jsonl", 100, [record()]],
+      ["/deleted.jsonl", 100, [record()]],
+      ["/recent.jsonl", 300, [record()]],
+    ]);
+    expect(pruneScanCache(cache, 200, new Set(["/live.jsonl"]))).toBe(1);
+    expect([...cache.keys()]).toEqual(["/live.jsonl", "/recent.jsonl"]);
+  });
   it("restores cached history unchanged except for Claude local placeholders", () => {
     const original = cacheWith([
       [

@@ -21,13 +21,13 @@ import {
   DEFAULT_SERVER_SETTINGS,
   MessageId,
   repositoryGroupingKeyOf,
-  T3_PROJECT_FILE_NAME,
+  MINES_PROJECT_FILE_NAME,
   ThreadId,
 } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { threadContextsOutsideEnvironment } from "@t3tools/shared/composerContextReferences";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
+import { parseMinesProjectFile } from "@t3tools/shared/minesProjectFile";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
@@ -488,28 +488,30 @@ export function NewTaskFlowProvider(
   const { canReadFiles } = fileAccess;
   const fileAccessPending =
     selectedProject !== null && selectedProject.workspaceRoot !== "" && fileAccess.isPending;
-  const t3ProjectFileQuery = useEnvironmentQuery(
+  const minesProjectFileQuery = useEnvironmentQuery(
     canReadFiles && selectedProject !== null && selectedProject.workspaceRoot !== ""
       ? projectEnvironment.readFile({
           environmentId: selectedProject.environmentId,
           input: {
             cwd: selectedProject.workspaceRoot,
-            relativePath: T3_PROJECT_FILE_NAME,
+            relativePath: MINES_PROJECT_FILE_NAME,
             allowMissing: true,
           },
         })
       : null,
   );
-  const t3ProjectFileData = t3ProjectFileQuery.data as ProjectReadFileResult | null;
-  const t3ProjectFile =
-    t3ProjectFileData === null || t3ProjectFileData.exists === false || t3ProjectFileData.truncated
+  const minesProjectFileData = minesProjectFileQuery.data as ProjectReadFileResult | null;
+  const minesProjectFile =
+    minesProjectFileData === null ||
+    minesProjectFileData.exists === false ||
+    minesProjectFileData.truncated
       ? null
-      : parseT3ProjectFile(t3ProjectFileData.contents);
+      : parseMinesProjectFile(minesProjectFileData.contents);
   const projectSettings = resolveProjectSettings(
     selectedEnvironmentServerConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
     selectedProject?.id ?? null,
     selectedProject,
-    t3ProjectFile,
+    minesProjectFile,
   );
   const canChooseWorkspace = !isScratchDraft;
   const selectedProjectOlderSettledCount = useOlderSettledCount(selectedProject);
@@ -529,12 +531,12 @@ export function NewTaskFlowProvider(
         projectHasThreads: selectedProjectHasThreads,
       })
     : "local";
-  // Do not persist the provisional workspace default while t3.json is loading; it would override
+  // Do not persist the provisional workspace default while mines.json is loading; it would override
   // the file's eventual default.
   const defaultWorkspaceModeSettled =
     selectedProjectDraft.workspaceSelection?.mode !== undefined ||
     projectSettings.sources.defaultThreadEnvMode !== "environment" ||
-    (!t3ProjectFileQuery.isPending && !fileAccessPending);
+    (!minesProjectFileQuery.isPending && !fileAccessPending);
   const workspaceSelection = resolveNewTaskWorkspaceSelection({
     selection: canChooseWorkspace ? selectedProjectDraft.workspaceSelection : undefined,
     fallback: { mode: defaultWorkspaceMode, branch: null, worktreePath: null },
@@ -784,7 +786,7 @@ export function NewTaskFlowProvider(
         "Could not switch machine",
         error instanceof Error
           ? error.message
-          : "The folder for threads without a project could not be created.",
+          : "The folder for mines without a project could not be created.",
       );
     }
     return false;

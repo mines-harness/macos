@@ -89,6 +89,9 @@ interface AddProviderInstanceDialogProps {
   readonly environmentLabel: string;
   readonly onOpenChange: (open: boolean) => void;
   readonly onCreated?: (instanceId: ProviderInstanceId) => void;
+  readonly initialDriverKind?: ProviderDriverKind;
+  readonly initialSearchQuery?: string;
+  readonly finishSetup?: boolean;
 }
 
 export function AddProviderInstanceDialog({
@@ -97,6 +100,9 @@ export function AddProviderInstanceDialog({
   environmentLabel,
   onOpenChange,
   onCreated,
+  initialDriverKind = DEFAULT_DRIVER_KIND,
+  initialSearchQuery,
+  finishSetup = false,
 }: AddProviderInstanceDialogProps) {
   const settings = useEnvironmentSettings(environmentId);
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
@@ -104,7 +110,9 @@ export function AddProviderInstanceDialog({
 
   const [wizardStep, setWizardStep] = useState(0);
   const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
-  const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
+  const [driver, setDriver] = useState<ProviderDriverKind>(() =>
+    providerClients.get(initialDriverKind) ? initialDriverKind : DEFAULT_DRIVER_KIND,
+  );
   const [identityByDriver, setIdentityByDriver] = useState<Record<string, ProviderIdentityDraft>>(
     {},
   );
@@ -120,13 +128,11 @@ export function AddProviderInstanceDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [createdInstanceId, setCreatedInstanceId] = useState<ProviderInstanceId | null>(null);
 
-  // Reserve Codex/Claude default ids because they run before configuration; other unconfigured slots are
-  // available.
-  const existingIds = new Set([
-    "codex",
-    "claudeAgent",
-    ...Object.keys(settings.providerInstances ?? {}),
-  ]);
+  const existingIds = new Set(
+    ["codex", "claudeAgent", ...Object.keys(settings.providerInstances ?? {})].filter(
+      (id) => settings.providerInstances?.[ProviderInstanceId.make(id)]?.removed !== true,
+    ),
+  );
 
   const driverOption = providerClients.get(driver) ?? DEFAULT_DRIVER_OPTION;
   const isAcpRegistry = driver === ACP_REGISTRY_DRIVER_KIND;
@@ -325,7 +331,7 @@ export function AddProviderInstanceDialog({
       return;
     }
     onCreated?.(brandedId);
-    if (isAcpRegistry && !isLocalAcp) {
+    if (finishSetup || (isAcpRegistry && !isLocalAcp)) {
       setCreatedInstanceId(brandedId);
       setIsSaving(false);
       setWizardStep(2);
@@ -350,7 +356,7 @@ export function AddProviderInstanceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <WizardPopup size="wide">
+      <WizardPopup size="wide" fixedFooter>
         <WizardHeader
           title="Add provider"
           description={<>Add an account or configure a provider on {environmentLabel}.</>}
@@ -382,6 +388,7 @@ export function AddProviderInstanceDialog({
             environmentId={environmentId}
             environmentLabel={environmentLabel}
             instanceId={createdInstanceId}
+            driverKind={driver}
             onFinish={() => onOpenChange(false)}
           />
         ) : (
@@ -493,6 +500,7 @@ export function AddProviderInstanceDialog({
                     <>
                       <AcpRegistrySearchStep
                         environmentId={environmentId}
+                        initialQuery={initialSearchQuery}
                         providerInstances={settings.providerInstances}
                         onPrepared={handleAcpPrepared}
                         onManualConfiguration={handleManualAcpConfiguration}

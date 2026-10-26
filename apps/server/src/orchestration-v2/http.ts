@@ -39,6 +39,8 @@ import {
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
 
+import { earlierBodyWindow } from "./threadBodyRanges.ts";
+
 const isThreadTranscriptTooLargeError = Schema.is(
   ThreadManagementService.ThreadTranscriptTooLargeError,
 );
@@ -275,6 +277,36 @@ export const layer = HttpApiBuilder.group(
                 }),
               ),
             );
+        }),
+      )
+      .handle(
+        "threadBodyRange",
+        Effect.fn("environment.orchestration.threadBodyRange")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          const { item } = yield* threadManagement
+            .getTurnItem(args.params)
+            .pipe(
+              Effect.catch((cause) =>
+                failEnvironmentInternal("orchestration_thread_history_failed", cause),
+              ),
+            );
+          if (item === null) return yield* failEnvironmentNotFound("thread_not_found");
+          const text =
+            args.query.field === "text" && "text" in item
+              ? item.text
+              : args.query.field === "markdown" && "markdown" in item
+                ? item.markdown
+                : undefined;
+          if (text === undefined) return yield* failEnvironmentInvalidRequest("invalid_body_field");
+          const range = earlierBodyWindow(
+            text,
+            args.query.field,
+            args.query.before,
+            args.query.revision,
+          );
+          if (range === null) return yield* failEnvironmentInvalidRequest("body_revision_changed");
+          return range;
         }),
       );
   }),

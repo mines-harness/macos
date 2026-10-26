@@ -1,11 +1,23 @@
+import * as MineTransferService from "./mineTransfer/MineTransferService.ts";
+import * as HostCatalogService from "./catalog/HostCatalogService.ts";
+import type { PeerConnectionState } from "@t3tools/contracts/minesPeer";
+import * as RemoteGroupTransport from "./groupChat/RemoteGroupTransport.ts";
+import * as HostSignalingService from "./peer/HostSignalingService.ts";
+import * as PeerManagement from "./peer/PeerManagement.ts";
+import * as CloudTaskService from "./cloud/CloudTaskService.ts";
+import * as GroupChatService from "./groupChat/GroupChatService.ts";
+import * as SharedGroupService from "./groupChat/SharedGroupService.ts";
+import * as ProviderVoiceService from "./provider/ProviderVoiceService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   AuthSessionId,
+  AuthAccessWriteScope,
   EnvironmentId,
   ProjectId,
   ThreadId,
   WS_METHODS,
+  WsRpcGroup,
   WsSubscribeServerConfigRpc,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadShell,
@@ -20,8 +32,11 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Headers } from "effect/http";
 import { RpcGroup, RpcMessage, RpcServer } from "effect/rpc";
+import * as RpcTest from "effect/rpc/RpcTest";
+import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -387,6 +402,7 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
 
 // Build the production RPC layer; unrelated capabilities fail if this test calls them.
 const layerUnusedConfigRpcServices = Layer.mergeAll(
+  Layer.mock(MineTransferService.MineTransferService)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(WorkspacePaths.WorkspacePaths)({}),
   Layer.mock(TraceDiagnostics.TraceDiagnostics)({}),
@@ -394,6 +410,38 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ProjectEnrichment.ProjectEnrichmentService)({}),
   Layer.mock(AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator)({}),
   Layer.mock(AcpRegistrySupport.AcpRegistryCatalog)({}),
+  Layer.effect(
+    HostSignalingService.HostSignalingService,
+    Effect.gen(function* () {
+      const state = yield* SubscriptionRef.make<PeerConnectionState>({
+        configured: false,
+        online: false,
+        controlUrl: null,
+        accountId: null,
+        stunServers: [],
+        failure: null,
+      });
+      return HostSignalingService.HostSignalingService.of({
+        state,
+        configure: () => Effect.void,
+        disable: Effect.void,
+        start: Effect.void,
+        connect: () => Effect.die("Unused peer connection"),
+        authorizeSharedGroup: () => Effect.die("Unused shared group authorization"),
+        connectSharedGroup: () => Effect.die("Unused shared group connection"),
+        subscribeSharedGroupSessions: () => () => {},
+        subscribeSessions: () => () => {},
+        disconnectDevice: () => Effect.void,
+      });
+    }),
+  ),
+  Layer.mock(RemoteGroupTransport.RemoteGroupTransport)({}),
+  Layer.mock(HostCatalogService.HostCatalogService)({}),
+  Layer.mock(PeerManagement.PeerManagement)({}),
+  Layer.mock(CloudTaskService.CloudTaskService)({}),
+  Layer.mock(GroupChatService.GroupChatService)({}),
+  Layer.mock(SharedGroupService.SharedGroupService)({}),
+  Layer.mock(ProviderVoiceService.ProviderVoiceService)({}),
   Layer.mock(AgentSessionImporter.AgentSessionImporter)({}),
   Layer.mock(AgentSessionScanner.AgentSessionScanner)({}),
   Layer.mock(AnalyticsService.AnalyticsService)({}),
@@ -466,6 +514,84 @@ const layerConfigSources = Layer.mergeAll(
     ),
   ),
   Layer.provideMerge(NodeServices.layer),
+);
+
+it.effect.each([false, true])(
+  "binds catalog identity only through local control (local=%s)",
+  (local) =>
+    Effect.gen(function* () {
+      let bindings = 0;
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (
+            tag,
+          ): tag is Exclude<
+            RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"],
+            typeof WS_METHODS.catalogBindIdentity
+          > => tag !== WS_METHODS.catalogBindIdentity,
+        ),
+      );
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make("identity-test"),
+              subject: "identity-test",
+              method: "browser-session-cookie",
+              scopes: [AuthAccessWriteScope],
+            },
+            {},
+            {},
+            yield* PreviewAutomationBroker.PreviewAutomationBroker,
+            yield* ServerBrowser.ServerBrowser,
+            local,
+          ).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                layerUnusedConfigRpcServices,
+                Layer.mock(HostCatalogService.HostCatalogService)({
+                  bindIdentity: () =>
+                    Effect.sync(() => {
+                      bindings += 1;
+                      return { accountId: "verified-account" };
+                    }),
+                }),
+                Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+                  namedProjectsRoot: process.cwd(),
+                }),
+                Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+                Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+                Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+                Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+                Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+                Layer.mock(ServerEnvironment.ServerEnvironment)({}),
+                Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+              ),
+            ),
+            Layer.provideMerge(RpcAuthorization.layer([AuthAccessWriteScope])),
+          ),
+        ),
+      );
+      const result = yield* client[WS_METHODS.catalogBindIdentity]({ bearerToken: "proof" }).pipe(
+        Effect.result,
+      );
+      if (local) {
+        assert.equal(result._tag, "Success");
+        assert.equal(bindings, 1);
+      } else {
+        assert.equal(result._tag, "Failure");
+        assert.equal(bindings, 0);
+      }
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.fresh(layerConfigSources),
+          Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
+          Layer.mock(ServerBrowser.ServerBrowser)({}),
+        ),
+      ),
+      Effect.scoped,
+    ),
 );
 
 it.effect(

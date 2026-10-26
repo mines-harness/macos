@@ -29,6 +29,7 @@ import {
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
+import { providerAccountMessage } from "./providerAccountMessage";
 
 export function SettingsProviderAccountsRouteScreen() {
   const { selectedTargets } = useSettingsEnvironmentFilter();
@@ -123,6 +124,8 @@ function ProviderAccount({
   const signedIn =
     provider.auth.status === "authenticated" ||
     (provider.auth.status === "unknown" && state?.phase === "succeeded");
+  const chatGpt = provider.driver === "codex" && state?.credentialOwner === "mines";
+  const externalUsage = provider.usageLimits?.externalUsage;
   const isDiscovering =
     provider.driver === "acpRegistry" &&
     !active &&
@@ -195,18 +198,21 @@ function ProviderAccount({
           {provider.displayName ?? provider.driver}
         </Text>
         <Text accessibilityLiveRegion="polite" className="text-sm text-foreground-muted">
-          {active || state?.phase === "failed" || state?.phase === "cancelled"
-            ? state.message
-            : signedIn
-              ? "Signed in."
-              : isDiscovering
-                ? "Discovering sign-in methods…"
-                : needsExternalSetup
-                  ? "No in-app sign-in advertised. Follow the provider's docs to finish setup."
-                  : "Connect this provider."}
+          {providerAccountMessage(provider, state, signedIn) ??
+            (isDiscovering
+              ? "Discovering sign-in methods…"
+              : needsExternalSetup
+                ? "No in-app sign-in advertised. Follow the provider's docs to finish setup."
+                : "Connect this provider.")}
         </Text>
         {signedIn && !active && provider.auth.email?.trim() ? (
           <ProviderAccountEmail key={provider.auth.email} email={provider.auth.email} />
+        ) : null}
+        {signedIn && provider.accountFailover?.supported !== true ? (
+          <Text className="text-sm text-foreground-muted">
+            {provider.accountFailover?.reason ??
+              "Automatic subscription switching is not confirmed as supported. Select an account manually, or resume a stopped mine at its usage reset."}
+          </Text>
         ) : null}
         {interaction?.type === "deviceCode" ? (
           <Text selectable className="text-foreground">
@@ -336,10 +342,21 @@ function ProviderAccount({
       ) : !active && !needsExternalSetup && provider.setup?.canAuthenticate !== false ? (
         <SettingsActionRow
           icon="person.crop.circle"
-          label={signedIn ? "Change account" : "Sign in"}
+          label={signedIn ? "Change account" : chatGpt ? "Continue with ChatGPT" : "Sign in"}
           disabled={disabled || !provider.enabled || !provider.installed || state === null}
           loading={pending}
           onPress={chooseMethod}
+        />
+      ) : null}
+      {!active && signedIn && externalUsage ? (
+        <SettingsActionRow
+          icon="globe"
+          label="Manage usage"
+          onPress={() => {
+            void Linking.openURL(externalUsage.url).catch(() =>
+              setError("Could not open usage settings."),
+            );
+          }}
         />
       ) : null}
       {!active && signedIn && (provider.auth.canLogout ?? provider.setup?.canAuthenticate) ? (
@@ -351,7 +368,7 @@ function ProviderAccount({
           onPress={() =>
             Dialog.alert(
               "Sign out?",
-              `Running threads sharing this sign-in on ${environment.label} will stop. Thread history is kept.`,
+              `Running mines sharing this sign-in on ${environment.label} will stop. Mine history is kept.`,
               [
                 { text: "Cancel", style: "cancel" },
                 {

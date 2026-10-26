@@ -109,7 +109,7 @@ function SwipeableUndoNotice(props: {
             accessible
             accessibilityRole="alert"
             accessibilityLiveRegion="assertive"
-            accessibilityLabel={`${notice.action} thread`}
+            accessibilityLabel={`${notice.action} mine`}
             accessibilityActions={[{ name: "dismiss", label: "Dismiss message" }]}
             onAccessibilityAction={({ nativeEvent }) => {
               if (nativeEvent.actionName === "dismiss") dismiss();
@@ -118,7 +118,7 @@ function SwipeableUndoNotice(props: {
             style={StyleSheet.absoluteFill}
           />
           <Toast
-            message={`${notice.action} thread`}
+            message={`${notice.action} mine`}
             action={{ label: "Undo", onPress: () => void notice.undo() }}
           />
         </Animated.View>

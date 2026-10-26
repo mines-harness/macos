@@ -255,7 +255,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                 if (canOperateThread) onImplementPlanInNewThread();
               }}
             >
-              Implement in a new thread
+              Implement in a new mine
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -276,7 +276,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const compactsBeforeSend = compactTokens !== null && !keepFullHistory;
 
   const submitLabel = showResume
-    ? "Resume thread"
+    ? "Resume mine"
     : isEditingQueuedMessage
       ? "Update queued message"
       : compactsBeforeSend

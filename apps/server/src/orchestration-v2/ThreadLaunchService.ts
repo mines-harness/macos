@@ -1,4 +1,5 @@
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import type { CatalogContextRevision } from "@t3tools/contracts/catalogRpc";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -75,6 +76,7 @@ export interface ThreadLaunchInitialMessage {
 }
 
 export interface ThreadLaunchInput {
+  readonly catalogContextRevision?: CatalogContextRevision;
   readonly commandId: CommandId;
   readonly threadId?: ThreadId;
   readonly reuseExistingThread?: boolean;
@@ -140,7 +142,7 @@ export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
   },
 ) {
   override get message(): string {
-    return `Thread launch ${this.commandId} failed during ${this.operation}.`;
+    return `Mine launch ${this.commandId} failed during ${this.operation}.`;
   }
 }
 
@@ -180,7 +182,7 @@ export class ThreadLaunchService extends Context.Service<
     >;
     readonly prepareRun: (input: ThreadLaunchPreparationInput) => Effect.Effect<void>;
   }
->()("t3/orchestration-v2/ThreadLaunchService") {}
+>()("mines/orchestration-v2/ThreadLaunchService") {}
 
 const isThreadLaunchError = Schema.is(ThreadLaunchError);
 
@@ -247,7 +249,7 @@ const make = Effect.gen(function* () {
         input,
         "update-thread",
         threadId,
-      )("Only an empty active thread in the target project can change workspace during launch.");
+      )("Only an empty active mine in the target project can change workspace during launch.");
     }
   });
 
@@ -825,7 +827,7 @@ const make = Effect.gen(function* () {
         return yield* mapError(
           input,
           "update-thread",
-        )("Reusing an existing thread requires a thread id.");
+        )("Reusing an existing mine requires a mine id.");
       }
 
       const launchReceipt = yield* readReceipt(input, input.commandId);
@@ -855,7 +857,7 @@ const make = Effect.gen(function* () {
             .getThreadShell(candidateThreadId)
             .pipe(Effect.mapError(mapError(input, "create-thread", candidateThreadId)));
           if (shell === null) {
-            return yield* mapError(input, "create-thread", candidateThreadId)("Thread not found.");
+            return yield* mapError(input, "create-thread", candidateThreadId)("Mine not found.");
           }
           if (shell.projectId !== input.projectId) {
             return yield* mapError(
@@ -948,6 +950,9 @@ const make = Effect.gen(function* () {
               threadId,
               messageId,
               text: input.initialMessage.text,
+              ...(input.catalogContextRevision === undefined
+                ? {}
+                : { catalogContextRevision: input.catalogContextRevision }),
               ...(input.initialMessage.scheduledTaskId === undefined
                 ? {}
                 : { scheduledTaskId: input.initialMessage.scheduledTaskId }),

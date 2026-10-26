@@ -85,12 +85,31 @@ export function cliArchivePlatformKey(platform: BuildPlatform, arch: BuildArch):
 }
 
 export function cliArchiveStem(version: string, platform: BuildPlatform, arch: BuildArch): string {
-  return `t3-${version}-${cliArchivePlatformKey(platform, arch)}`;
+  return `mines-${version}-${cliArchivePlatformKey(platform, arch)}`;
 }
 
 export function cliArchiveFileName(version: string, platform: BuildPlatform, arch: BuildArch) {
   // Minimal hosts may lack xz, but tar and Node zlib handle gzip without it.
   return `${cliArchiveStem(version, platform, arch)}.${platform === "win" ? "zip" : "tar.gz"}`;
+}
+
+export function cliArchiveTarArguments(
+  archivePath: string,
+  stageRoot: string,
+  stem: string,
+  hostPlatform: string,
+): string[] {
+  return [
+    ...(hostPlatform === "linux" ? ["--hard-dereference"] : []),
+    ...(hostPlatform === "darwin"
+      ? ["--no-mac-metadata", "--no-xattrs", "--no-acls", "--no-fflags"]
+      : []),
+    "-czf",
+    archivePath,
+    "-C",
+    stageRoot,
+    stem,
+  ];
 }
 
 const runCommand = Effect.fn("runCommand")(function* (
@@ -158,7 +177,7 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
   yield* fs.writeFileString(
     path.join(input.stageDir, "package.json"),
     `${yield* encodeJsonString({
-      name: "t3-runtime",
+      name: "mines-runtime",
       version: input.version,
       private: true,
       packageManager: rootPackageJson.packageManager,
@@ -251,7 +270,7 @@ const stageWebClient = Effect.fn("stageWebClient")(function* (source: string, ta
 });
 
 const MacSigningConfig = Config.all({
-  identity: Config.String("T3CODE_CLI_MAC_SIGN_IDENTITY").pipe(Config.option),
+  identity: Config.String("MINES_CLI_MAC_SIGN_IDENTITY").pipe(Config.option),
   appleApiKey: Config.String("APPLE_API_KEY").pipe(Config.option),
   appleApiKeyId: Config.String("APPLE_API_KEY_ID").pipe(Config.option),
   appleApiIssuer: Config.String("APPLE_API_ISSUER").pipe(Config.option),
@@ -275,7 +294,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
         entry.endsWith(".node") ||
         entry.endsWith(".dylib") ||
         entry.endsWith("spawn-helper") ||
-        entry.endsWith("t3-resource-monitor"),
+        entry.endsWith("mines-resource-monitor"),
     )
     .map((entry) => path.join(input.contentDir, entry));
 
@@ -293,7 +312,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
     );
   }
   if (identity === "-") {
-    yield* Effect.log("[cli-archive] Signed ad hoc (no T3CODE_CLI_MAC_SIGN_IDENTITY).");
+    yield* Effect.log("[cli-archive] Signed ad hoc (no MINES_CLI_MAC_SIGN_IDENTITY).");
     return;
   }
 
@@ -307,7 +326,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
     return;
   }
   // notarytool requires an archive; bare executables rely on online tickets because they cannot be stapled.
-  const notarizeZip = path.join(path.dirname(input.executablePath), ".notarize-t3.zip");
+  const notarizeZip = path.join(path.dirname(input.executablePath), ".notarize-mines.zip");
   yield* runCommand(
     ChildProcess.make("ditto", ["-c", "-k", "--keepParent", input.executablePath, notarizeZip]),
     "ditto (notarization zip)",
@@ -327,7 +346,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
     ]),
     "notarytool submit",
   ).pipe(Effect.ensuring(fs.remove(notarizeZip, { force: true }).pipe(Effect.ignore)));
-  yield* Effect.log("[cli-archive] Notarized t3.");
+  yield* Effect.log("[cli-archive] Notarized mines.");
 });
 
 const WindowsSigningConfig = Config.all({
@@ -385,7 +404,7 @@ const signWindowsExecutable = Effect.fn("signWindowsExecutable")(function* (
   yield* stripStaleAuthenticodeEntry(executablePath);
   if ((yield* HostProcess.Platform) !== "win32") {
     yield* signWithJsign(executablePath);
-    yield* Effect.log("[cli-archive] Signed t3.exe (Azure Trusted Signing via jsign).");
+    yield* Effect.log("[cli-archive] Signed mines.exe (Azure Trusted Signing via jsign).");
     return;
   }
   const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -402,9 +421,9 @@ const signWindowsExecutable = Effect.fn("signWindowsExecutable")(function* (
   ].join(" ");
   yield* runCommand(
     ChildProcess.make("pwsh", ["-NoProfile", "-NonInteractive", "-Command", script]),
-    "Invoke-TrustedSigning t3.exe",
+    "Invoke-TrustedSigning mines.exe",
   );
-  yield* Effect.log("[cli-archive] Signed t3.exe (Azure Trusted Signing).");
+  yield* Effect.log("[cli-archive] Signed mines.exe (Azure Trusted Signing).");
 });
 
 const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
@@ -413,18 +432,19 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   readonly version: string;
   readonly outputDir: string;
   readonly resourceMonitorDir: Option.Option<string>;
+  readonly withoutResourceMonitor: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const repoRoot = yield* RepoRoot;
   const serverDir = path.join(repoRoot, "apps/server");
-  const executableName = input.platform === "win" ? "t3.exe" : "t3";
+  const executableName = input.platform === "win" ? "mines.exe" : "mines";
   // tsdown suffixes cross-built executables; prefer the exact target over the plain host build.
   const targetKey = `${input.platform === "mac" ? "darwin" : input.platform}-${input.arch}`;
   const targetExecutable = path.join(
     serverDir,
     "dist-exe",
-    `t3-${targetKey}${input.platform === "win" ? ".exe" : ""}`,
+    `mines-${targetKey}${input.platform === "win" ? ".exe" : ""}`,
   );
   // The unsuffixed executable is valid only for the host platform and architecture.
   const hostPlatform = yield* HostProcess.Platform;
@@ -443,21 +463,35 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     builtExecutable,
     `Run \`node apps/server/scripts/cli.ts build-exe --target ${targetKey}\` first.`,
   );
-  yield* requireInput(path.join(webClient, "index.html"), "Run `vp run --filter t3 build` first.");
   yield* requireInput(
-    resourceMonitorDir,
-    "Build the resource monitor or pass --resource-monitor-dir.",
+    path.join(webClient, "index.html"),
+    "Run `vp run --filter mines build` first.",
   );
+  if (!input.withoutResourceMonitor) {
+    yield* requireInput(
+      resourceMonitorDir,
+      "Build the resource monitor, pass --resource-monitor-dir, or explicitly use --without-resource-monitor for a host without process telemetry.",
+    );
+  }
 
   const stem = cliArchiveStem(input.version, input.platform, input.arch);
-  const stageRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-archive-" });
+  const stageRoot = yield* fs.makeTempDirectoryScoped({ prefix: "mines-cli-archive-" });
   const contentDir = path.join(stageRoot, stem);
   yield* fs.makeDirectory(contentDir, { recursive: true });
 
   yield* Effect.log(`[cli-archive] Staging ${stem}...`);
   yield* fs.copyFile(builtExecutable, path.join(contentDir, executableName));
   yield* stageWebClient(webClient, path.join(contentDir, "client"));
-  yield* fs.copy(resourceMonitorDir, path.join(contentDir, "resource-monitor"));
+  if (!input.withoutResourceMonitor) {
+    yield* fs.copy(resourceMonitorDir, path.join(contentDir, "resource-monitor"));
+  }
+  if (input.platform === "linux") {
+    yield* fs.copyFile(
+      path.join(repoRoot, "scripts/install-mines-service.sh"),
+      path.join(contentDir, "install-service.sh"),
+    );
+    yield* fs.chmod(path.join(contentDir, "install-service.sh"), 0o755);
+  }
   yield* stageRuntimeExternals({
     repoRoot,
     stageDir: contentDir,
@@ -471,6 +505,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     yield* signMacArchiveContents({ repoRoot, contentDir, executablePath });
   } else if (input.platform === "win") {
     yield* signWindowsExecutable(executablePath);
+    yield* fs.copyFile(executablePath, path.join(contentDir, "mines.exe"));
   }
   if (input.platform !== "win") {
     yield* fs.chmod(executablePath, 0o755);
@@ -500,14 +535,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   } else {
     // npm rejects Linux hardlink entries; macOS pnpm clones and bsdtar lacks this flag.
     yield* runCommand(
-      ChildProcess.make("tar", [
-        ...(input.platform === "linux" ? ["--hard-dereference"] : []),
-        "-czf",
-        archivePath,
-        "-C",
-        stageRoot,
-        stem,
-      ]),
+      ChildProcess.make("tar", cliArchiveTarArguments(archivePath, stageRoot, stem, hostPlatform)),
       "tar (gzip)",
     );
   }
@@ -531,9 +559,13 @@ const command = Command.make(
       ),
       Flag.optional,
     ),
+    withoutResourceMonitor: Flag.Boolean("without-resource-monitor").pipe(
+      Flag.withDescription("Omit the optional native process telemetry helper."),
+      Flag.withDefault(false),
+    ),
   },
   (input) => buildCliArchive(input).pipe(Effect.scoped),
-).pipe(Command.withDescription("Package the t3 single-executable into a per-platform archive."));
+).pipe(Command.withDescription("Package the mines single-executable into a per-platform archive."));
 
 if (import.meta.main) {
   Command.run(command, { version: "0.0.0" }).pipe(

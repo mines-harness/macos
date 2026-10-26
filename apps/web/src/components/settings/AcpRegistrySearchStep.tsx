@@ -33,6 +33,7 @@ function errorMessage(error: unknown): string {
 
 interface AcpRegistrySearchStepProps {
   readonly environmentId: EnvironmentId;
+  readonly initialQuery?: string | undefined;
   readonly providerInstances: Readonly<Record<string, ProviderInstanceConfig>>;
   readonly onPrepared: (agent: AcpRegistrySearchAgent) => void;
   readonly onManualConfiguration: () => void;
@@ -55,6 +56,7 @@ function applyAcpRegistryPrepareResult(
 
 export function AcpRegistrySearchStep({
   environmentId,
+  initialQuery = "",
   providerInstances,
   onPrepared,
   onManualConfiguration,
@@ -62,8 +64,8 @@ export function AcpRegistrySearchStep({
   onLoadingChange,
   onPreparingChange,
 }: AcpRegistrySearchStepProps) {
-  const [query, setQuery] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery.trim());
+  const [submittedQuery, setSubmittedQuery] = useState(initialQuery.trim());
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const [preparingId, setPreparingId] = useState<string | null>(null);
   const [prepareError, setPrepareError] = useState<string | null>(null);

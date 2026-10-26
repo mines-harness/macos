@@ -222,8 +222,8 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
 
 it.each([
   ["pre-expiry compaction", true, "completed", []],
-  ["manual compaction", false, "completed", ["Thread completed"]],
-  ["failed pre-expiry compaction", true, "error", ["Thread failed"]],
+  ["manual compaction", false, "completed", ["Mine completed"]],
+  ["failed pre-expiry compaction", true, "error", ["Mine failed"]],
 ] as const)("notifies for %s only when attention is needed", async (_, silent, status, titles) => {
   await using app = setup();
   state.environmentIds = ["one"];
@@ -262,5 +262,5 @@ it("holds a completion through a continuation gap and notifies once it settles",
   await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS - 1);
   expect(TestNotification.sent).toEqual([]);
   await vi.advanceTimersByTimeAsync(1);
-  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Thread completed"]);
+  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Mine completed"]);
 });

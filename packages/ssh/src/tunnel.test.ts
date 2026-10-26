@@ -79,9 +79,32 @@ function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
   return command._tag === "StandardCommand" ? command.args : [];
 }
 
-const ARCHIVE = { archiveVersion: "1.2.3-preview.20260911.4" } as const;
+const ARCHIVE = {
+  archiveVersion: "1.2.3-preview.20260911.4",
+  releaseBaseUrl: "https://releases.example/download",
+} as const;
 
 describe("ssh tunnel scripts", () => {
+  it("rejects archive bootstrap without an explicit mines release source", () => {
+    assert.throws(
+      () => SshTunnel.buildRemoteMinesRunnerScript({ archiveVersion: "1.2.3" }),
+      /Configure/,
+    );
+    assert.throws(
+      () =>
+        SshTunnel.buildRemoteMinesRunnerScript({
+          archiveVersion: "1.2.3",
+          releaseBaseUrl: "https://github.com/pingdotgg/t3code/releases/download",
+        }),
+      /Configure/,
+    );
+    assert.include(SshTunnel.buildRemoteMinesRunnerScript(ARCHIVE), "mines-$MINES_ARCHIVE_VERSION");
+    assert.include(
+      SshTunnel.buildRemoteMinesRunnerScript(ARCHIVE),
+      "$HOME/.mines/runtime/versions",
+    );
+  });
+
   it("rejects archive versions that are not a single exact version segment", () => {
     for (const archiveVersion of [
       "../other",
@@ -92,15 +115,15 @@ describe("ssh tunnel scripts", () => {
       "v1.2.3",
     ]) {
       assert.throws(
-        () => SshTunnel.buildRemoteT3RunnerScript({ archiveVersion }),
+        () => SshTunnel.buildRemoteMinesRunnerScript({ archiveVersion }),
         SshTunnel.SshInvalidArchiveVersionError,
         undefined,
         archiveVersion,
       );
     }
     assert.include(
-      SshTunnel.buildRemoteT3RunnerScript(ARCHIVE),
-      "T3_ARCHIVE_VERSION='1.2.3-preview.20260911.4'",
+      SshTunnel.buildRemoteMinesRunnerScript(ARCHIVE),
+      "MINES_ARCHIVE_VERSION='1.2.3-preview.20260911.4'",
     );
   });
 

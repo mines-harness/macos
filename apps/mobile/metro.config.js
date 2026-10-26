@@ -4,6 +4,7 @@ const { pathToFileURL } = require("node:url");
 const { getDefaultConfig } = require("expo/metro-config");
 const { withUniwindConfig } = require("uniwind/metro");
 const extraThemes = require("./generated-uniwind-theme-names.json");
+const { resolveNativeLib0Crypto } = require("./scripts/metro-lib0-crypto.cjs");
 
 /** @type {import("expo/metro-config").MetroConfig} */
 const config = getDefaultConfig(__dirname);
@@ -18,10 +19,17 @@ const licenseGeneratorSource = path.join(
 const escapedWorkspaceRoot = workspaceRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const generatedDeviceStreamRoot = path.join(__dirname, ".generated", "device-stream");
 const generatedPreviewStreamRoot = path.join(__dirname, ".generated", "preview-stream");
+const defaultResolveRequest = config.resolver?.resolveRequest;
 
 config.watchFolders = [...new Set([...(config.watchFolders ?? []), workspaceRoot])];
 config.resolver = {
   ...config.resolver,
+  resolveRequest(context, moduleName, platform) {
+    return (
+      resolveNativeLib0Crypto(context, moduleName, platform, path.join(__dirname, "index.ts")) ??
+      (defaultResolveRequest ?? context.resolveRequest)(context, moduleName, platform)
+    );
+  },
   blockList: [
     ...(Array.isArray(config.resolver?.blockList)
       ? config.resolver.blockList

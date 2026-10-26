@@ -31,7 +31,9 @@ import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
+import * as CatalogRunContextService from "../catalog/CatalogRunContextService.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
+import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -64,6 +66,14 @@ const layerWorktreeLocation = (worktreesDir = managedWorktreesDir) =>
     Path.layer,
     Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as ServerConfig.ServerConfig["Service"]),
     ServerSettings.layerTest(),
+    Layer.mock(WorkspaceRunLease.WorkspaceRunLease)({
+      acquire: () =>
+        Effect.succeed({
+          release: Effect.void,
+          executionSettled: Effect.void,
+          checkpointScheduled: Effect.void,
+        }),
+    }),
   );
 
 function startWithMissingWorktree(
@@ -124,6 +134,9 @@ function startWithMissingWorktree(
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(CatalogRunContextService.CatalogRunContextService)({
+          forRun: () => Effect.succeed(""),
+        }),
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
@@ -257,6 +270,8 @@ it.each([
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
+  readonly organizationalContext?: string;
+  readonly organizationalContextError?: CatalogRunContextService.CatalogRunContextError;
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
   readonly fileSystem?: FileSystem.FileSystem;
@@ -683,6 +698,12 @@ function makeLocalCommandHarness(input: {
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(CatalogRunContextService.CatalogRunContextService)({
+          forRun: () =>
+            input.organizationalContextError
+              ? Effect.fail(input.organizationalContextError)
+              : Effect.succeed(input.organizationalContext ?? ""),
+        }),
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
           prepareProviderHandoff: () => Effect.die("history read must fail first"),
         }),
@@ -771,6 +792,69 @@ function makeLocalCommandHarness(input: {
     }).pipe(Effect.provide(layer)),
   };
 }
+
+effectIt.effect(
+  "adds the immutable organizational context once to the native prompt without changing the user message",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        previousTurn: { runStatus: "completed", turnStatus: "completed" },
+        organizationalContext: "User organizational context: use accessible controls.",
+      });
+      yield* harness.start;
+      expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
+        "User organizational context: use accessible controls.\n\nUser message:\nContinue",
+      );
+      expect(harness.projection().messages.at(-1)?.text).toBe("Continue");
+    }),
+);
+
+effectIt.effect.each(["too-large", "not-synchronized"] as const)(
+  "reports %s organizational context before opening a provider session",
+  (code) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        organizationalContextError: new CatalogRunContextService.CatalogRunContextError({
+          code,
+          message: "Reduce the configured source references, then send again.",
+        }),
+      });
+      yield* harness.start;
+      expect(harness.open).not.toHaveBeenCalled();
+      expect(harness.startRootRun).not.toHaveBeenCalled();
+      expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+      expect(harness.projection().turnItems).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          failure: expect.objectContaining({
+            class: "validation_error",
+            message: "Reduce the configured source references, then send again.",
+          }),
+        }),
+      );
+    }),
+);
+
+effectIt.effect(
+  "keeps native compaction commands intact when organizational context is configured",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["A prior user message."],
+        previousTurn: { runStatus: "completed", turnStatus: "completed" },
+        organizationalContextError: new CatalogRunContextService.CatalogRunContextError({
+          code: "too-large",
+          message: "An oversized source list must not block native compaction.",
+        }),
+      });
+      harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+      yield* harness.start;
+      expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe("/compact");
+    }),
+);
 
 effectIt.effect("recovers an abandoned failed turn before continuing its native conversation", () =>
   Effect.gen(function* () {
@@ -1234,7 +1318,7 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
             type: "error",
             failure: {
               class: "validation_error",
-              message: "Start a conversation before compacting this thread.",
+              message: "Start a conversation before compacting this mine.",
             },
           },
         ]);

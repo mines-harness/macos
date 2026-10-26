@@ -38,7 +38,7 @@ export function SettingsThreadsRouteScreen() {
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Thread behavior" trailing={<AndroidSettingsEnvironmentFilter />}>
+      <SettingsScreen title="Mine behavior" trailing={<AndroidSettingsEnvironmentFilter />}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
@@ -179,14 +179,14 @@ function AutoSettleSettingsRows() {
         <SettingsSection title="Usage limits">
           <SettingsSwitchRow
             icon="clock"
-            label="Auto-resume limited threads"
+            label="Auto-resume limited mines"
             value={uniformMobileSetting(displayTargets, "autoResumeLimitedThreads")}
             disabled={disabled}
             onValueChange={(value) => writeToAll({ autoResumeLimitedThreads: value })}
           />
           <SettingsSwitchRow
             icon="clock"
-            label="Snooze limited threads"
+            label="Snooze limited mines"
             value={uniformMobileSetting(displayTargets, "snoozeLimitedThreads")}
             disabled={disabled}
             onValueChange={(value) => writeToAll({ snoozeLimitedThreads: value })}
@@ -196,14 +196,14 @@ function AutoSettleSettingsRows() {
       <SettingsSection title="Auto-settle">
         <SettingsSwitchRow
           icon="arrow.triangle.branch"
-          label="Auto-settle merged threads"
+          label="Auto-settle merged mines"
           value={referenceSettings.sidebarAutoSettleOnMerge}
           disabled={disabled}
           onValueChange={(value) => writeToAll({ sidebarAutoSettleOnMerge: value })}
         />
         <SettingsSwitchRow
           icon="clock"
-          label="Auto-settle inactive threads"
+          label="Auto-settle inactive mines"
           value={afterDays !== null}
           disabled={disabled}
           onValueChange={(value) =>
@@ -259,9 +259,8 @@ function BetaSettingsSection() {
         />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
-        Fold working and monitoring threads into a Working section. They return to the top of the
-        list when they need you. While this is on, active threads are ordered by time and cannot be
-        moved.
+        Fold working and monitoring mines into a Working section. They return to the top of the list
+        when they need you. While this is on, active mines are ordered by time and cannot be moved.
       </Text>
     </View>
   );

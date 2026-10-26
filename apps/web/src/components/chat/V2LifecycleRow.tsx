@@ -55,7 +55,7 @@ import { cn } from "~/lib/utils";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 import { subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
-import { T3Wordmark } from "../T3Wordmark";
+import { MinesIcon } from "../MinesWordmark";
 
 const LIFECYCLE_TYPES = new Set<OrchestrationV2TurnItem["type"]>([
   "run_interrupt_request",
@@ -160,15 +160,15 @@ export function V2LifecycleRow(props: {
             <MessageSquareIcon className="size-4 text-secondary-label" aria-hidden />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {item.title ?? "Created thread"}
+            {item.title ?? "Created mine"}
           </span>
           <Button
             size="xs"
             variant="outline"
-            aria-label={`Open ${item.title ?? "created thread"}`}
+            aria-label={`Open ${item.title ?? "created mine"}`}
             onClick={() => props.onOpenThread(item.targetThreadId)}
           >
-            Open chat
+            Open mine
           </Button>
         </div>
       );
@@ -176,14 +176,14 @@ export function V2LifecycleRow(props: {
     return (
       <WorkLogRow
         data-v2-item-type={item.type}
-        icon={<T3Wordmark className="size-4 text-icon-muted" aria-hidden />}
-        label={<>Created thread{item.title ? ` · ${item.title}` : ""}</>}
+        icon={<MinesIcon className="size-4 text-icon-muted" aria-hidden />}
+        label={<>Created mine{item.title ? ` · ${item.title}` : ""}</>}
         trailing={
           <InlineButton
-            aria-label={`Open ${item.title ?? "created thread"}`}
+            aria-label={`Open ${item.title ?? "created mine"}`}
             onClick={() => props.onOpenThread(item.targetThreadId)}
           >
-            Open chat
+            Open mine
           </InlineButton>
         }
       />

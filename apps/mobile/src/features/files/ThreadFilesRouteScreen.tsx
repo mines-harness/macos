@@ -133,7 +133,7 @@ function FileHeader(props: {
       backInSplitView={
         props.fileInspectorSupported
           ? {
-              accessibilityLabel: "Return to chat",
+              accessibilityLabel: "Return to mine",
               icon: "chevron.left",
               onPress: props.onReturnToThread,
             }
@@ -382,7 +382,7 @@ function useThreadFilesWorkspace(params: {
 }
 
 function FilesUnavailable({
-  detail = "This thread does not have an active workspace path.",
+  detail = "This mine does not have an active workspace path.",
 }: {
   detail?: string;
 }) {

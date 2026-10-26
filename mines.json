@@ -1,0 +1,12 @@
+{
+  "$schema": "urn:mines:project-file",
+  "iconPath": "assets/mines/icon-180.png",
+  "scripts": [
+    {
+      "name": "Setup Worktree",
+      "command": "node scripts/setup-worktree.ts",
+      "icon": "configure",
+      "runOnWorktreeCreate": true
+    }
+  ]
+}

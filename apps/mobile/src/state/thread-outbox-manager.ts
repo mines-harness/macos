@@ -27,7 +27,7 @@ export class ThreadOutboxManagerError extends Schema.TaggedError<ThreadOutboxMan
   },
 ) {
   override get message(): string {
-    return `Thread outbox operation ${this.operation} failed for environment ${this.environmentId ?? "unknown"}, thread ${this.threadId ?? "unknown"}, message ${this.messageId ?? "unknown"}.`;
+    return `Mine outbox operation ${this.operation} failed for environment ${this.environmentId ?? "unknown"}, mine ${this.threadId ?? "unknown"}, message ${this.messageId ?? "unknown"}.`;
   }
 }
 

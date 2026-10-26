@@ -326,7 +326,7 @@ export function ThreadDetailsPrRow({
           pending: handoff === "conflicts",
           destructive: true,
           suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-          tooltip: "Check the branch out and resolve the conflicts in a new thread",
+          tooltip: "Check the branch out and resolve the conflicts in a new mine",
           onClick: startResolveConflicts,
         }
       : rowAction === "ready"
@@ -346,7 +346,7 @@ export function ThreadDetailsPrRow({
               pending: handoff === "findings",
               destructive: true,
               suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-              tooltip: "Fix the failing checks in a new thread",
+              tooltip: "Fix the failing checks in a new mine",
               onClick: startFixChecks,
             }
           : rowAction === "merge"

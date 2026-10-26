@@ -1,4 +1,5 @@
 import type { QueryPersistence } from "./queryPersistence.ts";
+import { captureCatalogExecution, RpcCatalogExecution } from "../catalog/execution.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
 import { followStreamInEnvironment } from "./environmentStreams.ts";
 import { reuseUnchanged } from "./serverConfigProjection.ts";
@@ -427,7 +428,13 @@ export function createRuntimeCommand<R, ER, W, A, E>(
       settleAtomCommandResult(() =>
         scheduler.schedule(registry, concurrency, input, () => {
           const atom = runtime
-            .atom(options.execute(input, registry))
+            .atom(
+              options.execute(input, registry).pipe(
+                Effect.provideService(RpcCatalogExecution, {
+                  capture: () => captureCatalogExecution(registry),
+                }),
+              ),
+            )
             .pipe(Atom.withLabel(options.label));
           return executeAtomQuery(registry, atom, { reportDefect: false, reportFailure: false });
         }),

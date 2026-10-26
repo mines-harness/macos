@@ -96,13 +96,36 @@ function quotaWindow(
   };
 }
 
+type QuotaFamily = "gemini" | "partner";
+
+function quotaFamily(id: string, label = ""): QuotaFamily | undefined {
+  if (id.startsWith("gemini-") || /^gemini\b/i.test(label)) return "gemini";
+  if (id.startsWith("3p-") || /^(?:claude|gpt)-/.test(id) || /^(?:claude|gpt)\b/i.test(label))
+    return "partner";
+  return undefined;
+}
+
+function storeWindow(
+  windows: Map<string, ServerProviderUsageWindow>,
+  window: ServerProviderUsageWindow,
+) {
+  const previous = windows.get(window.id);
+  if (
+    !previous ||
+    window.usedPercent > previous.usedPercent ||
+    (window.usedPercent === previous.usedPercent && !previous.resetsAt && window.resetsAt)
+  )
+    windows.set(window.id, window);
+}
+
 function summaryWindows(summary: typeof Summary.Type) {
   const windows = new Map<string, ServerProviderUsageWindow>();
-  const groups = summary.groups?.some((group) => group.buckets?.length)
-    ? summary.groups
-    : [{ buckets: summary.buckets }];
-  for (const group of groups ?? []) {
+  const families = new Set<QuotaFamily>();
+  const groups = [...(summary.groups ?? []), { buckets: summary.buckets }];
+  for (const group of groups) {
     for (const bucket of group.buckets ?? []) {
+      const reportedFamily = quotaFamily(bucket.bucketId, group.displayName ?? bucket.displayName);
+      if (reportedFamily) families.add(reportedFamily);
       if (bucket.disabled) continue;
       const family = bucket.bucketId.startsWith("gemini-")
         ? "Gemini"
@@ -118,10 +141,10 @@ function summaryWindows(summary: typeof Summary.Type) {
         weekly ? "weekly" : session ? "session" : "other",
         weekly ? 7 * 24 * 60 : session ? 5 * 60 : undefined,
       );
-      if (window) windows.set(window.id, window);
+      if (window) storeWindow(windows, window);
     }
   }
-  return [...windows.values()];
+  return { windows: [...windows.values()], families };
 }
 
 /** Older accounts expose model quotas without a window length. Do not invent a reset cadence. */
@@ -144,14 +167,13 @@ function modelWindows(models: typeof Models.Type) {
       if (!quota) continue;
       const window = quotaWindow(
         `${family.toLowerCase()}-${suffix}`,
-        `${family} · ${suffix === "weekly" ? "Weekly" : "Reported quota"}`,
+        `${family} · ${suffix === "weekly" ? "Weekly" : family === "Gemini" ? "Usage 5h" : "Reported quota"}`,
         quota,
         suffix === "weekly" ? "weekly" : "other",
         suffix === "weekly" ? 7 * 24 * 60 : undefined,
       );
       if (!window) continue;
-      const previous = windows.get(window.id);
-      if (!previous || window.usedPercent > previous.usedPercent) windows.set(window.id, window);
+      storeWindow(windows, window);
     }
   }
   return [...windows.values()];
@@ -248,7 +270,7 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     // Merge endpoints because quota groups differ; keep each bucket's most-used reading.
     const fetchWindows = Effect.fn("AntigravityUsageProbe.fetchWindows")(function* <E>(
       operation: string,
-      parse: (response: unknown) => Effect.Effect<ServerProviderUsageWindow[], E>,
+      parse: (response: unknown) => Effect.Effect<ReturnType<typeof summaryWindows>, E>,
     ) {
       const responses = yield* Effect.forEach(
         ENDPOINTS,
@@ -265,25 +287,36 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
             ),
           ).pipe(
             Effect.flatMap(parse),
-            Effect.orElseSucceed(() => []),
+            Effect.orElseSucceed(() => ({ windows: [], families: new Set<QuotaFamily>() })),
           ),
         { concurrency: "unbounded" },
       );
       const windows = new Map<string, ServerProviderUsageWindow>();
-      for (const window of responses.flat()) {
-        const previous = windows.get(window.id);
-        if (!previous || window.usedPercent > previous.usedPercent) windows.set(window.id, window);
+      const families = new Set<QuotaFamily>();
+      for (const response of responses) {
+        for (const window of response.windows) storeWindow(windows, window);
+        for (const family of response.families) families.add(family);
       }
-      return [...windows.values()];
+      return { windows: [...windows.values()], families };
     });
     const summary = yield* fetchWindows("retrieveUserQuotaSummary", (response) =>
       decodeSummary(response).pipe(Effect.map(summaryWindows)),
     );
-    const windows = summary.length
-      ? summary
-      : yield* fetchWindows("fetchAvailableModels", (response) =>
-          decodeModels(response).pipe(Effect.map(modelWindows)),
-        );
+    const windows = [...summary.windows];
+    if (!summary.families.has("gemini") || !summary.families.has("partner")) {
+      const models = yield* fetchWindows("fetchAvailableModels", (response) =>
+        decodeModels(response).pipe(
+          Effect.map((models) => ({
+            windows: modelWindows(models),
+            families: new Set<QuotaFamily>(),
+          })),
+        ),
+      );
+      for (const window of models.windows) {
+        const family = quotaFamily(window.id);
+        if (family && !summary.families.has(family)) windows.push(window);
+      }
+    }
     if (windows.length === 0) {
       return makeUnavailableUsageLimits({
         checkedAt,

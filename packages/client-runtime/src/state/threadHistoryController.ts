@@ -1,4 +1,4 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -13,6 +13,10 @@ export type ThreadHistoryLoadEarlierResult =
   | { readonly _tag: "error"; readonly message: string };
 
 export type ThreadHistoryHandler = {
+  readonly loadEarlierBody?: (
+    sourceThreadId: ThreadId,
+    itemId: TurnItemId,
+  ) => Effect.Effect<ThreadHistoryLoadEarlierResult>;
   readonly loadEarlier: (throughEntryId?: string) => Effect.Effect<ThreadHistoryLoadEarlierResult>;
   readonly reconcilePendingWork: () => Effect.Effect<void>;
 };
@@ -36,6 +40,12 @@ export class ThreadHistoryController extends Context.Service<
       environmentId: EnvironmentId,
       threadId: ThreadId,
       throughEntryId?: string,
+    ) => Effect.Effect<ThreadHistoryLoadEarlierResult>;
+    readonly loadEarlierBody: (
+      environmentId: EnvironmentId,
+      threadId: ThreadId,
+      sourceThreadId: ThreadId,
+      itemId: TurnItemId,
     ) => Effect.Effect<ThreadHistoryLoadEarlierResult>;
     readonly reconcilePendingWork: (
       environmentId: EnvironmentId,
@@ -85,6 +95,16 @@ export const layer: Layer.Layer<ThreadHistoryController> = Layer.effect(
             }
             return handler.loadEarlier(throughEntryId);
           }),
+        ),
+      loadEarlierBody: (environmentId, threadId, sourceThreadId, itemId) =>
+        Ref.get(handlers).pipe(
+          Effect.flatMap(
+            (current) =>
+              current
+                .get(threadKey({ environmentId, threadId }))
+                ?.loadEarlierBody?.(sourceThreadId, itemId) ??
+              Effect.succeed({ _tag: "noop" } as const),
+          ),
         ),
       reconcilePendingWork: (environmentId, threadId) =>
         Ref.get(handlers).pipe(

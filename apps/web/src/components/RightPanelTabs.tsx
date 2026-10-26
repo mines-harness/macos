@@ -155,13 +155,13 @@ function shouldOpenDefaultBrowserProfileFromMenuClick(pointerType: string | unde
 }
 
 const SURFACE_DISABLED_REASONS = {
-  browser: "Browser previews are only available in the T3 Code desktop app.",
-  terminal: "Terminal surfaces are only available from a project thread.",
+  browser: "Browser previews are only available in the mines desktop app.",
+  terminal: "Terminal surfaces are only available from a project mine.",
   files: "Files are only available when a project is open.",
-  diff: "Diff is only available for server threads in Git repositories.",
-  pullRequest: "This thread's branch has no pull request yet.",
-  pullRequests: "No linked pull requests are available for this thread.",
-  device: "Devices are only available from a thread.",
+  diff: "Diff is only available for server mines in Git repositories.",
+  pullRequest: "This mine's branch has no pull request yet.",
+  pullRequests: "No linked pull requests are available for this mine.",
+  device: "Devices are only available from a mine.",
 } as const;
 
 // Closed keepMounted popups must stop blocking shortcuts once their exit transition ends.
@@ -185,7 +185,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
-  device: "Available from a thread.",
+  device: "Available from a mine.",
 } as const;
 
 type TabContextMenuAction =

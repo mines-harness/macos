@@ -1,3 +1,5 @@
+import { MinesLibrary } from "../../catalog/MinesLibrary";
+import { Pressable } from "react-native";
 import { useActiveNewTask } from "../../state/active-new-task";
 import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
@@ -112,6 +114,37 @@ interface ThreadNavigationSidebarProps {
 }
 
 export function ThreadNavigationSidebar(props: ThreadNavigationSidebarProps) {
+  const [activity, setActivity] = useState(false);
+  return (
+    <View className="flex-1 bg-background" style={{ width: props.width }}>
+      <View className="flex-row gap-2 px-4 py-2">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: !activity }}
+          onPress={() => setActivity(false)}
+          className="rounded-full bg-muted px-4 py-2"
+        >
+          <Text>Library</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: activity }}
+          onPress={() => setActivity(true)}
+          className="rounded-full bg-muted px-4 py-2"
+        >
+          <Text>Activity</Text>
+        </Pressable>
+      </View>
+      {activity || props.searchQuery.trim() ? (
+        <ActivityNavigationSidebar {...props} />
+      ) : (
+        <MinesLibrary onSettings={props.onOpenSettings} />
+      )}
+    </View>
+  );
+}
+
+function ActivityNavigationSidebar(props: ThreadNavigationSidebarProps) {
   if (Platform.OS !== "ios") {
     return <ThreadNavigationSidebarPane {...props} nativeChrome={false} />;
   }
@@ -141,7 +174,9 @@ function ThreadNavigationSidebarPane(
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
   const projects = useProjects();
-  const threads = useNavigationThreadShells();
+  const threads = useNavigationThreadShells().map((thread) =>
+    thread.pinnedAt == null ? thread : { ...thread, pinnedAt: null, pinOrderKey: null },
+  );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const searchInputRef = useRef<TextInputInstance>(null);
@@ -287,7 +322,6 @@ function ThreadNavigationSidebarPane(
     machineByEnvironmentId,
     settlementEnvironmentIds,
     snoozeEnvironmentIds,
-    pinningEnvironmentIds,
     autoSettleOptOutEnvironmentIds,
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
@@ -359,7 +393,7 @@ function ThreadNavigationSidebarPane(
         {
           id: "environment:all",
           title: "All environments",
-          subtitle: "Show threads from every environment",
+          subtitle: "Show mines from every environment",
           state: options.selectedEnvironmentId === null ? "on" : "off",
         },
         ...environments.map((environment) => ({
@@ -382,7 +416,7 @@ function ThreadNavigationSidebarPane(
               {
                 id: "project:all",
                 title: "All projects",
-                subtitle: "Show threads from every project",
+                subtitle: "Show mines from every project",
                 state: selectedProjectKey === null ? "on" : "off",
               },
               ...projectFilterOptions.map((project) => ({
@@ -608,13 +642,9 @@ function ThreadNavigationSidebarPane(
             settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
             onSettleThread={settleThread}
             snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
-            pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}
+            pinningSupported={false}
             autoSettleOptOutSupported={autoSettleOptOutEnvironmentIds.has(thread.environmentId)}
-            reorderSupported={
-              item.item.pinned
-                ? pinReorderEnvironmentIds.has(thread.environmentId)
-                : !workingShelfEnabled && activeReorderEnvironmentIds.has(thread.environmentId)
-            }
+            reorderSupported={false}
             canMoveUp={item.canMoveUp}
             canMoveDown={item.canMoveDown}
             onSnoozeThread={snoozeThread}
@@ -700,16 +730,16 @@ function ThreadNavigationSidebarPane(
       }
     >
       {catalogState.isLoadingConnections
-        ? "Loading threads…"
+        ? "Loading mines…"
         : Platform.OS === "android" && !catalogState.hasConnections
           ? "No environments connected"
           : props.searchQuery.trim().length > 0
             ? threadSearch.isPending
-              ? "Searching thread messages…"
-              : "No matching threads"
+              ? "Searching mine messages…"
+              : "No matching mines"
             : selectedProjectScope !== null
-              ? `No threads in ${selectedProjectScope.title}`
-              : "No threads yet"}
+              ? `No mines in ${selectedProjectScope.title}`
+              : "No mines yet"}
     </Text>
   );
 
@@ -816,7 +846,7 @@ function ThreadNavigationSidebarPane(
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
-              {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- Only the non-native workspace layout (Android and the fallback) renders this sidebar, which has no native header to register with. */}
+              {/* oxlint-disable-next-line mines/require-registered-list-scroll -- Only the non-native workspace layout (Android and the fallback) renders this sidebar, which has no native header to register with. */}
               <AnimatedLegendList
                 itemLayoutAnimation={THREAD_SIDEBAR_ROW_LAYOUT}
                 data={listItems}
@@ -885,7 +915,7 @@ function ThreadNavigationSidebarPane(
             />
             <View className="flex-row items-center gap-2.5">
               <Menu actions={listMenuActions} onPressAction={handleListMenuAction}>
-                <SidebarFilterButton accessibilityLabel="Filter threads" icon={filterIcon} />
+                <SidebarFilterButton accessibilityLabel="Filter mines" icon={filterIcon} />
               </Menu>
               <SidebarHeaderActions onOpenSettings={props.onOpenSettings} />
             </View>
@@ -900,7 +930,7 @@ function ThreadNavigationSidebarPane(
             />
             <TextInput
               ref={searchInputRef}
-              accessibilityLabel="Search threads"
+              accessibilityLabel="Search mines"
               autoCapitalize="none"
               autoCorrect={false}
               clearButtonMode="while-editing"

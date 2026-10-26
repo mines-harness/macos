@@ -2,6 +2,7 @@ import {
   USAGE_MERGE_COMPATIBLE_SINCE,
   type EnvironmentId,
   type UsageBucket,
+  type UsageDay,
   type UsageProviderKind,
   type UsageSource,
   type UsageSourceFingerprint,
@@ -86,6 +87,26 @@ export interface UsageContractMismatch {
   readonly contractVersion: number;
 }
 
+type UsageOverviewSource = NonNullable<UsageSummary["overview"]>["sources"][number];
+type GeneratedTokens = UsageOverviewSource["generatedTokens"];
+type OverviewDailyTotals = Omit<UsageOverviewSource["daily"][number], "day">;
+
+export interface MergedUsageOverview {
+  readonly asOf: string;
+  readonly firstRecordedAt: string | null;
+  readonly generatedTokens: GeneratedTokens;
+  readonly daily: readonly (OverviewDailyTotals & {
+    readonly day: UsageDay;
+    readonly byProvider: ReadonlyMap<UsageProviderKind, OverviewDailyTotals>;
+  })[];
+  readonly providers: readonly {
+    readonly provider: UsageProviderKind;
+    readonly firstRecordedAt: string;
+    readonly generatedTokens: GeneratedTokens;
+  }[];
+  readonly unavailableEnvironments: readonly EnvironmentId[];
+}
+
 export interface MergedUsage {
   readonly costUsd: number;
   readonly uncachedInputTokens: number;
@@ -106,6 +127,7 @@ export interface MergedUsage {
   readonly duplicateSources: readonly string[];
   readonly contributingEnvironments: readonly EnvironmentId[];
   readonly contractMismatches: readonly UsageContractMismatch[];
+  readonly overview?: MergedUsageOverview;
 }
 
 // volumeId distinguishes machines sharing a hostname and home path.
@@ -263,6 +285,117 @@ function bucketTokens(bucket: UsageBucket): number {
     bucket.totals.cacheCreationTokens +
     bucket.totals.outputTokens
   );
+}
+
+function addGeneratedTokens(a: GeneratedTokens, b: GeneratedTokens): GeneratedTokens {
+  return {
+    last24h: a.last24h + b.last24h,
+    last7d: a.last7d + b.last7d,
+    last30d: a.last30d + b.last30d,
+    lifetime: a.lifetime + b.lifetime,
+  };
+}
+
+function addOverviewDailyTotals(
+  a: OverviewDailyTotals | undefined,
+  b: OverviewDailyTotals,
+): OverviewDailyTotals {
+  return {
+    outputTokens: (a?.outputTokens ?? 0) + b.outputTokens,
+    records: (a?.records ?? 0) + b.records,
+    providerReportedCostUsd: (a?.providerReportedCostUsd ?? 0) + b.providerReportedCostUsd,
+    estimatedCostUsd: (a?.estimatedCostUsd ?? 0) + b.estimatedCostUsd,
+    providerReportedRecords: (a?.providerReportedRecords ?? 0) + b.providerReportedRecords,
+    unpricedRecords: (a?.unpricedRecords ?? 0) + b.unpricedRecords,
+  };
+}
+
+function earlierInstant(a: string | null, b: string): string {
+  return a === null || Date.parse(b) < Date.parse(a) ? b : a;
+}
+
+function mergeOverview(
+  environments: readonly EnvironmentUsage[],
+  current: readonly EnvironmentUsage[],
+  ownerByFingerprint: ReadonlyMap<string, EnvironmentId>,
+): MergedUsageOverview | undefined {
+  const available = current.filter((environment) => environment.summary.overview !== undefined);
+  if (available.length === 0) return undefined;
+
+  const availableIds = new Set(available.map((environment) => environment.environmentId));
+  let asOf: string | null = null;
+  let firstRecordedAt: string | null = null;
+  let generatedTokens: GeneratedTokens = { last24h: 0, last7d: 0, last30d: 0, lifetime: 0 };
+  const providers = new Map<
+    UsageProviderKind,
+    { firstRecordedAt: string; generatedTokens: GeneratedTokens }
+  >();
+  const days = new Map<
+    UsageDay,
+    { totals: OverviewDailyTotals; byProvider: Map<UsageProviderKind, OverviewDailyTotals> }
+  >();
+
+  for (const environment of available) {
+    const overview = environment.summary.overview!;
+    asOf = earlierInstant(asOf, overview.asOf);
+    const added = new Set<UsageOverviewSource>();
+    for (const source of environment.summary.sources) {
+      if (ownerByFingerprint.get(fingerprintKey(source.fingerprint)) !== environment.environmentId)
+        continue;
+      const provider = source.fingerprint.provider;
+      const providerSources = environment.summary.sources.filter(
+        (entry) => entry.fingerprint.provider === provider,
+      );
+      for (const history of overview.sources) {
+        if (
+          added.has(history) ||
+          history.provider !== provider ||
+          (history.sourcePath !== source.fingerprint.resolvedHomePath &&
+            !(history.sourcePath === undefined && providerSources.length === 1))
+        )
+          continue;
+        added.add(history);
+        firstRecordedAt = earlierInstant(firstRecordedAt, history.firstRecordedAt);
+        generatedTokens = addGeneratedTokens(generatedTokens, history.generatedTokens);
+        const previous = providers.get(provider);
+        providers.set(provider, {
+          firstRecordedAt: earlierInstant(
+            previous?.firstRecordedAt ?? null,
+            history.firstRecordedAt,
+          ),
+          generatedTokens:
+            previous === undefined
+              ? history.generatedTokens
+              : addGeneratedTokens(previous.generatedTokens, history.generatedTokens),
+        });
+        for (const day of history.daily) {
+          const previousDay = days.get(day.day);
+          const byProvider =
+            previousDay?.byProvider ?? new Map<UsageProviderKind, OverviewDailyTotals>();
+          byProvider.set(provider, addOverviewDailyTotals(byProvider.get(provider), day));
+          days.set(day.day, {
+            totals: addOverviewDailyTotals(previousDay?.totals, day),
+            byProvider,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    asOf: asOf!,
+    firstRecordedAt,
+    generatedTokens,
+    daily: [...days.entries()]
+      .map(([day, { totals, byProvider }]) => ({ day, ...totals, byProvider }))
+      .sort((a, b) => a.day.localeCompare(b.day)),
+    providers: [...providers.entries()]
+      .map(([provider, totals]) => ({ provider, ...totals }))
+      .sort((a, b) => a.provider.localeCompare(b.provider)),
+    unavailableEnvironments: environments
+      .filter((environment) => !availableIds.has(environment.environmentId))
+      .map((environment) => environment.environmentId),
+  };
 }
 
 export function isCompatibleUsageContractVersion(version: number, expected: number): boolean {
@@ -542,6 +675,7 @@ export function mergeUsage(
   const hourly: HourlyTotals[] = [...hourlyAccumulator.values()].sort((a, b) =>
     a.hourStart.localeCompare(b.hourStart),
   );
+  const overview = mergeOverview(environments, current, ownerByFingerprint);
 
   return {
     costUsd,
@@ -582,5 +716,6 @@ export function mergeUsage(
     duplicateSources: duplicates,
     contributingEnvironments,
     contractMismatches,
+    ...(overview === undefined ? {} : { overview }),
   };
 }

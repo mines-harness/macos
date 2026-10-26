@@ -148,7 +148,17 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
           const models = yield* chatGptModels(credentials.accessToken, draft.models).pipe(
             Effect.provideService(HttpClient.HttpClient, http),
           );
-          return { ...draft, models };
+          return {
+            ...draft,
+            models,
+            ...(models.length === 0 && draft.status === "ready"
+              ? {
+                  status: "warning" as const,
+                  message:
+                    "No models are available for this ChatGPT account. Try another account in provider settings.",
+                }
+              : {}),
+          };
         }),
       ),
       Effect.map((draft) =>

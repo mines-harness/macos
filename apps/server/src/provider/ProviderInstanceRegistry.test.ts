@@ -218,6 +218,28 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live("keeps the running provider instance when only account priority changes", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("codex_priority");
+      const entry = {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: false,
+        config: makeCodexConfig({ enabled: false }),
+      };
+      const { registry, mutator } = yield* makeProviderInstanceRegistry({
+        drivers: [CodexDriver],
+        configMap: { [instanceId]: entry },
+      });
+      const original = yield* registry.getInstance(instanceId);
+      yield* mutator.reconcile({ [instanceId]: { ...entry, quotaFailoverPriority: 1 } });
+      expect(yield* registry.getInstance(instanceId)).toBe(original);
+      yield* mutator.reconcile({ [instanceId]: { ...entry, quotaFailoverPriority: 2 } });
+      expect(yield* registry.getInstance(instanceId)).toBe(original);
+      yield* mutator.reconcile({ [instanceId]: entry });
+      expect(yield* registry.getInstance(instanceId)).toBe(original);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("runs Codex and Claude readiness probes from configured tilde paths", () =>
     Effect.gen(function* () {
       if (yield* HostProcess.isWindows) return;
@@ -232,7 +254,7 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
           enabled: true,
           environment: [
             {
-              name: "T3_CODEX_COLLAB_SCRIPT",
+              name: "MINES_CODEX_COLLAB_SCRIPT",
               value: fixtures.codexScriptPath,
               sensitive: false,
             },
@@ -286,7 +308,7 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
             driver: ProviderDriverKind.make("claudeAgent"),
             enabled: true,
             // Packaged desktop starts in $HOME, where some claude wrappers refuse to run.
-            environment: [{ name: "T3_CLAUDE_REQUIRED_CWD", value: stateDir, sensitive: false }],
+            environment: [{ name: "MINES_CLAUDE_REQUIRED_CWD", value: stateDir, sensitive: false }],
             config: makeClaudeConfig({
               enabled: true,
               binaryPath: fixtures.claudeBinaryPath,
@@ -483,9 +505,9 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
             driver: ProviderDriverKind.make("claudeAgent"),
             enabled: true,
             environment: [
-              { name: "T3_CLAUDE_RESET_MARKER", value: marker, sensitive: false },
+              { name: "MINES_CLAUDE_RESET_MARKER", value: marker, sensitive: false },
               ...(claim.usageFailsAfterClaim
-                ? [{ name: "T3_CLAUDE_USAGE_FAILS_AFTER_CLAIM", value: "1", sensitive: false }]
+                ? [{ name: "MINES_CLAUDE_USAGE_FAILS_AFTER_CLAIM", value: "1", sensitive: false }]
                 : []),
             ],
             config: makeClaudeConfig({
@@ -548,15 +570,15 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
           driver: ProviderDriverKind.make("claudeAgent"),
           enabled: true,
           environment: [
-            { name: "T3_CLAUDE_PROBE_LOG", value: probeLog, sensitive: false },
+            { name: "MINES_CLAUDE_PROBE_LOG", value: probeLog, sensitive: false },
             ...(state === "ready"
               ? []
               : [
                   {
                     name:
                       state === "signed-out"
-                        ? "T3_CLAUDE_LOGIN_MARKER"
-                        : "T3_CLAUDE_USAGE_FAILS_UNTIL",
+                        ? "MINES_CLAUDE_LOGIN_MARKER"
+                        : "MINES_CLAUDE_USAGE_FAILS_UNTIL",
                     value: recovered,
                     sensitive: false,
                   },

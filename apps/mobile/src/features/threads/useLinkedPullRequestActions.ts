@@ -96,7 +96,7 @@ export function useLinkedPullRequestActions(input: {
     const { singular } = terminology;
     Dialog.prompt({
       title: `Link ${singular}`,
-      message: `Paste a ${singular} URL, or enter 123 / #123 for this thread's repository.`,
+      message: `Paste a ${singular} URL, or enter 123 / #123 for this mine's repository.`,
       placeholder: `${capitalizeTerm(singular)} URL or #42`,
       initialValue: "",
       confirmText: "Link",
@@ -139,7 +139,7 @@ export function useLinkedPullRequestActions(input: {
           ? [
               {
                 id: "unlink",
-                title: link.source === "stack" ? "Dismiss from thread" : "Unlink from thread",
+                title: link.source === "stack" ? "Dismiss from mine" : "Unlink from mine",
                 image: "xmark",
                 attributes: { destructive: true },
               },

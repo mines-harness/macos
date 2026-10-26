@@ -35,7 +35,7 @@ export class WorktreeMcpService extends Context.Service<
       scope: McpInvocationScope,
     ) => Effect.Effect<WorktreeMcpStatusResult, WorktreeMcpFailure>;
   }
->()("t3/mcp/WorktreeMcpService") {}
+>()("mines/mcp/WorktreeMcpService") {}
 
 function failure(code: WorktreeMcpFailure["code"], message: string): WorktreeMcpFailure {
   return new WorktreeMcpFailure({ code, message });
@@ -71,7 +71,7 @@ const make = Effect.gen(function* () {
       ? Effect.fail(
           failure(
             "thread_credential_required",
-            "Worktree handoff and status act as the calling T3 thread, so they need an agent running inside T3 Code.",
+            "Worktree handoff and status act as the calling mine, so they need an agent running inside mines.",
           ),
         )
       : Effect.succeed(scope as McpThreadInvocationScope);
@@ -87,15 +87,15 @@ const make = Effect.gen(function* () {
     threadManagement.getThreadRecords(scope.thread.threadId, []).pipe(
       Effect.mapError((error) =>
         error._tag === "OrchestratorProjectionError"
-          ? failure("thread_not_found", `Thread '${scope.thread.threadId}' was not found.`)
+          ? failure("thread_not_found", `Mine '${scope.thread.threadId}' was not found.`)
           : failure(
               "operation_failed",
-              `Unable to read thread ${scope.thread.threadId}: ${errorMessage(error)}`,
+              `Unable to read mine ${scope.thread.threadId}: ${errorMessage(error)}`,
             ),
       ),
       Effect.filterOrFail(
         (projection) => projection.thread.deletedAt === null,
-        () => failure("thread_not_found", `Thread '${scope.thread.threadId}' was not found.`),
+        () => failure("thread_not_found", `Mine '${scope.thread.threadId}' was not found.`),
       ),
     );
 
@@ -108,7 +108,7 @@ const make = Effect.gen(function* () {
             Effect.fail(
               failure(
                 "project_not_found",
-                `Project '${projectId}' was not found for thread '${scope.thread.threadId}'.`,
+                `Project '${projectId}' was not found for mine '${scope.thread.threadId}'.`,
               ),
             ),
           onSome: Effect.succeed,
@@ -144,7 +144,7 @@ const make = Effect.gen(function* () {
     const alreadyInWorktree = (worktreePath: string) =>
       failure(
         "already_in_worktree",
-        `Thread '${scope.thread.threadId}' is already attached to worktree '${worktreePath}'.`,
+        `Mine '${scope.thread.threadId}' is already attached to worktree '${worktreePath}'.`,
       );
 
     const projection = yield* loadThread(scope);
@@ -154,7 +154,7 @@ const make = Effect.gen(function* () {
     if (projection.thread.archivedAt !== null) {
       return yield* failure(
         "invalid_request",
-        `Thread '${scope.thread.threadId}' is archived and cannot be handed off to a worktree.`,
+        `Mine '${scope.thread.threadId}' is archived and cannot be handed off to a worktree.`,
       );
     }
 
@@ -272,7 +272,7 @@ const make = Effect.gen(function* () {
           if (recheck.thread.archivedAt !== null) {
             return yield* failure(
               "invalid_request",
-              `Thread '${scope.thread.threadId}' was archived while the worktree was being created; the handoff was rolled back.`,
+              `Mine '${scope.thread.threadId}' was archived while the worktree was being created; the handoff was rolled back.`,
             );
           }
           yield* threadManagement
@@ -291,7 +291,7 @@ const make = Effect.gen(function* () {
                   : Effect.fail(
                       failure(
                         "operation_failed",
-                        `Unable to re-point the thread at the worktree: ${errorMessage(Cause.squash(cause))}`,
+                        `Unable to re-point the mine at the worktree: ${errorMessage(Cause.squash(cause))}`,
                       ),
                     ),
               ),
@@ -372,8 +372,8 @@ const make = Effect.gen(function* () {
           continuation,
           note:
             continuation.status === "scheduled"
-              ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
-              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.",
+              ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the mine is deleted."
+              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the mine receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the mine is deleted.",
         };
         return result;
       }),
@@ -391,7 +391,7 @@ const make = Effect.gen(function* () {
             return Effect.fail(
               failure(
                 "handoff_in_progress",
-                `A worktree handoff is already in progress for thread '${scope.thread.threadId}'.`,
+                `A worktree handoff is already in progress for mine '${scope.thread.threadId}'.`,
               ),
             );
           }

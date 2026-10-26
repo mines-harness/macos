@@ -1,8 +1,39 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cliArchiveTarCommand, newestCliReleaseVersion, parseChecksums } from "./cliRelease.ts";
+import {
+  cliArchiveTarCommand,
+  cliArchiveFileName,
+  cliReleaseIndexPageUrl,
+  cliReleaseDownloadBaseUrl,
+  resolveCliReleaseBaseUrl,
+  newestCliReleaseVersion,
+  parseChecksums,
+} from "./cliRelease.ts";
 
 describe("cliRelease", () => {
+  it("requires an explicit own release source and rejects upstream or insecure URLs", () => {
+    expect(resolveCliReleaseBaseUrl(undefined)).toBeUndefined();
+    expect(cliReleaseDownloadBaseUrl("1.2.3")).toBeUndefined();
+    expect(cliReleaseIndexPageUrl(1)).toBeUndefined();
+    expect(resolveCliReleaseBaseUrl(undefined, "pingdotgg/t3code")).toBeUndefined();
+    expect(cliReleaseIndexPageUrl(1, "PingDotGG/T3Code")).toBeUndefined();
+    for (const url of [
+      "https://github.com/pingdotgg/t3code/releases/download",
+      "http://releases.example/download",
+      "https://user:password@releases.example/download",
+      "https://releases.example/download?token=secret",
+    ]) {
+      expect(resolveCliReleaseBaseUrl(url)).toBeUndefined();
+    }
+    expect(resolveCliReleaseBaseUrl(undefined, "mines-test/mines")).toBe(
+      "https://github.com/mines-test/mines/releases/download",
+    );
+    expect(cliReleaseDownloadBaseUrl("1.2.3", "https://releases.example/download/")).toBe(
+      "https://releases.example/download/v1.2.3",
+    );
+    expect(cliArchiveFileName("1.2.3", "linux-x64")).toBe("mines-1.2.3-linux-x64.tar.gz");
+  });
+
   it("parses sha256sum output including binary-mode markers", () => {
     const checksums = parseChecksums(
       [

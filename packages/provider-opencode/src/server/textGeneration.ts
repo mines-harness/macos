@@ -11,6 +11,7 @@ import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
 
 const OpenCodeTextGenerationOperation = Schema.Literals([
+  "assessGroupRelevance",
   "generateCommitMessage",
   "generatePrContent",
   "generateBranchName",
@@ -189,7 +190,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
           try: (signal) =>
             client.session.create(
               {
-                title: `T3 Code ${input.operation}`,
+                title: `mines ${input.operation}`,
                 permission: [{ permission: "*", pattern: "*", action: "deny" }],
               },
               { signal },

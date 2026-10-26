@@ -363,6 +363,35 @@ const pullRequestLink = (number: number) => ({
 it.effect.each([
   ["sql", layerSql],
   ["memory", ProjectionStore.layerMemory],
+] as const)("%s: preserves untouched imported history until a Mines run exists", ([, testLayer]) =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const imported = yield* createThread("untouched-import", { historyOrigin: "v1_import" });
+    const ordinary = yield* createThread("ordinary-runless");
+    const decision = {
+      pullRequest: null,
+      nowMs: DateTime.toEpochMillis(now),
+      autoSettleAfterDays: 7,
+      autoSettleOnMerge: false,
+    };
+    const [untouched] = yield* store.getSettlementCandidates(imported);
+    assert.isDefined(untouched);
+    assert.equal(untouched.historyOrigin, "v1_import");
+    assert.isNull(resolveAutoSettlementAt({ ...decision, thread: untouched }));
+    const [ordinaryCandidate] = yield* store.getSettlementCandidates(ordinary);
+    assert.isDefined(ordinaryCandidate);
+    assert.deepEqual(resolveAutoSettlementAt({ ...decision, thread: ordinaryCandidate }), old);
+    const runId = yield* createRun(imported);
+    const [continued] = yield* store.getSettlementCandidates(imported);
+    assert.isDefined(continued);
+    assert.equal(continued.latestRunId, runId);
+    assert.deepEqual(resolveAutoSettlementAt({ ...decision, thread: continued }), old);
+  }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect.each([
+  ["sql", layerSql],
+  ["memory", ProjectionStore.layerMemory],
 ] as const)(
   "%s: lists only active threads with pull request links, oldest first",
   ([, testLayer]) =>

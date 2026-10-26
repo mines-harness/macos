@@ -39,7 +39,7 @@ export class ThreadTitleRegenerationService extends Context.Service<
       | ThreadManagementService.ThreadManagementProviderInstanceDisabledError
     >;
   }
->()("t3/orchestration-v2/ThreadTitleRegenerationService") {}
+>()("mines/orchestration-v2/ThreadTitleRegenerationService") {}
 
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
@@ -119,7 +119,8 @@ const make = Effect.gen(function* () {
         modelSelection: settings.textGenerationModelSelection,
       });
       const generatedTitle = result.title.trim();
-      return generatedTitle === "New thread" ||
+      return generatedTitle === "New mine" ||
+        generatedTitle === "New thread" ||
         (input.kind.type === "regenerate" && generatedTitle === projection.thread.title.trim())
         ? { type: "complete" as const }
         : { type: "complete" as const, title: result.title };

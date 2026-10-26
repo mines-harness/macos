@@ -16,7 +16,7 @@ export const THREAD_HISTORY_PAGE_POLICY = {
   maxUserTurns: 10,
   maxItems: 75,
   maxTurnItems: 500,
-  maxEncodedBytes: 1_048_576,
+  maxEncodedBytes: 262_144,
 } as const;
 
 export const OLDER_THREAD_USER_TURN_LIMIT = 20;
@@ -75,7 +75,7 @@ export type BoundedProjectionResult = {
 
 export class InvalidThreadHistoryCursorError extends Error {
   readonly _tag = "InvalidThreadHistoryCursorError";
-  constructor(message = "Invalid thread history cursor.") {
+  constructor(message = "Invalid mine history cursor.") {
     super(message);
     this.name = "InvalidThreadHistoryCursorError";
   }

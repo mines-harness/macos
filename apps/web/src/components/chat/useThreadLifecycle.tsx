@@ -1,3 +1,6 @@
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { catalogHostId, minesAccountEnvironmentIdsAtom } from "@t3tools/client-runtime/catalog";
+import { useMinesCatalog } from "../../catalog/useMinesCatalog";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { Dispatch } from "react";
@@ -150,7 +153,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   } = input;
   const navigate = useNavigate();
   const router = useRouter();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread } = useThreadActions();
+  const { catalog } = useMinesCatalog();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const canWriteSourceControl = useEnvironmentScope(environmentId, AuthSourceControlWriteScope);
   const switchGitRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -165,8 +170,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
 
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
-  const supportsPinning = serverConfig?.environment.capabilities.threadPinning === true;
-  const activeThreadPinned = supportsPinning && activeThreadShell?.pinnedAt != null;
   // The compiler caches render results on their inputs, so a clock read in render
   // stays frozen until the shell changes. The clock is state: reset with the shell,
   // and moved by the wake timer.
@@ -241,7 +244,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to un-settle thread",
+          title: "Failed to un-settle mine",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -286,7 +289,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to wake thread",
+          title: "Failed to wake mine",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -367,7 +370,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Checkout switched, but the thread could not be updated",
+              title: "Checkout switched, but the mine could not be updated",
               description: chatActionErrorMessage(squashAtomCommandFailure(updateResult)),
             }),
           );
@@ -435,7 +438,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     }
     const shell = readThreadShell(threadRef);
     if (shell === null ? !shellOmitsChildren && isEnvironmentLive() : shell.deletedAt != null) {
-      toastManager.add({ type: "info", title: "This thread is no longer available" });
+      toastManager.add({ type: "info", title: "This mine is no longer available" });
       return;
     }
     void navigate({
@@ -585,18 +588,38 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         return;
       }
       if (settleAndAdvance(activeThreadRef)) return;
-      void settleThread(activeThreadRef).then(toastThreadActionFailure("Failed to settle thread"));
+      void settleThread(activeThreadRef).then(toastThreadActionFailure("Failed to settle mine"));
     },
     "thread.pin": () => {
-      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
-      if (!activeThreadShell || !activeThreadRef || !supportsPinning) return;
-      void (
-        activeThreadPinned ? confirmAndUnpinThread(activeThreadRef) : pinThread(activeThreadRef)
-      ).then(
-        toastThreadActionFailure(
-          activeThreadPinned ? "Failed to unpin thread" : "Failed to pin thread",
-        ),
-      );
+      if (
+        !activeThreadShell ||
+        !activeThreadRef ||
+        !catalog ||
+        (environmentId !== primaryEnvironmentId &&
+          !appAtomRegistry.get(minesAccountEnvironmentIdsAtom).has(environmentId))
+      )
+        return false;
+      const id = catalogHostId("thread", environmentId, activeThreadRef.threadId);
+      try {
+        catalog.transaction(() => {
+          if (catalog.getSnapshot().pins.some((entry) => entry.entity.id === id)) catalog.unpin(id);
+          else {
+            catalog.upsert({
+              id,
+              kind: "thread",
+              title: activeThreadShell.title,
+              hostRef: { environmentId, entityId: activeThreadRef.threadId },
+            });
+            catalog.pin(id);
+          }
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not update your library",
+          description: error instanceof Error ? error.message : "Try again.",
+        });
+      }
     },
   } satisfies ChatShortcutCommands;
   return {

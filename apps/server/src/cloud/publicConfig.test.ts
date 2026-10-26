@@ -5,6 +5,7 @@ import * as Result from "effect/Result";
 
 import {
   hostedAppUrlConfig,
+  makeControlUrlConfig,
   makeCloudCliOAuthConfig,
   makeRelayUrlConfig,
   resolveRelayClientTracingConfig,
@@ -15,9 +16,20 @@ const provideEnv = (env: Readonly<Record<string, string>>) =>
 
 it.effect("rejects an insecure runtime relay URL override", () =>
   makeRelayUrlConfig("https://embedded.example.test").pipe(
-    provideEnv({ T3CODE_RELAY_URL: "http://runtime.example.test" }),
+    provideEnv({ MINES_RELAY_URL: "http://runtime.example.test" }),
     Effect.flip,
   ),
+);
+
+it.effect("requires an explicit mines hosted origin instead of an upstream default", () =>
+  Effect.gen(function* () {
+    const absent = yield* hostedAppUrlConfig.pipe(provideEnv({}), Effect.result);
+    assert.isTrue(Result.isFailure(absent));
+    assert.equal(
+      yield* hostedAppUrlConfig.pipe(provideEnv({ MINES_HOSTED_APP_URL: "https://mines.example" })),
+      "https://mines.example",
+    );
+  }),
 );
 
 it.effect("rejects malformed or insecure hosted app URLs", () =>
@@ -29,7 +41,7 @@ it.effect("rejects malformed or insecure hosted app URLs", () =>
       "https://app.t3.codes?alias=true",
     ]) {
       const result = yield* hostedAppUrlConfig.pipe(
-        provideEnv({ T3CODE_HOSTED_APP_URL: value }),
+        provideEnv({ MINES_HOSTED_APP_URL: value }),
         Effect.result,
       );
       assert.isTrue(Result.isFailure(result), value);
@@ -37,21 +49,53 @@ it.effect("rejects malformed or insecure hosted app URLs", () =>
   }),
 );
 
-it.effect("derives direct Clerk OAuth endpoints from statically injected public config", () =>
+it.effect("uses the configured mines device service and honors runtime overrides", () =>
+  Effect.gen(function* () {
+    assert.equal(
+      yield* makeControlUrlConfig("https://embedded.example.test").pipe(provideEnv({})),
+      "https://embedded.example.test",
+    );
+    assert.equal(
+      yield* makeControlUrlConfig("https://embedded.example.test").pipe(
+        provideEnv({ MINES_CONTROL_URL: "https://mines.example.test/" }),
+      ),
+      "https://mines.example.test",
+    );
+    const insecure = yield* makeControlUrlConfig("https://embedded.example.test").pipe(
+      provideEnv({ MINES_CONTROL_URL: "http://mines.example.test" }),
+      Effect.result,
+    );
+    assert.isTrue(Result.isFailure(insecure));
+  }),
+);
+
+it.effect("requires explicit CLI OAuth service endpoints", () =>
   Effect.gen(function* () {
     const config = yield* makeCloudCliOAuthConfig({
-      clerkPublishableKeyFallback: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
-      clerkCliOAuthClientIdFallback: "oauth_client_embedded",
+      tokenEndpointFallback: "https://accounts.example.test/oauth/token",
+      deviceAuthorizationEndpointFallback:
+        "https://accounts.example.test/oauth/device_authorization",
+      clientIdFallback: "oauth_client_embedded",
     }).pipe(provideEnv({}));
 
     assert.deepEqual(config, {
-      tokenEndpoint: "https://clerk.example.test/oauth/token",
-      deviceAuthorizationEndpoint: "https://clerk.example.test/oauth/device_authorization",
+      tokenEndpoint: "https://accounts.example.test/oauth/token",
+      deviceAuthorizationEndpoint: "https://accounts.example.test/oauth/device_authorization",
       clientId: "oauth_client_embedded",
       loopbackPort: 34338,
       redirectUri: "http://127.0.0.1:34338/callback",
       scopes: ["openid", "profile", "email", "offline_access"],
     });
+  }),
+);
+
+it.effect("does not infer CLI OAuth support from app account configuration", () =>
+  Effect.gen(function* () {
+    const result = yield* makeCloudCliOAuthConfig().pipe(
+      provideEnv({ MINES_CONTROL_URL: "https://mines.example.test" }),
+      Effect.result,
+    );
+    assert.isTrue(Result.isFailure(result));
   }),
 );
 
@@ -62,8 +106,8 @@ it("product opt-out disables relay tracing with either built-in or runtime crede
     tracesToken: "embedded-token",
   };
   const env = {
-    T3CODE_TELEMETRY_ENABLED: "false",
-    T3CODE_OTEL_SDK_DISABLED: "false",
+    MINES_TELEMETRY_ENABLED: "false",
+    MINES_OTEL_SDK_DISABLED: "false",
   };
 
   assert.equal(resolveRelayClientTracingConfig(env, fallback), null);
@@ -71,9 +115,9 @@ it("product opt-out disables relay tracing with either built-in or runtime crede
     resolveRelayClientTracingConfig(
       {
         ...env,
-        T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: "https://runtime.example.test/v1/traces",
-        T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: "runtime-dataset",
-        T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: "runtime-token",
+        MINES_RELAY_CLIENT_OTLP_TRACES_URL: "https://runtime.example.test/v1/traces",
+        MINES_RELAY_CLIENT_OTLP_TRACES_DATASET: "runtime-dataset",
+        MINES_RELAY_CLIENT_OTLP_TRACES_TOKEN: "runtime-token",
       },
       fallback,
     ),

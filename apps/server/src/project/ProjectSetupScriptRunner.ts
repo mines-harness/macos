@@ -79,7 +79,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedError<Project
   },
 ) {
   override get message(): string {
-    return `Project setup script operation '${this.operation}' failed for thread '${this.threadId}' in '${this.worktreePath}'.`;
+    return `Project setup script operation '${this.operation}' failed for mine '${this.threadId}' in '${this.worktreePath}'.`;
   }
 }
 
@@ -93,7 +93,7 @@ export class ProjectSetupScriptProjectNotFoundError extends Schema.TaggedError<P
   },
 ) {
   override get message(): string {
-    return `Project was not found for setup script execution for thread '${this.threadId}' in '${this.worktreePath}'.`;
+    return `Project was not found for setup script execution for mine '${this.threadId}' in '${this.worktreePath}'.`;
   }
 }
 
@@ -110,7 +110,7 @@ export class ProjectSetupScriptRunner extends Context.Service<
       input: ProjectSetupScriptRunnerInput,
     ) => Effect.Effect<ProjectSetupScriptRunnerResult, ProjectSetupScriptRunnerError>;
   }
->()("t3/project/ProjectSetupScriptRunner") {}
+>()("mines/project/ProjectSetupScriptRunner") {}
 
 /** @public */
 // Random per-run tokens prevent script output from spoofing completion.

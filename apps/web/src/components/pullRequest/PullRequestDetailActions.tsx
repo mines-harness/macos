@@ -125,7 +125,7 @@ export function PullRequestCheckoutMenu({
           <span className="flex min-w-0 flex-col">
             <span>In a separate worktree</span>
             <span className="text-xs text-muted-foreground">
-              Its own folder and thread. Nothing you have open moves.
+              Its own folder and mine. Nothing you have open moves.
             </span>
           </span>
         </MenuItem>

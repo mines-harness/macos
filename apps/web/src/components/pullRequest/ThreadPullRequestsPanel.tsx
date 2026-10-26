@@ -59,7 +59,7 @@ import { PullRequestSpeedActions, PullRequestSpeedModeContext } from "./PullRequ
 
 const SOURCE_LABELS: Record<ThreadPullRequestLink["source"], string> = {
   manual: "Linked by you",
-  created: "Created from this thread",
+  created: "Created from this mine",
   agent: "Linked by the agent",
   stack: "Found in the stack",
   "stack-dismissed": "Dismissed",
@@ -338,7 +338,7 @@ function LinkRowImpl({
             ) : null}
             <MenuItem onClick={() => onUnlink(link)}>
               <PullRequestGlyph.unlink className="size-3.5" />
-              {link.source === "stack" ? "Dismiss from thread" : "Unlink from thread"}
+              {link.source === "stack" ? "Dismiss from mine" : "Unlink from mine"}
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -431,8 +431,8 @@ function EnabledThreadPullRequestsPanel({ threadRef }: { threadRef: ScopedThread
         <PullRequestGlyph.link aria-hidden className="size-6 text-muted-foreground/60" />
         <p className="text-sm font-medium">No linked pull requests</p>
         <p className="max-w-60 text-xs text-muted-foreground">
-          Pull requests the agent opens from this thread land here. Link one yourself from a URL or
-          a number.
+          Pull requests the agent opens from this mine land here. Link one yourself from a URL or a
+          number.
         </p>
         <Button size="sm" variant="outline" onClick={openLinkDialog}>
           <PlusIcon className="size-3.5" />

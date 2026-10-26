@@ -15,6 +15,7 @@ import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderL
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import { GrokDriver } from "./driver.ts";
+import { checkGrokProviderStatus } from "./status.ts";
 import { resolveLatestProviderVersion } from "@t3tools/provider-core/server/maintenanceResolver";
 
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -72,6 +73,34 @@ function stdoutSpawner(onSpawn: (command: string, args: ReadonlyArray<string>) =
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
 it.layer(layerTest)("GrokDriver", (it) => {
+  it.effect(
+    "detects disabled Grok availability without refreshing authentication or inventory",
+    () =>
+      Effect.gen(function* () {
+        const calls: ReadonlyArray<string>[] = [];
+        const snapshot = yield* checkGrokProviderStatus(
+          { ...GrokDriver.defaultConfig(), enabled: false },
+          { XAI_API_KEY: "saved-but-unverified-key" },
+        ).pipe(
+          Effect.provideService(
+            ChildProcessSpawner.ChildProcessSpawner,
+            stdoutSpawner((_command, args) => {
+              calls.push(args);
+              expect(args).toEqual(["--version"]);
+              return "grok 1.0.52\n";
+            }),
+          ),
+        );
+        expect(snapshot).toMatchObject({
+          enabled: false,
+          installed: true,
+          version: "1.0.52",
+          auth: { status: "unknown" },
+        });
+        expect(calls).toEqual([["--version"]]);
+      }),
+  );
+
   // Each case puts a stub `brew` at `<prefix>/bin/brew` beside the Grok binary.
   const homebrewCases = [
     {

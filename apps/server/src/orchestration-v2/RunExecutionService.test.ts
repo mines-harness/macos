@@ -751,6 +751,7 @@ it.effect("rechecks run ownership immediately before calling the provider", () =
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const guardCalls = yield* Ref.make(0);
     const providerStarts = yield* Ref.make(0);
+    const executionSettled = yield* Ref.make(0);
     const threadId = ThreadId.make("thread:run-execution-start-guard");
     const runId = RunId.make("run:run-execution-start-guard");
     const attemptId = RunAttemptId.make("attempt:run-execution-start-guard");
@@ -779,6 +780,7 @@ it.effect("rechecks run ownership immediately before calling the provider", () =
     } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime;
 
     yield* runExecution.startRootRun({
+      onExecutionSettled: Ref.update(executionSettled, (count) => count + 1),
       commandId: CommandId.make("command:run-execution-start-guard"),
       appThread: rootAppThread(threadId),
       providerSessionId,
@@ -817,6 +819,7 @@ it.effect("rechecks run ownership immediately before calling the provider", () =
 
     assert.equal(yield* Ref.get(guardCalls), 2);
     assert.equal(yield* Ref.get(providerStarts), 0);
+    assert.equal(yield* Ref.get(executionSettled), 1);
   }).pipe(Effect.provide(layerRunExecutionTest)),
 );
 
@@ -2720,6 +2723,71 @@ it.effect("does not start a turn whose run settled during the app context read",
   }),
 );
 
+it.effect(
+  "keeps a live voice run open across backing turns and checkpoints once at the voice terminal",
+  () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const backingCompleted = yield* Ref.make(0);
+      const finalized = yield* Ref.make(0);
+      const result = yield* captureRootRunTermination({
+        key: "live-voice-checkpoint",
+        liveVoice: { sessionId: "live-voice-checkpoint" },
+        shouldFinalizeRun: () => Effect.succeed(true),
+        startTurn: (input) => {
+          assert.deepEqual(input.liveVoice, { sessionId: "live-voice-checkpoint" });
+          return Deferred.succeed(started, undefined).pipe(Effect.asVoid);
+        },
+        events: (ids) =>
+          Stream.unwrap(
+            Deferred.await(started).pipe(
+              Effect.as(
+                Stream.fromIterable([
+                  ...[1, 2].map(
+                    (ordinal) =>
+                      ({
+                        type: "provider_turn.updated",
+                        driver,
+                        threadId: ids.threadId,
+                        providerTurn: {
+                          id: ids.rootProviderTurnId,
+                          providerThreadId: ids.providerThreadId,
+                          nodeId: ids.rootNodeId,
+                          runAttemptId: ids.attemptId,
+                          ordinal,
+                          status: "completed",
+                        },
+                      }) as ProviderAdapter.ProviderAdapterV2Event,
+                  ),
+                  rootTerminalEvent(ids, "interrupted"),
+                ]).pipe(
+                  Stream.tap((event) =>
+                    Effect.gen(function* () {
+                      assert.equal(yield* Ref.get(finalized), 0);
+                      if (event.type === "provider_turn.updated")
+                        yield* Ref.update(backingCompleted, (count) => count + 1);
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        beforeTerminalWrite: () =>
+          Effect.gen(function* () {
+            assert.equal(yield* Ref.get(backingCompleted), 2);
+            yield* Ref.update(finalized, (count) => count + 1);
+            return true;
+          }),
+      });
+      assert.equal(yield* Ref.get(finalized), 1);
+      assert.deepEqual(
+        result.committedEffects.map((effect) => effect.request.type),
+        ["checkpoint.capture"],
+      );
+      assert.deepEqual(result.observed, ["run:interrupted", "pull-requests-refreshed"]);
+    }),
+);
+
 it.effect("keeps completed runs completed when pull request refresh fails", () =>
   Effect.gen(function* () {
     const { observed } = yield* captureRootRunTermination({
@@ -2734,6 +2802,7 @@ it.effect("keeps completed runs completed when pull request refresh fails", () =
 
 function captureRootRunTermination(input: {
   readonly key: string;
+  readonly liveVoice?: OrchestrationV2Run["liveVoice"];
   readonly shouldFinalizeRun: () => Effect.Effect<boolean, ProjectionStore.ProjectionStoreV2Error>;
   readonly rejectTerminalWrite?: boolean;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
@@ -2894,6 +2963,7 @@ function captureRootRunTermination(input: {
           threadId: ids.threadId,
           ordinal: 1,
           providerInstanceId,
+          ...(input.liveVoice === undefined ? {} : { liveVoice: input.liveVoice }),
         } as OrchestrationV2Run,
         rootNode: {
           id: ids.rootNodeId,

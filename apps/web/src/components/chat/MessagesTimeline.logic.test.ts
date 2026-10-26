@@ -33,7 +33,21 @@ import {
   resolveAssistantMessageCopyState,
   type MessagesTimelineRow,
   workEntryDisplayLabel,
+  threadReadLabelPrefix,
 } from "./MessagesTimeline.logic";
+
+describe("threadReadLabelPrefix", () => {
+  it.each(["Read a T3 mine", "Read a mines mine", "Read a mine"])(
+    "recognizes the persisted thread-read label %s",
+    (label) => {
+      expect(threadReadLabelPrefix(label)).toBe("Read mine");
+    },
+  );
+
+  it("leaves unrelated tool labels unchanged", () => {
+    expect(threadReadLabelPrefix("Read a source file")).toBeNull();
+  });
+});
 
 describe("computeMessageDurationStart", () => {
   it("uses the previous completed assistant updatedAt for subsequent assistant responses", () => {

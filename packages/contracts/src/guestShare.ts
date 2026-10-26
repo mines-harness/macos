@@ -67,8 +67,8 @@ export type GuestShareCreateResult = typeof GuestShareCreateResult.Type;
 const GUEST_SHARE_CREATE_MESSAGES = {
   disabled: "Guest links are off. Turn them on in Settings > Beta.",
   connect_unavailable: "Guest links need a running T3 Connect tunnel.",
-  thread_unavailable: "This thread cannot be shared.",
-  read_failed: "Failed to read the shared thread.",
+  thread_unavailable: "This mine cannot be shared.",
+  read_failed: "Failed to read the shared mine.",
   changed: "The guest link changed while it was being created.",
 } as const;
 
@@ -124,7 +124,7 @@ export const GUEST_SHARE_PARAM = "share";
  * One session cookie per share, so a guest keeps every link they joined on a host, and a page
  * for one share never acts with another share's session.
  */
-export const guestSessionCookieName = (shareId: string) => `t3_guest_${shareId}`;
+export const guestSessionCookieName = (shareId: string) => `mines_guest_${shareId}`;
 /** Serves one HTML render in the shared thread: `?share=<share id>&item=<turn item id>`. */
 export const GUEST_RENDER_ROUTE = `${GUEST_ROUTE_PREFIX}/render`;
 /** One item of the shared thread, as an expanded row loads it: `?share=<share id>&item=<id>`. */

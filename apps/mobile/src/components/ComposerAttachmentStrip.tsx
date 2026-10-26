@@ -93,7 +93,7 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
   );
 }
 
-const PREVIEW_CACHE_DIRECTORY = "t3-composer-previews";
+const PREVIEW_CACHE_DIRECTORY = "mines-composer-previews";
 
 /** Fabric re-parses URLs each layout; large data URLs can stall and abort commits. */
 const INLINE_PREVIEW_FALLBACK_MAX_CHARS = 256_000;

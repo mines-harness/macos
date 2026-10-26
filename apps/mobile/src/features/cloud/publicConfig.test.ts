@@ -14,14 +14,11 @@ describe("resolveCloudPublicConfig", () => {
   it("rejects an insecure relay URL", () => {
     expect(
       resolveCloudPublicConfig({
-        clerk: { publishableKey: "pk_test_example", jwtTemplate: "t3-relay" },
+        identity: { controlUrl: "https://mines.example.test" },
         relay: { url: "http://relay.example.test" },
       }),
     ).toEqual({
-      clerk: {
-        publishableKey: "pk_test_example",
-        jwtTemplate: "t3-relay",
-      },
+      identity: { controlUrl: "https://mines.example.test/" },
       relay: {
         url: null,
       },
@@ -31,5 +28,11 @@ describe("resolveCloudPublicConfig", () => {
         tracesToken: null,
       },
     });
+  });
+  it("rejects insecure account services", () => {
+    expect(
+      resolveCloudPublicConfig({ identity: { controlUrl: "http://mines.example.test" } }).identity
+        .controlUrl,
+    ).toBeNull();
   });
 });

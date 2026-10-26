@@ -215,7 +215,7 @@ export const launchThread = Effect.fn("ThreadMessageIntake.launchThread")(functi
   }
   if (input.threadId === undefined) {
     return yield* new AttachmentClaims.AttachmentClaimError({
-      message: "Uploaded attachments need a thread id at launch.",
+      message: "Uploaded attachments need a mine id at launch.",
     });
   }
   const claimed = yield* AttachmentClaims.claimPendingAttachments({

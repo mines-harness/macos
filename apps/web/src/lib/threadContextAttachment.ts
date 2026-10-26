@@ -12,7 +12,7 @@ export function threadContextAttachment(
     "thread",
     `${environmentId}:${transcript.threadId}:${updatedAt}`,
   );
-  const title = transcript.title.replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 64) || "Thread";
+  const title = transcript.title.replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 64) || "Mine";
   return new File(
     [
       threadTranscriptHeader(environmentId, transcript),

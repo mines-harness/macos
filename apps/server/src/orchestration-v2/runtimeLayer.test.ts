@@ -3,6 +3,7 @@ import { limitRecoveryCommand } from "./UsageLimitRecoveryWorker.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as CatalogRunContextService from "../catalog/CatalogRunContextService.ts";
 import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
@@ -86,8 +87,11 @@ import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
-const layerPlatformTest = Layer.merge(
+const layerPlatformTest = Layer.mergeAll(
   NodeServices.layer,
+  Layer.mock(CatalogRunContextService.CatalogRunContextService)({
+    forRun: () => Effect.succeed(""),
+  }),
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
@@ -688,7 +692,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
               parentCheckpointId: null,
               ordinalWithinScope: 0,
               appRunOrdinal: null,
-              ref: CheckpointRef.make(`refs/t3/${name}`),
+              ref: CheckpointRef.make(`refs/mines/${name}`),
               status: "ready",
               files: [],
               capturedAt: now,
@@ -798,7 +802,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
                 parentCheckpointId: null,
                 ordinalWithinScope: 0,
                 appRunOrdinal: null,
-                ref: CheckpointRef.make(`refs/t3/runtime-rollback-${status}`),
+                ref: CheckpointRef.make(`refs/mines/runtime-rollback-${status}`),
                 status,
                 files: [],
                 capturedAt: now,
@@ -3583,7 +3587,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           notification: {
             source: { kind: "system" as const },
             outcome: "updated" as const,
-            summary: "T3 Code restarted and resumed this turn",
+            summary: "mines restarted and resumed this turn",
             detail: "Continue where you left off.",
           },
           attachments: [],
@@ -3604,7 +3608,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           continuationItems.flatMap((item) =>
             item.type === "notification" ? [[item.summary, item.detail]] : [],
           ),
-          ["T3 Code restarted and resumed this turn", "Continue where you left off."],
+          ["mines restarted and resumed this turn", "Continue where you left off."],
         );
         yield* orchestrator.dispatch({
           ...command,
@@ -3705,7 +3709,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           commandId: CommandId.make(`restart-${status}-${kind}-continuation`),
           threadId,
           messageId: MessageId.make(`restart-${status}-${kind}-continuation`),
-          text: "Note: the T3 server restarted.",
+          text: "Note: the mines server restarted.",
           attachments: [],
           modelSelection,
           dispatchMode: { type: "start_immediately" },
@@ -3777,7 +3781,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         .pipe(Effect.flip);
 
       assert.equal(error._tag, "OrchestratorDispatchError");
-      assert.equal(error.cause, `Thread ${threadId} is still running. Stop it before settling.`);
+      assert.equal(error.cause, `Mine ${threadId} is still running. Stop it before settling.`);
       const projection = yield* orchestrator.getThreadProjection(threadId);
       assert.equal(projection.runs[0]?.status, "starting");
       assert.isNull(projection.thread.settledOverride);
@@ -3976,7 +3980,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.equal(error._tag, "OrchestratorDispatchError");
       assert.equal(
         error.cause,
-        `Thread ${threadId} has a queued message. Send it or remove it from the queue before settling.`,
+        `Mine ${threadId} has a queued message. Send it or remove it from the queue before settling.`,
       );
     }),
   );
@@ -5416,7 +5420,7 @@ it.layer(layerTest)("snooze queued runs", (it) => {
         if (kind === "user") {
           const error = yield* snooze.pipe(Effect.flip);
           assert.equal(error._tag, "OrchestratorDispatchError");
-          assert.equal(error.cause, `Thread ${threadId} has a queued run and cannot be snoozed.`);
+          assert.equal(error.cause, `Mine ${threadId} has a queued run and cannot be snoozed.`);
           assert.isNull((yield* orchestrator.getThreadProjection(threadId)).thread.snoozedUntil);
         } else {
           yield* snooze;
@@ -6663,6 +6667,8 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
         yield* orchestrator.dispatch(resume);
       }
       const after = yield* orchestrator.getThreadProjection(threadId);
+      if (scenario === "resume")
+        assert.equal(after.runs.at(-1)?.contextContinuationOfRunId, run.id);
       assert.lengthOf(
         after.runs,
         before.runs.length +
@@ -6737,6 +6743,44 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
         );
         assert.equal(resumed.runs[2]?.status, "starting");
         assert.isFalse(resumed.runs[2]?.queueHeld);
+      }
+      if (scenario === "resume") {
+        for (const sourceRunId of [RunId.make("other-mine-run"), after.runs.at(-1)!.id]) {
+          const rejected = yield* orchestrator
+            .dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(`context-retry-rejected:${sourceRunId}`),
+              messageId: MessageId.make(`context-retry-rejected:${sourceRunId}`),
+              threadId,
+              text: "Retry the response.",
+              attachments: [],
+              dispatchMode: { type: "queue_after_active" },
+              contextContinuationOfRunId: sourceRunId,
+              createdBy: "user",
+              creationSource: "server",
+            })
+            .pipe(Effect.result);
+          assert.equal(rejected._tag, "Failure");
+        }
+        const messageId = MessageId.make("context-retry-valid");
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("context-retry-valid"),
+          messageId,
+          threadId,
+          text: "Retry the response.",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          contextContinuationOfRunId: run.id,
+          createdBy: "user",
+          creationSource: "server",
+        });
+        assert.equal(
+          (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+            (candidate) => candidate.userMessageId === messageId,
+          )?.contextContinuationOfRunId,
+          run.id,
+        );
       }
     }),
   );

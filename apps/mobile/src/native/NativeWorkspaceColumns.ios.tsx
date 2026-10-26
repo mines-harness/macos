@@ -6,8 +6,8 @@ import { useNativeLayoutMetrics } from "./native-layout-metrics";
 
 const nativeControls = requireOptionalNativeModule<{
   readonly supportsWorkspaceColumns?: boolean;
-  readonly ViewPrototypes?: { readonly T3NativeControls_LayoutMetrics?: unknown };
-}>("T3NativeControls");
+  readonly ViewPrototypes?: { readonly MinesNativeControls_LayoutMetrics?: unknown };
+}>("MinesNativeControls");
 export const NATIVE_WORKSPACE_COLUMNS_SUPPORTED =
   Platform.OS === "ios" && Platform.isPad && nativeControls?.supportsWorkspaceColumns === true;
 
@@ -28,7 +28,7 @@ export function useNativeWorkspaceColumnsReady() {
   const [timedOut, setTimedOut] = useState(false);
   const waiting =
     !(Platform.OS === "ios" && Platform.isPad) &&
-    !!nativeControls?.ViewPrototypes?.T3NativeControls_LayoutMetrics &&
+    !!nativeControls?.ViewPrototypes?.MinesNativeControls_LayoutMetrics &&
     metrics === null;
 
   useEffect(() => {

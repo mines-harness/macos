@@ -68,11 +68,13 @@ import type {
   ProviderThreadId,
   ProviderTurnId,
   ProviderInstanceId,
+  ProviderVoiceEvent,
   RuntimeMode,
   RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
+import * as CodexRealtime from "effect-codex-app-server/realtime";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexSchema from "effect-codex-app-server/schema";
 import * as Cause from "effect/Cause";
@@ -97,6 +99,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { resolveAttachmentPath, resolveAttachmentPathById } from "../../attachmentStore.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import { ServerConfig } from "../../config.ts";
+import * as LiveVoiceSessions from "../../provider/LiveVoiceSessions.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { buildCodexAdditionalContext } from "../../provider/CodexDeveloperInstructions.ts";
 import {
@@ -728,7 +731,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly codexInput: ReadonlyArray<CodexSchema.V2TurnStartParams__UserInput>;
     readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
     readonly modelSelection: ModelSelection;
-    readonly hasT3Mcp?: boolean;
+    readonly hasMinesMcp?: boolean;
     readonly browserToolsAvailable?: boolean;
     readonly deviceToolsAvailable?: boolean;
     /** ChatGPT token sharing does not accept service tiers. */
@@ -760,8 +763,8 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
         { kind: "untrusted" as const, value: entry.text },
       ]),
     );
-    const t3Context =
-      input.hasT3Mcp === true
+    const minesContext =
+      input.hasMinesMcp === true
         ? buildCodexAdditionalContext(
             { model: input.modelSelection.model, reasoningEffort: effort ?? undefined },
             {
@@ -771,9 +774,9 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
           )
         : undefined;
     const additionalContext =
-      t3Context === undefined && Object.keys(appContext).length === 0
+      minesContext === undefined && Object.keys(appContext).length === 0
         ? undefined
-        : { ...t3Context, ...appContext };
+        : { ...minesContext, ...appContext };
     return yield* decodeCodexTurnStartParamsWithCollaborationMode({
       threadId: input.nativeThreadId,
       input: input.codexInput,
@@ -1199,6 +1202,21 @@ interface CodexGoalHold {
   readonly next: Deferred.Deferred<ActiveCodexTurnContext | undefined>;
 }
 
+interface CodexLiveVoiceRun {
+  readonly sessionId: string;
+  readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
+  readonly initialContext: ActiveCodexTurnContext;
+  context: ActiveCodexTurnContext;
+  readonly contexts: Array<ActiveCodexTurnContext>;
+  stopping: boolean;
+  transportClosed: boolean;
+  settled: boolean;
+  endStatus: "completed" | "interrupted";
+  failureMessage?: string;
+  closedReason?: string;
+  firstUserTranscriptId?: string;
+}
+
 interface DeferredCodexRootTerminal {
   readonly context: ActiveCodexTurnContext;
   readonly event: CodexRootTerminalEvent;
@@ -1312,7 +1330,7 @@ export interface CodexAppServerClientFactoryShape {
 export class CodexAppServerClientFactory extends Context.Service<
   CodexAppServerClientFactory,
   CodexAppServerClientFactoryShape
->()("t3/orchestration-v2/Adapters/CodexAdapterV2/CodexAppServerClientFactory") {}
+>()("mines/orchestration-v2/Adapters/CodexAdapterV2/CodexAppServerClientFactory") {}
 
 /** MCP startup grace in milliseconds; the 1 s default excludes cold npx/uvx servers from the first model request. */
 export const CODEX_THREAD_CONFIG = {
@@ -1320,8 +1338,8 @@ export const CODEX_THREAD_CONFIG = {
   mcp_optional_startup_grace_ms: 10_000,
 } as const;
 
-// T3 waits can block for an hour; keep Codex's MCP timeout above that.
-const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
+// mines waits can block for an hour; keep Codex's MCP timeout above that.
+const CODEX_MINES_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 
 function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
@@ -1341,10 +1359,10 @@ function codexThreadRuntimeParams(input: {
       ...(mcpSession === undefined
         ? {}
         : {
-            // Override only T3's server so launch-argument MCP servers survive.
-            "mcp_servers.t3-code": {
+            // Override only mines's server so launch-argument MCP servers survive.
+            "mcp_servers.mines": {
               url: mcpSession.endpoint,
-              tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
+              tool_timeout_sec: CODEX_MINES_MCP_TOOL_TIMEOUT_SEC,
               http_headers: {
                 Authorization: mcpSession.authorizationHeader,
               },
@@ -1513,6 +1531,8 @@ function redactCodexProtocolValue(value: unknown): unknown {
 function isSensitiveCodexProtocolKey(key: string): boolean {
   const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
   return (
+    normalized === "sdp" ||
+    normalized === "icecandidate" ||
     normalized.endsWith("authorization") ||
     normalized.endsWith("apikey") ||
     normalized.endsWith("token") ||
@@ -1712,6 +1732,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
     openSession: Effect.fn("CodexAdapterV2.openSession")(
       function* (input) {
         const scope = yield* Scope.Scope;
+        const liveVoiceHub = yield* Effect.serviceOption(LiveVoiceSessions.LiveVoiceSessions);
+        const liveVoiceRuns = new Map<string, CodexLiveVoiceRun>();
+        const endedVoiceThreads = new Set<string>();
         const resolvedRuntime =
           adapterOptions.resolveRuntime === undefined
             ? undefined
@@ -1983,6 +2006,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           readonly nativeTurnId: string;
           readonly startedAt: DateTime.Utc;
           readonly waitForNativeStart?: boolean;
+          readonly synthetic?: boolean;
         }) {
           const existing = (yield* Ref.get(activeTurns)).get(input.nativeTurnId);
           if (existing !== undefined) {
@@ -2034,11 +2058,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               providerThreadId: input.turnInput.providerThread.id,
               nodeId: input.turnInput.rootNodeId,
               runAttemptId: input.turnInput.attemptId,
-              nativeTurnRef: {
-                driver: CODEX_PROVIDER,
-                nativeId: input.nativeTurnId,
-                strength: "strong",
-              },
+              nativeTurnRef: input.synthetic
+                ? null
+                : {
+                    driver: CODEX_PROVIDER,
+                    nativeId: input.nativeTurnId,
+                    strength: "strong",
+                  },
               ordinal: input.turnInput.providerTurnOrdinal,
               status: "running",
               startedAt: input.startedAt,
@@ -4424,6 +4450,29 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               }
               return;
             }
+            const voice = liveVoiceRuns.get(payload.threadId);
+            if (voice !== undefined && !voice.settled) {
+              const context = yield* registerRootTurn({
+                turnInput: {
+                  ...voice.input,
+                  providerTurnOrdinal: voice.context.providerTurnOrdinal + 1,
+                },
+                nativeTurnId: payload.turn.id,
+                startedAt: codexTimestamp(payload.turn.startedAt),
+              });
+              voice.context = context;
+              voice.contexts.push(context);
+              return;
+            }
+            if (endedVoiceThreads.has(payload.threadId)) {
+              yield* client
+                .request("turn/interrupt", {
+                  threadId: payload.threadId,
+                  turnId: payload.turn.id,
+                })
+                .pipe(Effect.forkIn(scope));
+              return;
+            }
             const pendingRootTurn = (yield* Ref.get(pendingRootTurns)).get(payload.threadId);
             if (pendingRootTurn !== undefined) {
               yield* registerRootTurn({
@@ -5719,6 +5768,86 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }
         });
 
+        const publishVoiceEvent = (voice: CodexLiveVoiceRun, event: ProviderVoiceEvent) =>
+          Option.isNone(liveVoiceHub)
+            ? Effect.void
+            : liveVoiceHub.value
+                .publish({ sessionId: voice.sessionId, threadId: voice.input.threadId, event })
+                .pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Codex voice notification could not be delivered", { cause }),
+                  ),
+                );
+
+        yield* Effect.addFinalizer(() =>
+          Effect.forEach(
+            liveVoiceRuns.values(),
+            (voice) =>
+              publishVoiceEvent(voice, {
+                type: "error",
+                message: "The Codex voice runtime disconnected.",
+              }).pipe(
+                Effect.andThen(
+                  publishVoiceEvent(voice, { type: "closed", reason: "runtime-disconnected" }),
+                ),
+              ),
+            { discard: true },
+          ),
+        );
+
+        const finishLiveVoice = Effect.fn("CodexAdapterV2.finishLiveVoice")(function* (
+          voice: CodexLiveVoiceRun,
+        ) {
+          if (voice.settled) return true;
+          if (
+            Array.from((yield* Ref.get(activeTurns)).values()).some(
+              (context) => approvalOwnerCodexTurn(context).owner.input.runId === voice.input.runId,
+            )
+          )
+            return false;
+          voice.settled = true;
+          const nativeThreadId = yield* getNativeThreadId(voice.input.providerThread);
+          liveVoiceRuns.delete(nativeThreadId);
+          endedVoiceThreads.add(nativeThreadId);
+          const now = yield* DateTime.now;
+          for (const context of new Set([voice.initialContext, voice.context])) {
+            yield* emitProviderEvent({
+              type: "provider_turn.updated",
+              driver: CODEX_PROVIDER,
+              threadId: voice.input.threadId,
+              providerTurn: {
+                id: context.providerTurnId,
+                providerThreadId: context.providerThread.id,
+                nodeId: context.providerNodeId,
+                runAttemptId: voice.input.attemptId,
+                nativeTurnRef:
+                  context === voice.initialContext
+                    ? null
+                    : codexNativeItemRef(context.nativeTurnId),
+                ordinal: context.providerTurnOrdinal,
+                status: voice.failureMessage === undefined ? voice.endStatus : "failed",
+                startedAt: context.startedAt,
+                completedAt: now,
+              },
+            });
+          }
+          yield* emitRootTerminal(
+            voice.context,
+            yield* makeRootTerminalEvent({
+              context: voice.context,
+              status: voice.failureMessage === undefined ? voice.endStatus : "failed",
+              ...(voice.failureMessage === undefined
+                ? {}
+                : { failureMessage: voice.failureMessage }),
+            }),
+          );
+          yield* publishVoiceEvent(voice, {
+            type: "closed",
+            ...(voice.closedReason === undefined ? {} : { reason: voice.closedReason }),
+          });
+          return true;
+        }, turnTerminalizationPermit.withPermits(1));
+
         const emitOrDeferRootTerminal = Effect.fn("CodexAdapterV2.emitOrDeferRootTerminal")(
           function* (input: {
             readonly context: ActiveCodexTurnContext;
@@ -5729,6 +5858,26 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             readonly providerRetry?: ActiveCodexProviderRetry;
             readonly goalHoldTurn?: OrchestrationV2ProviderTurn;
           }) {
+            const nativeVoiceThreadId = input.context.providerThread.nativeThreadRef?.nativeId;
+            const voice =
+              nativeVoiceThreadId == null ? undefined : liveVoiceRuns.get(nativeVoiceThreadId);
+            if (voice !== undefined && voice.input.runId === input.context.input.runId) {
+              if (input.status === "failed" && !voice.stopping) {
+                voice.failureMessage =
+                  input.failureMessage ?? "The Codex voice backing turn failed.";
+                yield* publishVoiceEvent(voice, {
+                  type: "error",
+                  message: voice.failureMessage.slice(0, 4096),
+                });
+                yield* runtime
+                  .interruptTurn({
+                    providerThread: voice.input.providerThread,
+                    providerTurnId: voice.context.providerTurnId,
+                  })
+                  .pipe(Effect.forkIn(scope));
+              }
+              return;
+            }
             const event = yield* makeRootTerminalEvent(input);
             const hasActiveDescendants = Array.from((yield* Ref.get(activeTurns)).values()).some(
               (candidate) => isDescendantCodexTurn(candidate, input.context),
@@ -5998,6 +6147,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 if (
                   continuationRequests !== undefined &&
                   parent.subagent === null &&
+                  !liveVoiceRuns.has(parent.providerThread.nativeThreadRef?.nativeId ?? "") &&
                   (input.status === "completed" || input.status === "failed") &&
                   !(yield* Ref.get(terminalizedNonCompletedNativeTurns)).has(parent.nativeTurnId) &&
                   ![...(yield* Ref.get(activeTurns)).values()].some(
@@ -6234,6 +6384,203 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           });
         });
 
+        const startLiveVoice = Effect.fn("CodexAdapterV2.startLiveVoice")(function* (
+          turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+        ) {
+          if (turnInput.liveVoice === undefined || Option.isNone(liveVoiceHub)) {
+            return yield* toProtocolError("Live voice is unavailable on this computer.");
+          }
+          if (turnInput.message.text !== "") {
+            return yield* toProtocolError(
+              "Load this mine's history with a text message before starting live voice.",
+            );
+          }
+          const account = yield* client.request("account/read", { refreshToken: false });
+          if (account.account?.type !== "chatgpt") {
+            return yield* toProtocolError("Live voice requires a connected Codex ChatGPT account.");
+          }
+          const threadId = yield* getNativeThreadId(turnInput.providerThread);
+          if (liveVoiceRuns.has(threadId))
+            return yield* toProtocolError("This mine already has a live voice session.");
+          const sdp = yield* liveVoiceHub.value.takeOffer({
+            sessionId: turnInput.liveVoice.sessionId,
+            threadId: turnInput.threadId,
+          });
+          const context = yield* registerRootTurn({
+            turnInput,
+            nativeTurnId: `voice:${turnInput.liveVoice.sessionId}`,
+            startedAt: yield* DateTime.now,
+            synthetic: true,
+          });
+          yield* Ref.update(activeTurns, (turns) => {
+            const next = new Map(turns);
+            next.delete(context.nativeTurnId);
+            return next;
+          });
+          const voice: CodexLiveVoiceRun = {
+            sessionId: turnInput.liveVoice.sessionId,
+            input: turnInput,
+            initialContext: context,
+            context,
+            contexts: [],
+            stopping: false,
+            transportClosed: false,
+            settled: false,
+            endStatus: "interrupted",
+          };
+          liveVoiceRuns.set(threadId, voice);
+          endedVoiceThreads.delete(threadId);
+          yield* CodexRealtime.start(client, { threadId, sdp }).pipe(
+            Effect.onError(() =>
+              Effect.sync(() => {
+                liveVoiceRuns.delete(threadId);
+                endedVoiceThreads.add(threadId);
+              }).pipe(
+                Effect.andThen(
+                  publishVoiceEvent(voice, {
+                    type: "error",
+                    message: "Codex could not start live voice.",
+                  }),
+                ),
+                Effect.andThen(
+                  publishVoiceEvent(voice, { type: "closed", reason: "start-failed" }),
+                ),
+              ),
+            ),
+          );
+        });
+
+        yield* client.handleServerNotification("thread/realtime/started", (payload) => {
+          const voice = liveVoiceRuns.get(payload.threadId);
+          return voice === undefined ? Effect.void : publishVoiceEvent(voice, { type: "started" });
+        });
+        yield* client.handleServerNotification("thread/realtime/sdp", (payload) => {
+          const voice = liveVoiceRuns.get(payload.threadId);
+          return voice === undefined
+            ? Effect.void
+            : publishVoiceEvent(voice, { type: "sdp", sdp: payload.sdp });
+        });
+        yield* client.handleServerNotification("thread/realtime/transcript/delta", (payload) => {
+          const voice = liveVoiceRuns.get(payload.threadId);
+          return voice === undefined || (payload.role !== "user" && payload.role !== "assistant")
+            ? Effect.void
+            : publishVoiceEvent(voice, {
+                type: "transcript",
+                role: payload.role,
+                text: payload.delta.slice(0, 131_072),
+                done: false,
+              });
+        });
+        yield* client.handleServerNotification("thread/realtime/transcript/done", (payload) => {
+          const voice = liveVoiceRuns.get(payload.threadId);
+          return voice === undefined || (payload.role !== "user" && payload.role !== "assistant")
+            ? Effect.void
+            : publishVoiceEvent(voice, {
+                type: "transcript",
+                role: payload.role,
+                text: payload.text.slice(0, 131_072),
+                done: true,
+              });
+        });
+        yield* client.handleServerNotification("thread/realtime/item/completed", (payload) =>
+          Effect.gen(function* () {
+            const voice = liveVoiceRuns.get(payload.threadId);
+            if (voice === undefined || payload.item.type !== "transcriptSegment") return;
+            const { item } = payload;
+            const artifacts = yield* buildAgentMessageArtifacts(
+              voice.context,
+              { id: `voice:${voice.sessionId}:${item.id}`, text: item.text },
+              true,
+            );
+            if (item.role === "assistant") {
+              yield* emitProviderEvent({
+                type: "node.updated",
+                driver: CODEX_PROVIDER,
+                node: artifacts.node,
+              });
+              yield* emitProviderEvent({
+                type: "message.updated",
+                driver: CODEX_PROVIDER,
+                message: artifacts.message,
+              });
+              yield* emitProviderEvent({
+                type: "turn_item.updated",
+                driver: CODEX_PROVIDER,
+                turnItem: artifacts.turnItem,
+              });
+            } else {
+              const { streaming: _streaming, ...turnItem } = artifacts.turnItem;
+              voice.firstUserTranscriptId ??= item.id;
+              const messageId =
+                voice.firstUserTranscriptId === item.id
+                  ? voice.input.message.messageId
+                  : artifacts.message.id;
+              yield* emitProviderEvent({
+                type: "message.updated",
+                driver: CODEX_PROVIDER,
+                message: {
+                  ...artifacts.message,
+                  id: messageId,
+                  nodeId: voice.input.rootNodeId,
+                  role: "user",
+                  createdBy: "user",
+                  creationSource: voice.input.message.creationSource,
+                },
+              });
+              yield* emitProviderEvent({
+                type: "turn_item.updated",
+                driver: CODEX_PROVIDER,
+                turnItem: {
+                  ...turnItem,
+                  id: idAllocator.derive.userTurnItem({ messageId }),
+                  messageId,
+                  nodeId: voice.input.rootNodeId,
+                  type: "user_message",
+                  inputIntent: "turn_start",
+                  createdBy: "user",
+                  creationSource: voice.input.message.creationSource,
+                  attachments: [],
+                },
+              });
+            }
+          }).pipe(Effect.orDie),
+        );
+        yield* client.handleServerNotification("thread/realtime/error", (payload) =>
+          Effect.gen(function* () {
+            const voice = liveVoiceRuns.get(payload.threadId);
+            if (voice === undefined) return;
+            voice.failureMessage = payload.message;
+            yield* publishVoiceEvent(voice, {
+              type: "error",
+              message: payload.message.slice(0, 4096),
+            });
+            if (!voice.stopping)
+              yield* runtime
+                .interruptTurn({
+                  providerThread: voice.input.providerThread,
+                  providerTurnId: voice.context.providerTurnId,
+                })
+                .pipe(Effect.forkIn(scope));
+          }).pipe(Effect.orDie),
+        );
+        yield* client.handleServerNotification("thread/realtime/closed", (payload) =>
+          Effect.gen(function* () {
+            const voice = liveVoiceRuns.get(payload.threadId);
+            if (voice === undefined) return;
+            voice.transportClosed = true;
+            if (payload.reason != null) voice.closedReason = payload.reason;
+            if (!voice.stopping) {
+              voice.endStatus = "completed";
+              yield* runtime
+                .interruptTurn({
+                  providerThread: voice.input.providerThread,
+                  providerTurnId: voice.context.providerTurnId,
+                })
+                .pipe(Effect.forkIn(scope));
+            }
+          }).pipe(Effect.orDie),
+        );
+
         const heldGoalTurn = (
           providerThread: OrchestrationV2ProviderThread,
           providerTurnId: ProviderTurnId,
@@ -6325,7 +6672,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               codexInput,
               runtimePolicy: turnInput.runtimePolicy,
               modelSelection: turnInput.modelSelection,
-              hasT3Mcp: mcpSession !== undefined,
+              hasMinesMcp: mcpSession !== undefined,
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
@@ -6555,6 +6902,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           canReuseContextUsage: canReuseCodexContextUsage,
           // Idle release can beat delayed subagent resumes: Codex reports them completed between turns with no resume-expected signal.
           hasPendingBackgroundWork: Effect.gen(function* () {
+            if (liveVoiceRuns.size > 0) return true;
             for (const items of (yield* Ref.get(runningCommandItemsByTurn)).values()) {
               if (items.size > 0) {
                 return true;
@@ -6578,6 +6926,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           hasPendingBackgroundWorkForThread: Effect.fn(
             "CodexAdapterV2.hasPendingBackgroundWorkForThread",
           )(function* (providerThread) {
+            if (liveVoiceRuns.has(providerThread.nativeThreadRef?.nativeId ?? "")) return true;
             const contexts = [
               ...(yield* Ref.get(activeTurns)).values(),
               ...(yield* Ref.get(settledTurns)).values(),
@@ -6754,6 +7103,21 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ),
           ),
           startTurn: (turnInput) => {
+            if (turnInput.liveVoice !== undefined)
+              return startLiveVoice(turnInput).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapter.ProviderAdapterTurnStartError({
+                      driver: CODEX_PROVIDER,
+                      threadId: turnInput.threadId,
+                      providerThreadId: turnInput.providerThread.id,
+                      runId: turnInput.runId,
+                      cause,
+                    }),
+                ),
+              );
+            if (turnInput.providerThread.nativeThreadRef?.nativeId != null)
+              endedVoiceThreads.delete(turnInput.providerThread.nativeThreadRef.nativeId);
             const goalCommand =
               turnInput.message.attachments.length === 0 &&
               turnInput.restartContinuationOfRunId === undefined
@@ -6841,7 +7205,23 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           ),
           interruptTurn: Effect.fn("CodexAdapterV2.interruptTurn")(
             function* (requestedInput) {
-              const { turnInput, goalTurns } = yield* resolveGoalStopTarget(requestedInput);
+              const voiceThreadId = requestedInput.providerThread.nativeThreadRef?.nativeId;
+              const voice = voiceThreadId == null ? undefined : liveVoiceRuns.get(voiceThreadId);
+              if (voice !== undefined) {
+                if (voice.stopping) return;
+                voice.stopping = true;
+                if (!voice.transportClosed)
+                  yield* CodexRealtime.stop(client, { threadId: voiceThreadId! }).pipe(
+                    Effect.onError(() =>
+                      Effect.sync(() => {
+                        voice.stopping = false;
+                      }),
+                    ),
+                  );
+              }
+              const goalStop = yield* resolveGoalStopTarget(requestedInput);
+              const { turnInput } = goalStop;
+              const goalTurns = [...goalStop.goalTurns, ...(voice?.contexts ?? [])];
               const [activeTurnContexts, settledTurnContexts] =
                 yield* turnTerminalizationPermit.withPermits(1)(
                   Effect.gen(function* () {
@@ -6864,6 +7244,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 new Set([...(activeTurn === undefined ? [] : [activeTurn]), ...goalTurns]),
               );
               const inLineage = (context: ActiveCodexTurnContext) =>
+                (voice !== undefined &&
+                  approvalOwnerCodexTurn(context).owner.input.runId === voice.input.runId) ||
                 lineageRoots.some(
                   (root) => context === root || isDescendantCodexTurn(context, root),
                 );
@@ -6881,10 +7263,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 ),
               ];
               if (interruptTargetContexts.length === 0) {
-                if (turnInput.requestRuntimeRestart === true) return;
-                return yield* toProtocolError(
-                  `Provider turn ${turnInput.providerTurnId} is not active and cannot be interrupted.`,
-                );
+                if (voice !== undefined) {
+                  if (yield* finishLiveVoice(voice)) return;
+                }
+                if (voice === undefined) {
+                  if (turnInput.requestRuntimeRestart === true) return;
+                  return yield* toProtocolError(
+                    `Provider turn ${turnInput.providerTurnId} is not active and cannot be interrupted.`,
+                  );
+                }
               }
               const interruptTargets: Array<{
                 readonly context: ActiveCodexTurnContext;
@@ -7210,6 +7597,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 Effect.onError(() => finalizeRemainingInterruptLineage),
                 Effect.ensuring(cleanupInterruptState),
               );
+              if (voice !== undefined) {
+                while (!(yield* finishLiveVoice(voice))) yield* finalizeRemainingInterruptLineage;
+              }
             },
             (effect, requestedInput) =>
               effect.pipe(

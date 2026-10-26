@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["MinesTerminalModule"],
+    "podspecPath": "MinesTerminalNative.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.minesterminal.MinesTerminalModule"]
+  }
+}

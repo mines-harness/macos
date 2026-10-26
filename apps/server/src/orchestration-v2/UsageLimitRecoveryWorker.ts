@@ -7,6 +7,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
+import * as AccountFailover from "./AccountFailoverService.ts";
 
 export function limitRecoveryCommand(
   thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
@@ -76,16 +77,32 @@ const makeSweep = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const settings = yield* ServerSettings.ServerSettingsService;
+  const failover = yield* AccountFailover.AccountFailoverService;
   return Effect.fn("UsageLimitRecoveryWorker.sweep")(function* () {
     const preferences = yield* settings.getSettings;
+    const accountFailoverEnabled = Object.values(preferences.providerInstances).some(
+      (instance) => instance.quotaFailoverPriority !== undefined,
+    );
     const now = yield* DateTime.now;
     const candidates = yield* projections.getLimitRecoveryCandidates({
       now,
       autoResume: preferences.autoResumeLimitedThreads,
       snooze: preferences.snoozeLimitedThreads,
+      accountFailover: accountFailoverEnabled,
     });
     const nowMs = DateTime.toEpochMillis(now);
     for (const thread of candidates) {
+      const switched = accountFailoverEnabled
+        ? yield* failover.recover(thread).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("orchestration-v2.account-failover.unconfirmed", {
+                threadId: thread.id,
+                cause,
+              }).pipe(Effect.as("unconfirmed" as const)),
+            ),
+          )
+        : "not_applicable";
+      if (switched === "continued" || switched === "unconfirmed") continue;
       const command = limitRecoveryCommand(
         thread,
         preferences.autoResumeLimitedThreads,

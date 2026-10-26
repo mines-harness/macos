@@ -3,8 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
-import { appAtomRegistry } from "~/rpc/atomRegistry";
-
 const DESKTOP_WSL_STATE_STALE_TIME_MS = 30_000;
 
 type DesktopWslStateBridge = Pick<DesktopBridge, "getWslState">;
@@ -54,7 +52,3 @@ function createDesktopWslStateAtom(getBridge: () => DesktopWslStateBridge | unde
 }
 
 export const desktopWslStateAtom = createDesktopWslStateAtom(getDesktopWslStateBridge);
-
-export function refreshDesktopWslState(): void {
-  appAtomRegistry.refresh(desktopWslStateAtom);
-}

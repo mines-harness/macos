@@ -202,7 +202,7 @@ export class StorageCleanup extends Context.Service<
     readonly reports: Stream.Stream<StorageCleanupReport | null>;
     readonly drain: Effect.Effect<void>;
   }
->()("t3/storageCleanup") {}
+>()("mines/storageCleanup") {}
 
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
@@ -440,8 +440,8 @@ const make = Effect.gen(function* () {
           kind: "worktree",
           outcome: "kept",
           reason: linked
-            ? "No thread uses this worktree"
-            : "No thread uses this folder, and it isn't a git worktree",
+            ? "No mine uses this worktree"
+            : "No mine uses this folder, and it isn't a git worktree",
           path: worktreePath,
           projectPath: null,
           threadId: null,
@@ -786,15 +786,15 @@ const make = Effect.gen(function* () {
         if (!(yield* fs.exists(worktreePath))) return;
         if (deleted && !settings.worktreeOnDelete) return keep("no rules apply");
         if (members.length > 1 && worktreeOwner(members) === undefined)
-          return keep(`shared by ${members.length} threads`);
+          return keep(`shared by ${members.length} mines`);
         if (project === undefined) return keep("project is unavailable");
         if (
           thread.branch === null ||
           !group.every((member) => storageCleanupThreadIdle(member, now))
         )
-          return keep("thread is running or has pending work");
+          return keep("mine is running or has pending work");
         if (group.some((member) => member.branch !== thread.branch))
-          return keep("a subagent thread's branch differs from this worktree's branch");
+          return keep("a subagent mine's branch differs from this worktree's branch");
         if (hasTerminal(worktreePath)) return keep("open terminal");
         // Compare canonical roots while allowing symlinked parents, never symlinked worktree directories.
         const realPath = yield* fs.realPath(worktreePath);
@@ -836,7 +836,7 @@ const make = Effect.gen(function* () {
           settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
         let eligible = deleted || old || settled;
         let removalReason = deleted
-          ? "thread was deleted"
+          ? "mine was deleted"
           : old
             ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} days`
             : `settled for ${settledDays} days`;
@@ -932,13 +932,13 @@ const make = Effect.gen(function* () {
               !resolveWorktreeCleanup(yield* settingsService.getSettings, thread.projectId)
                 .worktreeOnDelete
             )
-              return "thread or cleanup settings changed since check";
+              return "mine or cleanup settings changed since check";
             // Durable deletion cleanup must succeed or be explicitly cancelled before removing its checkout.
             const pendingCleanup = yield* sql`
               SELECT 1 FROM orchestration_v2_effect_outbox
               WHERE thread_id = ${thread.id} AND status NOT IN ('succeeded', 'cancelled') LIMIT 1
             `.pipe(NodeSqliteClient.readOnly);
-            if (pendingCleanup.length > 0) return "thread deletion is still pending";
+            if (pendingCleanup.length > 0) return "mine deletion is still pending";
           }
           const latestShells = yield* Effect.forEach(latest, (entry) =>
             projections.getThreadShell(entry.threadId),
@@ -962,7 +962,7 @@ const make = Effect.gen(function* () {
               );
             })
           )
-            return "thread activity or shared worktree changed since check";
+            return "mine activity or shared worktree changed since check";
           // Sessions can outlive their run and can be shared across app threads.
           const sessionRows = yield* sql<{ payload_json: string }>`
             SELECT payload_json FROM orchestration_v2_projection_provider_sessions

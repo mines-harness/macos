@@ -55,6 +55,29 @@ const fakeCli = (source = 'process.stdout.write("muse 1.0.3-R2198.1\\n");') =>
   });
 
 it.layer(NodeServices.layer)("Muse status", (it) => {
+  it.effect("detects disabled Muse availability without starting the SDK host", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binaryPath = yield* fakeCli();
+        const createHost = vi.fn(async () => makeHost(metaCatalog));
+        const snapshot = yield* checkMuseProviderStatus(
+          settings({ enabled: false, binaryPath }),
+          undefined,
+          undefined,
+          createHost,
+        );
+        expect(snapshot).toMatchObject({
+          enabled: false,
+          installed: true,
+          version: "1.0.3-R2198.1",
+          auth: { status: "unknown" },
+        });
+        expect(createHost).not.toHaveBeenCalled();
+        expect(snapshot.slashCommands).toEqual([]);
+      }),
+    ),
+  );
+
   it.effect("does not expose CLI stderr or start an SDK host after a failed version check", () =>
     Effect.scoped(
       Effect.gen(function* () {

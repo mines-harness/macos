@@ -77,7 +77,193 @@ function environment(id: string, usageSummary: UsageSummary): EnvironmentUsage {
   return { environmentId: id as EnvironmentId, label: id, summary: usageSummary };
 }
 
+type OverviewSource = NonNullable<UsageSummary["overview"]>["sources"][number];
+
+function overviewSource(overrides: Partial<OverviewSource> = {}): OverviewSource {
+  return {
+    provider: "claude",
+    firstRecordedAt: "2025-01-01T00:00:00.000Z",
+    generatedTokens: { last24h: 10, last7d: 20, last30d: 30, lifetime: 100 },
+    daily: [
+      {
+        day: "2026-08-07" as UsageDay,
+        outputTokens: 10,
+        records: 2,
+        providerReportedCostUsd: 1,
+        estimatedCostUsd: 2,
+        providerReportedRecords: 1,
+        unpricedRecords: 0,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 describe("mergeUsage", () => {
+  it("merges each overview source once while keeping unique providers and their recorded costs", () => {
+    const shared = { provider: "claude" as const, hostId: "host", homePath: "/shared" };
+    const first = environment("env-a", {
+      ...summary([bucket({ sourcePath: "/shared" })], [shared]),
+      overview: {
+        asOf: "2026-08-07T00:00:00.000Z",
+        sources: [overviewSource({ sourcePath: "/shared" })],
+      },
+    });
+    const second = environment("env-b", {
+      ...summary(
+        [bucket({ sourcePath: "/shared" }), bucket({ provider: "codex", sourcePath: "/codex" })],
+        [shared, { provider: "codex", hostId: "host", homePath: "/codex" }],
+      ),
+      readAt: "2026-08-07T01:00:00.000Z",
+      overview: {
+        asOf: "2026-08-07T01:00:00.000Z",
+        sources: [
+          overviewSource({
+            sourcePath: "/shared",
+            generatedTokens: { last24h: 15, last7d: 25, last30d: 35, lifetime: 105 },
+          }),
+          overviewSource({
+            provider: "codex",
+            sourcePath: "/codex",
+            firstRecordedAt: "2024-01-01T00:00:00.000Z",
+            daily: [
+              {
+                day: "2026-08-07" as UsageDay,
+                outputTokens: 7,
+                records: 3,
+                providerReportedCostUsd: 0,
+                estimatedCostUsd: 4,
+                providerReportedRecords: 0,
+                unpricedRecords: 1,
+              },
+            ],
+          }),
+        ],
+      },
+    });
+
+    for (const environments of [
+      [first, second],
+      [second, first],
+    ]) {
+      const merged = mergeUsage(environments, USAGE_CONTRACT_VERSION);
+      expect(merged.overview?.generatedTokens).toEqual({
+        last24h: 25,
+        last7d: 45,
+        last30d: 65,
+        lifetime: 205,
+      });
+      expect(merged.overview?.firstRecordedAt).toBe("2024-01-01T00:00:00.000Z");
+      expect(merged.overview?.daily).toEqual([
+        {
+          day: "2026-08-07",
+          outputTokens: 17,
+          records: 5,
+          providerReportedCostUsd: 1,
+          estimatedCostUsd: 6,
+          providerReportedRecords: 1,
+          unpricedRecords: 1,
+          byProvider: new Map([
+            [
+              "claude",
+              {
+                outputTokens: 10,
+                records: 2,
+                providerReportedCostUsd: 1,
+                estimatedCostUsd: 2,
+                providerReportedRecords: 1,
+                unpricedRecords: 0,
+              },
+            ],
+            [
+              "codex",
+              {
+                outputTokens: 7,
+                records: 3,
+                providerReportedCostUsd: 0,
+                estimatedCostUsd: 4,
+                providerReportedRecords: 0,
+                unpricedRecords: 1,
+              },
+            ],
+          ]),
+        },
+      ]);
+      expect(merged.overview?.providers).toEqual([
+        {
+          provider: "claude",
+          firstRecordedAt: "2025-01-01T00:00:00.000Z",
+          generatedTokens: { last24h: 15, last7d: 25, last30d: 35, lifetime: 105 },
+        },
+        {
+          provider: "codex",
+          firstRecordedAt: "2024-01-01T00:00:00.000Z",
+          generatedTokens: { last24h: 10, last7d: 20, last30d: 30, lifetime: 100 },
+        },
+      ]);
+    }
+  });
+
+  it("keeps long-lived overview sources without short-window buckets and flags legacy history as unavailable", () => {
+    const known = environment("known", {
+      ...summary([], [{ provider: "claude", hostId: "host", homePath: "/claude" }]),
+      overview: {
+        asOf: "2026-08-07T00:00:00.000Z",
+        sources: [overviewSource({ daily: [] })],
+      },
+    });
+    const legacy = environment(
+      "legacy",
+      summary(
+        [bucket()],
+        [{ provider: "codex", hostId: "old", homePath: "/codex" }],
+        USAGE_MERGE_COMPATIBLE_SINCE,
+      ),
+    );
+    const merged = mergeUsage([known, legacy], USAGE_CONTRACT_VERSION);
+
+    expect(merged.overview?.generatedTokens.lifetime).toBe(100);
+    expect(merged.overview?.daily).toEqual([]);
+    expect(merged.overview?.unavailableEnvironments).toEqual(["legacy"]);
+    expect(mergeUsage([legacy], USAGE_CONTRACT_VERSION)).not.toHaveProperty("overview");
+  });
+
+  it("does not infer overview output or recorded costs from window buckets", () => {
+    const merged = mergeUsage(
+      [
+        environment("env", {
+          ...summary(
+            [
+              bucket({
+                costUsd: 999,
+                totals: {
+                  uncachedInputTokens: 0,
+                  cachedInputTokens: 0,
+                  cacheCreationTokens: 0,
+                  outputTokens: 50,
+                  reasoningTokens: 40,
+                },
+              }),
+            ],
+            [{ provider: "claude", hostId: "host", homePath: "/claude" }],
+          ),
+          overview: {
+            asOf: "2026-08-07T00:00:00.000Z",
+            sources: [overviewSource()],
+          },
+        }),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    expect(merged.overview?.generatedTokens.last24h).toBe(10);
+    expect(merged.overview?.daily[0]?.outputTokens).toBe(10);
+    expect(merged.overview?.daily[0]?.providerReportedCostUsd).toBe(1);
+    expect(merged.overview?.daily[0]?.estimatedCostUsd).toBe(2);
+    expect(merged.outputTokens).toBe(50);
+    expect(merged.costUsd).toBe(999);
+  });
+
   it("counts a Cursor account once across servers while retaining each server's other providers", () => {
     const account = {
       provider: "cursor" as const,

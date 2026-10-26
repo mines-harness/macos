@@ -30,7 +30,7 @@ export class ScratchUnavailableError extends Schema.TaggedError<ScratchUnavailab
   {},
 ) {
   override get message(): string {
-    return "Threads without a project are not available on this environment.";
+    return "Mines without a project are not available on this environment.";
   }
 }
 
@@ -42,7 +42,7 @@ export class ScratchFolderError extends Schema.TaggedError<ScratchFolderError>()
   },
 ) {
   override get message(): string {
-    return "Failed to create the folder for threads without a project.";
+    return "Failed to create the folder for mines without a project.";
   }
 }
 
@@ -54,7 +54,7 @@ export class ScratchProjectError extends Schema.TaggedError<ScratchProjectError>
   },
 ) {
   override get message(): string {
-    return "Failed to create the project for threads without a project.";
+    return "Failed to create the project for mines without a project.";
   }
 }
 
@@ -108,7 +108,7 @@ export class ManagedProjectFolders extends Context.Service<
       NamedProjectError
     >;
   }
->()("t3/project/ManagedProjectFolders") {}
+>()("mines/project/ManagedProjectFolders") {}
 
 const folderWords = (text: string) =>
   text
@@ -177,7 +177,7 @@ function namedProjectReadme(name: string): string {
     "",
     `# ${name}`,
     "",
-    "Created in [T3 Code](https://t3.codes).",
+    "Created in mines.",
     "",
   ].join("\n");
 }

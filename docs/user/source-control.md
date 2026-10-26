@@ -1,6 +1,6 @@
 # Source control
 
-T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, and GitCafe to clone
+mines integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, and GitCafe to clone
 and publish repositories, create pull requests, and review changes.
 
 ## Review turn changes
@@ -12,13 +12,13 @@ against your base branch. Restore still returns the complete saved workspace.
 
 ## Connect an account
 
-Install Git and configure authentication on the machine running your T3 Code server. For a remote
+Install Git and configure authentication on the machine running your mines server. For a remote
 environment, do this on the remote machine. After signing in, open **Settings → Source Control**
 and choose **Rescan**.
 
 ### GitHub
 
-T3 Code talks to GitHub's API directly and only needs a token. Any of these works, in this
+mines talks to GitHub's API directly and only needs a token. Any of these works, in this
 order of precedence:
 
 1. A token saved in **Settings → Source Control → GitHub**. It is kept in the server's secret
@@ -31,17 +31,17 @@ If `gh` is signed in to several accounts or hosts, expand **GitHub** in the same
 the account each host uses or turn a host off. A saved token or `GH_TOKEN` takes precedence
 over that choice; a host turned off stays off either way.
 
-For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. T3 Code treats a
+For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. mines treats a
 custom server name as GitHub once it has a credential for that host.
 
 ### Forgejo and Gitea
 
 Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
-[Gitea CLI (`tea`)](https://gitea.com/gitea/tea) 0.16 or later on your T3 Code server.
+[Gitea CLI (`tea`)](https://gitea.com/gitea/tea) 0.16 or later on your mines server.
 Sign in with `fj --host https://your-server auth add-token` or `tea login add`.
 Repeat for each server you use, including Codeberg.
 
-T3 Code prefers a matching `fj` login and falls back to `tea` when `fj` is unavailable
+mines prefers a matching `fj` login and falls back to `tea` when `fj` is unavailable
 or has no login for that server. Once an account is selected, failed actions stay on that
 account. Settings shows the detected CLI. Forgejo and Gitea share one integration entry.
 Servers hosted under a URL subpath, such as `https://example.com/forgejo`, use `tea` because
@@ -77,19 +77,19 @@ Credentials are saved on the environment's server, so select a remote environmen
 it. Saved tokens can't be viewed again; enter a new one to replace it, or choose **Remove** to clear
 everything saved for Bitbucket.
 
-If no credentials are saved, T3 Code falls back to these variables in the server's environment.
+If no credentials are saved, mines falls back to these variables in the server's environment.
 Restart the server after changing them:
 
 ```bash
-export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
+export MINES_BITBUCKET_ACCESS_TOKEN="your-access-token"
 # or
-export T3CODE_BITBUCKET_EMAIL="you@example.com"
-export T3CODE_BITBUCKET_API_TOKEN="your-token"
+export MINES_BITBUCKET_EMAIL="you@example.com"
+export MINES_BITBUCKET_API_TOKEN="your-token"
 ```
 
 For a background service, put these `KEY=VALUE` entries in
 [`service.env`](./background-service.md#configure-the-service-environment)
-under T3 home, then run `t3 service restart`. Service installation and updates
+under mines home, then run `mines service restart`. Service installation and updates
 preserve that file.
 
 ### Azure DevOps
@@ -122,10 +122,10 @@ Merging a stack lands it through GitCafe, and updating a branch restacks the lay
 ## Start, clone, or publish a project
 
 To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
-**New project** under **Add Project** on any client, and type a name. T3 Code makes a Git
-repository in `~/.t3/projects` (the `projects` folder of your T3 data directory) with a README,
-an icon, and a first commit, then opens a new thread in it. Until the project has a thread, new
-threads work in its folder, even when your default is a new worktree. The folder is named after the project,
+**New project** under **Add Project** on any client, and type a name. mines makes a Git
+repository in `~/.mines/projects` (the `projects` folder of your mines data directory) with a README,
+an icon, and a first commit, then opens a new mine in it. Until the project has a mine, new
+mines work in its folder, even when your default is a new worktree. The folder is named after the project,
 like `pinball-stats` for "Pinball Stats". Turn on **Create private repository on GitHub** to also
 publish it. If Git has no name or email on that machine, the project is created without the
 first commit.
@@ -134,7 +134,7 @@ Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository.
 provider or paste a Git URL, then choose where to save it. The project opens right away while the
 clone runs in the background: you can write your first prompt, and sending waits until the files
 are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
-toast or from the banner above the composer. When the host refuses the machine's SSH key, T3 Code
+toast or from the banner above the composer. When the host refuses the machine's SSH key, mines
 clones over HTTPS with Git's credentials for that host instead, and the project's remote uses the
 HTTPS URL.
 
@@ -144,9 +144,9 @@ make your first commit before pushing.
 
 ## Create a pull request
 
-Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit
+Use a mine's Git actions to commit, push, and create a pull request. mines can generate commit
 messages, review titles, and descriptions from your changes. Descriptions also draw on the work in
-the thread, including the checks it ran.
+the mine, including the checks it ran.
 
 An existing fork PR can appear beside the branch even if you pushed without setting an upstream.
 If its badge is missing because several remotes hold that branch, set the branch's upstream to
@@ -163,7 +163,7 @@ GitLab calls these merge requests.
 
 On mobile, **Pull requests** lists reviews across your connected environments. Open a review
 to read its description, activity, commits, and changed files. Line comments stay as drafts
-until you submit the review. **Work on PR** opens a chat with the review attached; sending
+until you submit the review. **Work on PR** opens a mine with the review attached; sending
 the first message prepares a worktree from the review's branch.
 
 Previously loaded lists, review details, guides, and diff pages remain readable on mobile
@@ -227,7 +227,7 @@ the model or instructions, choose **Rewrite guide** from the pull request's **�
 
 On web, while reading a stop, select lines in an excerpt to add a comment to your review or ask an agent
 about them; comments wait with the ones from the **Code** tab until you send the review. Choose a
-suggested question, or **Ask about this stop**, to open a thread that already knows which stop you
+suggested question, or **Ask about this stop**, to open a mine that already knows which stop you
 are on. **Finish review** on the last stop opens the review with everything you collected.
 
 Agents can write guides too: ask one to prepare guides for a set of pull requests, and it starts
@@ -243,10 +243,10 @@ Tick a file off in the **Code** tab once you have read it and it collapses; the 
 running count. A tick belongs to the pull request rather than to a commit, so scoping the tab to a
 single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
 
-On GitHub these are GitHub's own viewed marks, so a review carries between T3 Code and github.com
-in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no record T3 Code can read, so the
+On GitHub these are GitHub's own viewed marks, so a review carries between mines and github.com
+in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no record mines can read, so the
 server you are connected to keeps them instead: they follow you across the apps connected to that
-server, but the host's own site will not show them, and the count reads **viewed in T3 Code**.
+server, but the host's own site will not show them, and the count reads **viewed in mines**.
 
 On mobile, open a changed file and mark it viewed from its header. Viewed files collapse,
 and their marks follow the same rules as on web and desktop.
@@ -264,42 +264,42 @@ and their marks follow the same rules as on web and desktop.
 
 ## Linked pull requests
 
-A thread can hold several pull requests, including reviews from another repository on the same host.
+A mine can hold several pull requests, including reviews from another repository on the same host.
 Use **Link pull request** in the command palette or **Linked pull requests** panel, or right-click a
 pull request link in the conversation. Creating a pull request from Git actions links it automatically,
 and so does an agent creating one with `gh pr create` or `glab mr create`. Agents can link other
 pull requests with the `link_pull_request` tool.
 
-Use **Link this PR** in a branch-detected badge's tooltip to keep it with the thread. From a review
-on the Pull Requests page, **Link to thread** lets you search for an active thread. The review header
-also lists the threads that link to it, including archived threads, so you can return to their context.
+Use **Link this PR** in a branch-detected badge's tooltip to keep it with the mine. From a review
+on the Pull Requests page, **Link to mine** lets you search for an active mine. The review header
+also lists the mines that link to it, including archived mines, so you can return to their context.
 
-Thread badges show a stack's layer count or the current review number with a count of additional
+Mine badges show a stack's layer count or the current review number with a count of additional
 links. Clicking a badge with more than one review opens the **Linked pull requests** panel. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
 Linking and unlinking are available in the web and desktop clients.
 
 The **Linked pull requests** panel lists every review and groups stacks. Unlink a review from its
 row menu. An unlinked stack layer stays out of later syncs. Open linked reviews refresh on the server;
 closed reviews refresh periodically so reopening one on the host is detected. Merged reviews refresh
-when requested. A settled thread's reviews stop refreshing until you unsettle it. With **Auto-settle merged threads** enabled, a thread can settle after every linked
+when requested. A settled mine's reviews stop refreshing until you unsettle it. With **Auto-settle merged mines** enabled, a mine can settle after every linked
 review is terminal. An open or unsynced link keeps it active.
 
 Ask the agent to watch, monitor, or babysit a pull request and it calls `watch_pull_request`. While
-the thread is active, the server checks the pull request every two minutes and wakes the agent when a
+the mine is active, the server checks the pull request every two minutes and wakes the agent when a
 check fails, the required checks pass, someone else comments or reviews, or the branch starts to
-conflict. Threads in a project that watch the same pull request share one check. On GitHub, a check
+conflict. Mines in a project that watch the same pull request share one check. On GitHub, a check
 first asks whether anything changed and reads the pull request only when it did, which keeps
 watching inside GitHub's rate limit. Comments from your own account do not wake it. Watching ends
 when the pull request merges or closes, after 10 wakes in a row that bring only comments, after 8
-failed reads in a row, or when you press Stop on the thread. A rate limit only pauses watching.
-Settling or archiving a thread also ends all its watches. Unsettle the thread before starting a new
+failed reads in a row, or when you press Stop on the mine. A rate limit only pauses watching.
+Settling or archiving a mine also ends all its watches. Unsettle the mine before starting a new
 watch. Watching a pull request again does not repeat check or conflict news its last
-watch already reported; unlinking the pull request clears that. Subagents cannot watch pull requests; the thread that delegated to them does. To start or stop
-it yourself, use the row menu in the **Linked pull requests** panel. In the thread details card, a
+watch already reported; unlinking the pull request clears that. Subagents cannot watch pull requests; the mine that delegated to them does. To start or stop
+it yourself, use the row menu in the **Linked pull requests** panel. In the mine details card, a
 watched pull request shows an eye; click it to stop watching.
 
-A watched thread counts as working between wakes, so it stays in the **Working** section and does
-not auto-settle. Agents stop watching when they hand the work back to you, and the thread then
+A watched mine counts as working between wakes, so it stays in the **Working** section and does
+not auto-settle. Agents stop watching when they hand the work back to you, and the mine then
 returns to your inbox.
 
 Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked

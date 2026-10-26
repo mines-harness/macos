@@ -46,7 +46,11 @@ describe("desktop Codex callback helper", () => {
       expect((await fetch(invalid)).status).toBe(400);
       const response = await fetch(expected);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(await response.text()).not.toContain("test-code");
+      const body = await response.text();
+      expect(body).toContain("<title>mines</title>");
+      expect(body).toContain("Return to mines");
+      expect(body).not.toContain("T3 Code");
+      expect(body).not.toContain("test-code");
       return true;
     });
     expect(received).toBe(expected);
@@ -56,7 +60,8 @@ describe("desktop Codex callback helper", () => {
     const expected = callback(authorizationUrl);
     const input = {
       authorizationUrl,
-      returnUrl: "https://app.t3.codes/settings/providers?environmentId=remote-one&instanceId=work",
+      returnUrl:
+        "https://mines.example/settings/providers?environmentId=remote-one&instanceId=work",
       environmentId: EnvironmentId.make("remote-one"),
       instanceId: ProviderInstanceId.make("work"),
       flowId: "flow-one",
@@ -68,11 +73,15 @@ describe("desktop Codex callback helper", () => {
         expect(response.status).toBe(303);
         const delivery = response.headers.get("location")!;
         expect(new URL(delivery).searchParams.has("code")).toBe(false);
-        expect(readCodexAuthDelivery(delivery)?.callbackUrl).toBe(expected);
-        expect(readCodexAuthDelivery(delivery)?.returnUrl).toBe(input.returnUrl);
+        expect(readCodexAuthDelivery(delivery, "https://mines.example")?.callbackUrl).toBe(
+          expected,
+        );
+        expect(readCodexAuthDelivery(delivery, "https://mines.example")?.returnUrl).toBe(
+          input.returnUrl,
+        );
         return true;
       },
-      (url) => codexAuthDeliveryUrl(input, url),
+      (url) => codexAuthDeliveryUrl(input, url, "https://mines.example"),
     );
   });
   it("cancels and releases its listener so exact-port reauthorization can run again", async () => {

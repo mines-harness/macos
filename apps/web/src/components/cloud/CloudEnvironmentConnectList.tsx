@@ -168,7 +168,7 @@ export function CloudEnvironmentConnectRows({
     const message =
       cause instanceof Error ? cause.message : "Could not connect the T3 Connect environment.";
     const traceId = findErrorTraceId(cause);
-    console.error("[t3-connect] Could not connect environment", { message, traceId, cause });
+    console.error("[mines-connect] Could not connect environment", { message, traceId, cause });
     toastManager.add({
       type: "error",
       title: "Could not connect environment",

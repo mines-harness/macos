@@ -15,6 +15,10 @@
       "types": "./src/rpc.ts",
       "import": "./src/rpc.ts"
     },
+    "./realtime": {
+      "types": "./src/realtime.ts",
+      "import": "./src/realtime.ts"
+    },
     "./protocol": {
       "types": "./src/protocol.ts",
       "import": "./src/protocol.ts"

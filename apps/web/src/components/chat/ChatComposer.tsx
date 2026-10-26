@@ -295,7 +295,11 @@ import {
   usePreparingComposerImages,
 } from "./preparingComposerImages";
 import { ComposerControlsBar } from "./ComposerControlsBar";
+import { ComposerLiveVoiceControl } from "./ComposerLiveVoiceControl";
+import { UltraReasoningFeedback, useUltraReasoningFeedbackState } from "./UltraReasoningFeedback";
 import { useComposerCommandKey } from "./useComposerCommandKey";
+import { useAtomValue } from "@effect/atom-react";
+import { participantSendBusyAtom, useDraftParticipants } from "./draftParticipantState";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   const armed = Date.now() <= deadline.current;
@@ -547,7 +551,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     routeThreadRef,
     draftId,
     multipleModelSelections,
-    supportsMultipleModels,
     onMultipleModelSelectionsChange: setMultipleModelSelections,
     activeThreadId,
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
@@ -556,11 +559,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isServerThread: _isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
-    projectSelectionRequired,
+    projectSelectionRequired: requiresProjectSelection,
     phase,
     canInterrupt,
     isConnecting,
-    isSendBusy,
+    isSendBusy: externalSendBusy,
     canResume,
     isRevertingCheckpoint = false,
     sendDisabledReason: externalSendDisabledReason,
@@ -642,6 +645,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   } = props;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
+  const [participantDraft] = useDraftParticipants(composerDraftTarget);
+  const participantSendBusy = useAtomValue(participantSendBusyAtom(composerDraftTargetKey));
+  const hasParticipants = routeKind === "draft" && participantDraft.members.length > 0;
+  const projectSelectionRequired = requiresProjectSelection && !hasParticipants;
+  const isSendBusy = externalSendBusy || participantSendBusy;
   const {
     heldRequestIds,
     onDraftChange: onTypingGuardDraftChange,
@@ -961,7 +969,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       activeThread?.runtime?.providerInstanceId ?? activeThreadModelSelection?.instanceId,
   });
   const noProviderAvailable =
-    selectedProviderEntry === undefined && multipleModelSelections === null;
+    selectedProviderEntry === undefined && multipleModelSelections === null && !hasParticipants;
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
   const showProviderUnavailable = noProviderAvailable && !providerCatalogPending;
   const providerSetupInstanceId = noProviderAvailable
@@ -989,11 +997,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const sendDisabledReason =
     externalSendDisabledReason ??
-    (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
+    (!hasParticipants && multipleModelSelections?.length === 0
+      ? "Select at least one model."
+      : null) ??
     (activePendingProgress
       ? attachmentBlockReason
       : (attachmentBlockReason ??
-        (multipleModelSelections === null ? providerSendBlockReason : null)));
+        (multipleModelSelections === null && !hasParticipants ? providerSendBlockReason : null)));
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
@@ -1312,7 +1322,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentUnavailable !== null ||
     (!composerSendState.hasSendableContent && !showResumeAction);
   const collapsedComposerPrimaryActionLabel = showResumeAction
-    ? "Resume thread"
+    ? "Resume mine"
     : props.resumeCompactionTokens !== null && !props.keepFullHistory
       ? "Open composer to compact and send"
       : "Send message";
@@ -2532,60 +2542,66 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = composerControlsCollapsed
     ? restingControlsIconOnlyBlockCount
     : expandedControlsIconOnlyBlockCount;
+  const ultraReasoningFeedback = useUltraReasoningFeedbackState(
+    `${selectedInstanceId}:${selectedModel}`,
+  );
   const composerControls = (
-    <ComposerControlsBar
-      environmentId={environmentId}
-      routeKind={routeKind}
-      routeThreadRef={routeThreadRef}
-      draftId={draftId}
-      selectedProvider={selectedProvider}
-      selectedInstanceId={selectedInstanceId}
-      selectedModel={selectedModel}
-      selectedProviderModels={selectedProviderModels}
-      composerModelOptions={composerModelOptions}
-      reportedModelSelection={reportedModelSelection}
-      promptUltrathink={promptUltrathink}
-      onPromptEdit={editPromptFromTraitsStable}
-      planModeEnabled={settings.planModeEnabled}
-      planModeUiEnabled={planModeUiEnabled}
-      interactionMode={interactionMode}
-      compatibleRuntimeMode={compatibleRuntimeMode}
-      compatibleRuntimeModeOptions={compatibleRuntimeModeOptions}
-      toggleInteractionMode={toggleInteractionMode}
-      handleRuntimeModeChange={handleRuntimeModeChange}
-      composerControlsCollapsed={composerControlsCollapsed}
-      composerControlsHidden={composerControlsHidden}
-      restingHiddenBlockCount={restingHiddenBlockCount}
-      iconOnlyBlockCount={iconOnlyBlockCount}
-      showInlineRestingControls={showInlineRestingControls}
-      showLeadingSeparator={
-        composerControlsCollapsed &&
-        restingControlsHost !== null &&
-        restingControlsHaveLeadingContext
-      }
-      showProviderUnavailable={showProviderUnavailable}
-      providerSetupInstanceId={providerSetupInstanceId}
-      onOpenProviderSetup={onOpenProviderSetup}
-      providerCatalogPending={providerCatalogPending}
-      isSendBusy={isSendBusy}
-      multipleModelsEnabled={routeKind === "draft" && supportsMultipleModels}
-      multipleModelSelections={multipleModelSelections}
-      onMultipleModelSelectionsChange={setMultipleModelSelections}
-      selectedModelSelection={selectedModelSelection}
-      onProviderModelSelect={onProviderModelSelect}
-      activeThreadModelSelection={activeThreadModelSelection}
-      selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}
-      lockedProvider={lockedProvider}
-      lockedContinuationGroupKey={lockedContinuationGroupKey}
-      providerInstanceEntries={providerInstanceEntries}
-      keybindings={keybindings}
-      modelOptionsByInstance={modelOptionsByInstance}
-      terminalOpen={terminalOpen}
-      modelPickerOpen={isComposerModelPickerOpen}
-      onModelPickerOpenChange={setIsComposerModelPickerOpen}
-      modelPickerIconClassName={composerProviderState.modelPickerIconClassName}
-      getModelDisabledReason={getModelDisabledReason}
-    />
+    <UltraReasoningFeedback onActivate={ultraReasoningFeedback.activate}>
+      <ComposerControlsBar
+        environmentId={environmentId}
+        routeKind={routeKind}
+        routeThreadRef={routeThreadRef}
+        draftId={draftId}
+        composerDraftTarget={composerDraftTarget}
+        selectedProvider={selectedProvider}
+        selectedInstanceId={selectedInstanceId}
+        selectedModel={selectedModel}
+        selectedProviderModels={selectedProviderModels}
+        composerModelOptions={composerModelOptions}
+        reportedModelSelection={reportedModelSelection}
+        promptUltrathink={promptUltrathink}
+        onPromptEdit={editPromptFromTraitsStable}
+        planModeEnabled={settings.planModeEnabled}
+        planModeUiEnabled={planModeUiEnabled}
+        interactionMode={interactionMode}
+        compatibleRuntimeMode={compatibleRuntimeMode}
+        compatibleRuntimeModeOptions={compatibleRuntimeModeOptions}
+        toggleInteractionMode={toggleInteractionMode}
+        handleRuntimeModeChange={handleRuntimeModeChange}
+        composerControlsCollapsed={composerControlsCollapsed}
+        composerControlsHidden={composerControlsHidden}
+        restingHiddenBlockCount={restingHiddenBlockCount}
+        iconOnlyBlockCount={iconOnlyBlockCount}
+        showInlineRestingControls={showInlineRestingControls}
+        showLeadingSeparator={
+          composerControlsCollapsed &&
+          restingControlsHost !== null &&
+          restingControlsHaveLeadingContext
+        }
+        showProviderUnavailable={showProviderUnavailable}
+        providerSetupInstanceId={providerSetupInstanceId}
+        onOpenProviderSetup={onOpenProviderSetup}
+        providerCatalogPending={providerCatalogPending}
+        isSendBusy={isSendBusy}
+        multipleModelsEnabled={true}
+        multipleModelSelections={multipleModelSelections}
+        onMultipleModelSelectionsChange={setMultipleModelSelections}
+        selectedModelSelection={selectedModelSelection}
+        onProviderModelSelect={onProviderModelSelect}
+        activeThreadModelSelection={activeThreadModelSelection}
+        selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}
+        lockedProvider={lockedProvider}
+        lockedContinuationGroupKey={lockedContinuationGroupKey}
+        providerInstanceEntries={providerInstanceEntries}
+        keybindings={keybindings}
+        modelOptionsByInstance={modelOptionsByInstance}
+        terminalOpen={terminalOpen}
+        modelPickerOpen={isComposerModelPickerOpen}
+        onModelPickerOpenChange={setIsComposerModelPickerOpen}
+        modelPickerIconClassName={composerProviderState.modelPickerIconClassName}
+        getModelDisabledReason={getModelDisabledReason}
+      />
+    </UltraReasoningFeedback>
   );
   const showTasksTab =
     !hasBannerItems &&
@@ -2850,7 +2866,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onInsertRejected: () => {
       toastManager.add({
         type: "error",
-        title: "Unable to add to chat",
+        title: "Unable to add to mine",
         description: "The composer is busy; try again once it is ready.",
       });
     },
@@ -2863,7 +2879,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       pendingDraftWork.begin(targetKey);
       const loadingToast = toastManager.add({
         type: "loading",
-        title: "Loading thread context…",
+        title: "Loading mine context…",
         timeout: 0,
         data: { threadRef: routeThreadRef, hideCopyButton: true },
       });
@@ -2898,11 +2914,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         const error = squashAtomCommandFailure(importResult);
         toastManager.add({
           type: "error",
-          title: "Unable to read the dropped thread",
+          title: "Unable to read the dropped mine",
           description:
             isEnvironmentRequestInvalidError(error) &&
             error.reason === "thread_transcript_too_large"
-              ? "This thread exceeds the attachment size limit. Try a shorter thread."
+              ? "This mine exceeds the attachment size limit. Try a shorter mine."
               : "Check that its environment is connected and up to date, then try again.",
         });
       }
@@ -2946,7 +2962,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!inserted) {
         toastManager.add({
           type: "error",
-          title: "Unable to add thread",
+          title: "Unable to add mine",
           description: "The composer is busy; try again once it is ready.",
         });
         return;
@@ -3156,10 +3172,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         flushSync(() => {
           setIsComposerScrollCollapsed(false);
           setIsComposerFocused(true);
+          if (command === "composer.effort") setIsComposerModelPickerOpen(true);
         });
         const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
+        const controls = command === "composer.effort" ? document : shell;
         const trigger = Array.from(
-          shell?.querySelectorAll<HTMLButtonElement>(
+          controls?.querySelectorAll<HTMLButtonElement>(
             `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
           ) ?? [],
         ).find(
@@ -3249,7 +3267,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedModelOptionsForDispatch,
         selectedModelSelection,
         multipleModelSelections:
-          routeKind === "draft" && multipleModelSelections !== null
+          multipleModelSelections !== null
             ? multipleModelSelections.map((selection) =>
                 selection.instanceId === selectedModelSelection.instanceId &&
                 selection.model === selectedModelSelection.model
@@ -3596,13 +3614,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             data-chat-composer-surface="true"
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
             className={cn(
-              "rounded-3xl transition-[background-color] duration-200",
+              "relative isolate rounded-3xl transition-[background-color] duration-200",
               "in-data-[thread-context-over]:bg-accent/45 in-data-[thread-context-over]:ring-1 in-data-[thread-context-over]:ring-inset in-data-[thread-context-over]:ring-primary/70",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-inset ring-primary/70" : null,
               projectSelectionRequired ? "opacity-75" : null,
               composerProviderState.composerSurfaceClassName,
             )}
           >
+            {ultraReasoningFeedback.feedback}
             {showCollapsedMobilePromptRow ? (
               <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <button
@@ -3790,7 +3809,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           : showPlanFollowUpPrompt && activeProposedPlan
                             ? "Add feedback to refine the plan, or leave this blank to implement it"
                             : projectSelectionRequired
-                              ? "Choose a project above to start a thread"
+                              ? "Choose a project above to start a mine"
                               : showProviderUnavailable
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
@@ -3880,6 +3899,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
                   {composerAttachButton}
+                  {routeKind === "server" &&
+                  selectedProvider === "codex" &&
+                  multipleModelSelections === null ? (
+                    <ComposerLiveVoiceControl
+                      key={`${environmentId}:${routeThreadRef.threadId}:${selectedInstanceId}:${selectedModel}`}
+                      environmentId={environmentId}
+                      threadId={routeThreadRef.threadId}
+                      modelSelection={selectedModelSelection}
+                      startDisabled={
+                        !canOperateThread ||
+                        isSendBusy ||
+                        phase === "running" ||
+                        pendingPrimaryAction !== null ||
+                        environmentUnavailable !== null
+                      }
+                    />
+                  ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}

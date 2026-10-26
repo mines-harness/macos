@@ -14,7 +14,7 @@ import {
 } from "../ui/dialog";
 import { ChatGptUsageButton } from "./ChatGptUsageButton";
 
-const STORAGE_KEY = "t3:chatgpt-sharing-welcome:v1";
+const STORAGE_KEY = "mines:chatgpt-sharing-welcome:v1";
 function readAcknowledgedProfiles(): string[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
@@ -66,8 +66,8 @@ export function ChatGptWelcomeCoordinator() {
           <OpenAI className="mb-2 size-8" aria-hidden="true" />
           <DialogTitle>Your ChatGPT plan is connected</DialogTitle>
           <DialogDescription>
-            Eligible usage in T3 Code uses your ChatGPT plan. Manage your shared usage and any
-            credit settings in ChatGPT.
+            Eligible usage in mines uses your ChatGPT plan. Manage your shared usage and any credit
+            settings in ChatGPT.
           </DialogDescription>
           <p className="text-xs text-muted-foreground">
             {next?.providerName} on {next?.environmentLabel}

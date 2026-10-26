@@ -157,7 +157,7 @@ export const LinkedPullRequestRow = memo(function LinkedPullRequestRow(props: {
           ) : null}
         </View>
         <Text
-          className="text-base leading-5 font-t3-medium text-foreground"
+          className="text-base leading-5 font-mines-medium text-foreground"
           numberOfLines={2}
           ellipsizeMode="tail"
         >

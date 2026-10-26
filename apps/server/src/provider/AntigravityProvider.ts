@@ -148,7 +148,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         auth: { status: "unknown", ...(options.auth ? { type: options.auth.type } : {}) },
         message: settings.enabled
           ? "Checking Antigravity availability."
-          : "Antigravity is disabled in T3 Code settings.",
+          : "Antigravity is disabled in mines settings.",
       },
     }),
     setup: { canAuthenticate: true, canInstall: true },
@@ -167,7 +167,6 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   );
 
   const checkProvider = Effect.fn("checkAntigravityProvider")(function* () {
-    if (!settings.enabled) return yield* getSnapshot;
     const before = yield* SubscriptionRef.get(metadata);
     const result = yield* options.probe.pipe(
       Effect.timeoutOption(HEALTH_CHECK_TIMEOUT),
@@ -188,6 +187,19 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             : failure
               ? "Antigravity could not complete its local health check."
               : `Antigravity did not respond to its local health check within ${HEALTH_CHECK_TIMEOUT}.`;
+    if (!settings.enabled) {
+      const checkedAt = DateTime.formatIso(yield* DateTime.now);
+      const state = yield* SubscriptionRef.updateAndGet(metadata, (state) => ({
+        ...state,
+        draft: {
+          ...state.draft,
+          installed: initialized !== undefined,
+          version: version === "unknown" ? state.draft.version : (version ?? state.draft.version),
+          checkedAt,
+        },
+      }));
+      return yield* options.stampIdentity(state.draft);
+    }
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
     const usageLimits =

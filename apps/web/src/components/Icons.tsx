@@ -1,11 +1,12 @@
 import React, { type SVGProps, useId } from "react";
 import { cn } from "~/lib/utils";
+import { ZapIcon } from "lucide-react";
 export type Icon = React.FC<SVGProps<SVGSVGElement>>;
 
 export const UltrafastIcon: Icon = (props) => (
   <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
-    <path d="m17 2-10 12h7l-1 8 10-12h-7l1-8Z" opacity="0.4" />
-    <path d="m11 2-10 12h7l-1 8 10-12h-7l1-8Z" />
+    <ZapIcon x="2" y="0" className="size-4.5" fill="currentColor" />
+    <ZapIcon x="2" y="7" className="size-4.5" fill="currentColor" />
   </svg>
 );
 
