@@ -1,8 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
 import type { DevicePairingRequest } from "@t3tools/contracts/minesDevicePairing";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, MonitorIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
 import { hasMinesIdentityConfig, minesControlUrl } from "../../cloud/publicConfig";
@@ -15,6 +16,7 @@ import {
   peerClientApproval,
 } from "../../connection/peerOnboarding";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
+import { environmentPeerDevicesAtom } from "../../state/environmentPeerDevices";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useMinesAuthPrompt } from "../clerk/useMinesAuthPrompt";
@@ -33,6 +35,7 @@ import {
 import { ConnectionsAdvancedSettings } from "./ConnectionsAdvancedSettings";
 import { AddSshComputer } from "./AddSshComputer";
 import { DeviceCliUpdateAction } from "./DeviceCliUpdateAction";
+import { PeerDeviceIcon } from "../PeerDeviceIcon";
 import { buildDeviceList, type DeviceListRow } from "./deviceList.logic";
 import {
   SettingsPageContainer,
@@ -127,6 +130,7 @@ function AccountDevicesContent() {
   const primary = usePrimaryEnvironment();
   const { environments } = useEnvironments();
   const directory = useAccountPeerDirectory();
+  const environmentDevices = useAtomValue(environmentPeerDevicesAtom);
   const approval = useAtomCommand(peerClientApproval, { reportFailure: false });
   const begin = useAtomCommand(beginPeerPairing, { reportFailure: false });
   const collect = useAtomCommand(collectPeerPairing, { reportFailure: false });
@@ -210,9 +214,10 @@ function AccountDevicesContent() {
 
   const rows = buildDeviceList({
     environments,
+    environmentDevices,
     directory: directory.data,
     localDeviceIds: [...hostDeviceIds, ...(clientDeviceId ? [clientDeviceId] : [])],
-  }).filter((row) => !row.local);
+  });
   const environmentById = new Map(
     environments.map((environment) => [environment.environmentId, environment]),
   );
@@ -300,7 +305,7 @@ function AccountDevicesContent() {
       ) : null}
       <SettingsSection
         id="your-other-computers"
-        title="Your other computers"
+        title="Your other devices"
         headerAction={
           <Button
             size="icon-sm"
@@ -323,7 +328,10 @@ function AccountDevicesContent() {
                 key={row.id}
                 title={
                   <span className="flex items-center gap-2">
-                    <MonitorIcon className="size-4 text-muted-foreground" />
+                    <PeerDeviceIcon
+                      platform={row.platform}
+                      className="size-4 text-muted-foreground"
+                    />
                     {row.name}
                   </span>
                 }

@@ -82,6 +82,9 @@ function fixture() {
   mock.afterRegister.mockReset().mockResolvedValue(undefined);
   vi.stubGlobal("window", {});
   vi.stubGlobal("navigator", {
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    platform: "MacIntel",
+    maxTouchPoints: 0,
     locks: { request: async (_key: string, operation: () => Promise<unknown>) => operation() },
   });
   mock.register.mockResolvedValue("account-a");
@@ -159,6 +162,71 @@ function fixture() {
   return { routes, registrations, removed, removedRoutes, layer };
 }
 describe("browser and desktop direct pairing", () => {
+  it.effect("uses the native desktop platform instead of its browser user agent", () => {
+    fixture();
+    vi.stubGlobal("window", {
+      desktopBridge: { getClientPlatform: () => "win32" },
+    });
+    return Effect.gen(function* () {
+      const identity = yield* loadBrowserPeerIdentity("account-a");
+      expect(identity.device.platform).toBe("windows");
+      expect(identity.device.label).toBe("Windows PC");
+    });
+  });
+  it.effect("recognizes iPad desktop user agents and Android browsers", () => {
+    fixture();
+    return Effect.gen(function* () {
+      vi.stubGlobal("navigator", { ...navigator, maxTouchPoints: 5 });
+      const ipad = yield* loadBrowserPeerIdentity("account-a");
+      expect(ipad.device.platform).toBe("ios");
+      expect(ipad.device.label).toBe("iPad");
+      vi.stubGlobal("navigator", {
+        ...navigator,
+        userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 9) Mobile",
+        platform: "Linux armv8l",
+      });
+      const android = yield* loadBrowserPeerIdentity("account-b");
+      expect(android.device.platform).toBe("android");
+      expect(android.device.label).toBe("Android phone");
+    });
+  });
+  it.effect("replaces only the old generic name while retaining its saved key", () => {
+    fixture();
+    return Effect.gen(function* () {
+      const before = yield* loadBrowserPeerIdentity("account-a", "mines browser client");
+      const after = yield* loadBrowserPeerIdentity("account-a");
+      expect(after.device.label).toBe("Mac");
+      expect(after.device.deviceId).toBe(before.device.deviceId);
+      expect(after.device.publicKey).toBe(before.device.publicKey);
+    });
+  });
+  it.effect("leaves unsupported browser platforms unspecified", () => {
+    fixture();
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userAgent: "Mozilla/5.0 (X11; CrOS x86_64)",
+      platform: "Linux x86_64",
+    });
+    return Effect.gen(function* () {
+      const identity = yield* loadBrowserPeerIdentity("account-a");
+      expect(identity.device.platform).toBeUndefined();
+      expect(identity.device.label).toBe("Browser");
+    });
+  });
+  it.effect("refreshes platform metadata while preserving the saved key and custom name", () => {
+    fixture();
+    return Effect.gen(function* () {
+      const before = yield* loadBrowserPeerIdentity("account-a", "My MacBook");
+      vi.stubGlobal("window", {
+        desktopBridge: { getClientPlatform: () => "darwin" },
+      });
+      const after = yield* loadBrowserPeerIdentity("account-a");
+      expect(after.device.platform).toBe("macos");
+      expect(after.device.deviceId).toBe(before.device.deviceId);
+      expect(after.device.publicKey).toBe(before.device.publicKey);
+      expect(after.device.label).toBe("My MacBook");
+    });
+  });
   it.effect("keeps device keys stable and separated by system account", () => {
     fixture();
     return Effect.gen(function* () {
@@ -176,6 +244,16 @@ describe("browser and desktop direct pairing", () => {
       expect(renamed.device.deviceId).toBe(before.device.deviceId);
       expect(renamed.device.publicKey).toBe(before.device.publicKey);
       expect((yield* loadBrowserPeerIdentity("account-a")).device.label).toBe("My MacBook");
+    });
+  });
+  it.effect("bounds device names to the peer contract without replacing the saved key", () => {
+    fixture();
+    return Effect.gen(function* () {
+      const before = yield* loadBrowserPeerIdentity("account-a");
+      const renamed = yield* loadBrowserPeerIdentity("account-a", `  ${"x".repeat(100)}  `);
+      expect(renamed.device.label).toBe("x".repeat(80));
+      expect(renamed.device.deviceId).toBe(before.device.deviceId);
+      expect((yield* loadBrowserPeerIdentity("account-a")).device.label).toBe("x".repeat(80));
     });
   });
   it.effect(

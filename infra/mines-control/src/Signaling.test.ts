@@ -83,9 +83,12 @@ const description = {
 };
 
 it.effect(
-  "refreshes only an active device's self-signed label when issuing a device ticket",
+  "refreshes only an active device's self-signed name and platform when issuing a device ticket",
   () => {
-    const renamed = createPeerIdentity(first.privateKey, "OVH server");
+    const renamed = {
+      ...first,
+      device: { ...first.device, label: "OVH server", platform: "linux" as const },
+    };
     let stored = first.device;
     const directory = Layer.mock(DeviceDirectory.DeviceDirectory, {
       owner: () => Effect.succeedSome({ accountId: "account", publicKey: first.device.publicKey }),
@@ -104,6 +107,7 @@ it.effect(
       );
       const opened = yield* signaling.connect(ticket, connection());
       expect(opened.device.label).toBe("OVH server");
+      expect(opened.device.platform).toBe("linux");
       expect(opened.device.deviceId).toBe(first.device.deviceId);
       expect(opened.device.publicKey).toBe(first.device.publicKey);
     }).pipe(

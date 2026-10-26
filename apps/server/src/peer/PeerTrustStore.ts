@@ -76,6 +76,15 @@ const decodeDevice = Schema.decodeEffect(PeerDevice);
 const make = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const label = (yield* HostProcess.Hostname).trim().slice(0, 80) || "Mines computer";
+  const hostPlatform = yield* HostProcess.Platform;
+  const platform =
+    hostPlatform === "darwin"
+      ? "macos"
+      : hostPlatform === "win32"
+        ? "windows"
+        : hostPlatform === "linux"
+          ? "linux"
+          : undefined;
   const lock = yield* Semaphore.make(1);
   const revisions = new Map<string, symbol>();
   const savedAccount = yield* secrets.get("mines-peer-account");
@@ -85,7 +94,7 @@ const make = Effect.gen(function* () {
   const identityFor = Effect.fn("PeerTrustStore.identityFor")((selected: string) =>
     secrets
       .getOrCreateRandom(`mines-peer-identity-${selected}`, 32)
-      .pipe(Effect.map((key) => createPeerIdentity(key, label))),
+      .pipe(Effect.map((key) => createPeerIdentity(key, label, platform))),
   );
   const identity = Effect.suspend(() => identityFor(namespace));
   const read = Effect.fn("PeerTrustStore.read")(function* (selected: string) {

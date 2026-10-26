@@ -58,7 +58,9 @@ export function signDevicePairingCommand(
   input: DevicePairingAction,
 ): DevicePairingCommand {
   try {
-    const unsigned = { ...input, version: 1, device: identity.device };
+    // V1 clients strip newer display metadata before verifying pairing proofs.
+    const { deviceId, publicKey, label } = identity.device;
+    const unsigned = { ...input, version: 1, device: { deviceId, publicKey, label } };
     return decodeCommand({
       ...unsigned,
       signature: Base64Url.encode(

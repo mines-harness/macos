@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { PeerDeviceDirectory } from "@t3tools/contracts/minesPeer";
@@ -12,6 +13,7 @@ import {
 } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { peerState } from "../../state/peers";
+import { environmentPeerDevicesAtom } from "../../state/environmentPeerDevices";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { peerClientApproval } from "../../connection/peerOnboarding";
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
@@ -97,7 +99,8 @@ function MenuBarContent({
   const { environments } = useEnvironments();
   const providers = useEnvironmentProviders();
   const navigate = useNavigate();
-  const devices = buildDeviceList({ environments, directory, localDeviceIds });
+  const environmentDevices = useAtomValue(environmentPeerDevicesAtom);
+  const devices = buildDeviceList({ environments, directory, localDeviceIds, environmentDevices });
   const state = buildMenuBarState({
     threads,
     providers: [...providers.values()].flat(),

@@ -1,6 +1,10 @@
 import { connectionRoutes } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
-import type { PeerDevice, PeerDeviceDirectory } from "@t3tools/contracts/minesPeer";
+import type {
+  PeerDevice,
+  PeerDeviceDirectory,
+  PeerDevicePlatform,
+} from "@t3tools/contracts/minesPeer";
 import * as Option from "effect/Option";
 
 import type { EnvironmentPresentation } from "../../state/environments";
@@ -8,7 +12,8 @@ import type { EnvironmentPresentation } from "../../state/environments";
 type DeviceEnvironment = Pick<
   EnvironmentPresentation,
   "environmentId" | "label" | "entry" | "connection"
->;
+> &
+  Partial<Pick<EnvironmentPresentation, "serverConfig">>;
 
 export interface DeviceListRow {
   readonly id: string;
@@ -16,6 +21,7 @@ export interface DeviceListRow {
   readonly environmentId?: EnvironmentId;
   readonly accountDeviceId?: string;
   readonly device?: PeerDevice;
+  readonly platform?: PeerDevicePlatform;
   readonly local: boolean;
   readonly status:
     | "connected"
@@ -25,6 +31,31 @@ export interface DeviceListRow {
     | "unavailable"
     | "needs-approval";
   readonly presence?: "online" | "offline" | "unknown";
+}
+
+function isGenericDeviceName(name: string) {
+  return /^(?:mines (?:computer|desktop client|browser client)|this (?:computer|device))$/i.test(
+    name.trim(),
+  );
+}
+
+function deviceName(device: PeerDevice) {
+  return isGenericDeviceName(device.label)
+    ? `Unknown device · ${device.deviceId.slice(-6)}`
+    : device.label;
+}
+
+function environmentPlatform(environment: DeviceEnvironment): PeerDevicePlatform | undefined {
+  switch (environment.serverConfig?.environment.platform.os) {
+    case "darwin":
+      return "macos";
+    case "windows":
+      return "windows";
+    case "linux":
+      return "linux";
+    default:
+      return undefined;
+  }
 }
 
 function environmentStatus(environment: DeviceEnvironment): DeviceListRow["status"] {
@@ -50,6 +81,7 @@ export function buildDeviceList(input: {
     | (Pick<PeerDeviceDirectory, "devices"> & Partial<Pick<PeerDeviceDirectory, "presence">>)
     | null;
   readonly localDeviceIds?: readonly string[];
+  readonly environmentDevices?: ReadonlyMap<EnvironmentId, PeerDevice>;
 }): readonly DeviceListRow[] {
   const devices = new Map(input.directory?.devices.map((device) => [device.deviceId, device]));
   const presence = new Map(
@@ -62,21 +94,26 @@ export function buildDeviceList(input: {
     return online === undefined ? "unknown" : online ? "online" : "offline";
   };
   const rows: DeviceListRow[] = input.environments.map((environment) => {
+    const reportedDevice = input.environmentDevices?.get(environment.environmentId);
     const peerIds = connectionRoutes(environment.entry).flatMap((route) => {
       const profile = Option.getOrNull(route.profile);
       return profile?._tag === "BearerConnectionProfile" && profile.peerDeviceId
         ? [profile.peerDeviceId]
         : [];
     });
+    if (reportedDevice) peerIds.push(reportedDevice.deviceId);
     for (const deviceId of peerIds) matchedIds.add(deviceId);
     const accountDeviceId = peerIds.find((deviceId) => devices.has(deviceId)) ?? peerIds[0];
-    const device = accountDeviceId ? devices.get(accountDeviceId) : undefined;
+    const device = (accountDeviceId ? devices.get(accountDeviceId) : undefined) ?? reportedDevice;
+    const platform = device?.platform ?? environmentPlatform(environment);
     return {
       id: `environment:${environment.environmentId}`,
-      name: environment.label,
+      name:
+        device && isGenericDeviceName(environment.label) ? deviceName(device) : environment.label,
       environmentId: environment.environmentId,
       ...(accountDeviceId ? { accountDeviceId, presence: devicePresence(accountDeviceId) } : {}),
       ...(device ? { device } : {}),
+      ...(platform ? { platform } : {}),
       local:
         environment.entry.target._tag === "PrimaryConnectionTarget" ||
         peerIds.some((deviceId) => localIds.has(deviceId)),
@@ -87,13 +124,14 @@ export function buildDeviceList(input: {
     if (localIds.has(device.deviceId) || matchedIds.has(device.deviceId)) continue;
     rows.push({
       id: `device:${device.deviceId}`,
-      name: device.label,
+      name: deviceName(device),
       accountDeviceId: device.deviceId,
       device,
+      ...(device.platform ? { platform: device.platform } : {}),
       local: false,
       status: "needs-approval",
       presence: devicePresence(device.deviceId),
     });
   }
-  return rows;
+  return rows.filter((row) => !row.local);
 }

@@ -24,6 +24,7 @@ import * as Result from "effect/Result";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Base64Url from "effect/encoding/Base64Url";
 import { openBrowserPrivateStore } from "../catalog/storage";
+import { clientPresentationMetadata } from "./clientMetadata";
 
 const Identity = Schema.Struct({ privateKey: Schema.String, label: Schema.String });
 const Route = Schema.Struct({
@@ -61,6 +62,35 @@ async function locked<T>(accountId: string, operation: () => Promise<T>): Promis
     );
   return navigator.locks.request(`mines-peer:${accountId}`, operation);
 }
+function browserPeerDeviceMetadata(): { label: string; platform?: PeerDevice["platform"] } {
+  const metadata = clientPresentationMetadata({
+    appVersion: "0.0.0",
+    hosted: false,
+    identity: {
+      userAgent: navigator.userAgent ?? "",
+      platform: navigator.platform ?? "",
+      maxTouchPoints: navigator.maxTouchPoints ?? 0,
+    },
+    desktopBridge: window.desktopBridge,
+  });
+  switch (metadata.os) {
+    case "macOS":
+      return { platform: "macos", label: "Mac" };
+    case "Windows":
+      return { platform: "windows", label: "Windows PC" };
+    case "Linux":
+      return { platform: "linux", label: "Linux computer" };
+    case "iOS":
+      return { platform: "ios", label: metadata.deviceType === "tablet" ? "iPad" : "iPhone" };
+    case "Android":
+      return {
+        platform: "android",
+        label: metadata.deviceType === "tablet" ? "Android tablet" : "Android phone",
+      };
+    default:
+      return { label: window.desktopBridge ? "Desktop" : "Browser" };
+  }
+}
 export const loadBrowserPeerIdentity = Effect.fn("web.peer.identity")(function* (
   accountId: string,
   label?: string,
@@ -68,18 +98,24 @@ export const loadBrowserPeerIdentity = Effect.fn("web.peer.identity")(function* 
   return yield* Effect.tryPromise({
     try: () =>
       locked(accountId, async () => {
+        const metadata = browserPeerDeviceMetadata();
         const store = await openBrowserPrivateStore(accountId);
         const saved = await store.read("peer.identity.v1");
         const record = saved
           ? decodeIdentity(decode.decode(saved))
           : {
               privateKey: Base64Url.encode(crypto.getRandomValues(new Uint8Array(32))),
-              label: window.desktopBridge ? "mines desktop client" : "mines browser client",
+              label: metadata.label,
             };
-        const nextLabel = label?.trim().slice(0, 100) || record.label;
+        const nextLabel =
+          label?.trim().slice(0, 80) ||
+          (record.label === "mines desktop client" || record.label === "mines browser client"
+            ? metadata.label
+            : record.label);
         const identity = createPeerIdentity(
           Result.getOrThrow(Base64Url.decode(record.privateKey)),
           nextLabel,
+          metadata.platform,
         );
         if (!saved || nextLabel !== record.label)
           await store.write(

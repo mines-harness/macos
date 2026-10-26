@@ -51,12 +51,13 @@ it.effect("binds approval and rollback to the original account when selection ch
 it.effect("uses the host name without changing the stored device key", () =>
   Effect.gen(function* () {
     const secrets = memorySecrets();
-    const load = (label: string) =>
+    const load = (label: string, platform: NodeJS.Platform = "linux") =>
       Effect.flatMap(PeerTrustStore.PeerTrustStore, (trust) => trust.identity).pipe(
         Effect.provide(
           PeerTrustStore.layer.pipe(
             Layer.provide(secrets),
             Layer.provide(Layer.succeed(HostProcess.Hostname, label)),
+            Layer.provide(Layer.succeed(HostProcess.Platform, platform)),
           ),
         ),
       );
@@ -66,6 +67,9 @@ it.effect("uses the host name without changing the stored device key", () =>
     expect(after.device.publicKey).toBe(before.device.publicKey);
     expect(before.device.label).toBe("OVH");
     expect(after.device.label).toBe("My server");
+    expect(after.device.platform).toBe("linux");
+    expect((yield* load("My Mac", "darwin")).device.platform).toBe("macos");
+    expect((yield* load("My PC", "win32")).device.platform).toBe("windows");
   }),
 );
 

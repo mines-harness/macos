@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { ed25519 } from "@noble/curves/ed25519";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
   DevicePairingCommand,
@@ -6,6 +7,8 @@ import {
   type DevicePairingRequest,
 } from "@t3tools/contracts/minesDevicePairing";
 import * as Schema from "effect/Schema";
+import * as Base64Url from "effect/encoding/Base64Url";
+import * as Result from "effect/Result";
 import {
   beginDevicePairing,
   cancelDevicePairing,
@@ -20,11 +23,26 @@ import {
 } from "./minesDevicePairing.ts";
 import { encodePeerPairing } from "./minesPeerPairing.ts";
 import { createPeerIdentity } from "./minesPeerTrust.ts";
+import { stableStringify } from "./relaySigning.ts";
 
 const first = createPeerIdentity(new Uint8Array(32).fill(1), "MacBook");
 const second = createPeerIdentity(new Uint8Array(32).fill(2), "OVH");
 const other = createPeerIdentity(new Uint8Array(32).fill(3), "Another computer");
 const decodeCommand = Schema.decodeUnknownSync(DevicePairingCommand);
+const decodeLegacyCommand = Schema.decodeUnknownSync(
+  Schema.Struct({
+    version: Schema.Literal(1),
+    action: Schema.Literal("pending"),
+    nonce: Schema.String,
+    issuedAt: Schema.Number,
+    signature: Schema.String,
+    device: Schema.Struct({
+      deviceId: Schema.String,
+      publicKey: Schema.String,
+      label: Schema.String,
+    }),
+  }),
+);
 
 function setup() {
   let counter = 0;
@@ -93,6 +111,25 @@ function setup() {
 }
 
 describe("device pairing proofs", () => {
+  it("keeps pairing signatures verifiable by clients that strip platform metadata", () => {
+    const identity = createPeerIdentity(first.privateKey, first.device.label, "macos");
+    const command = signDevicePairingCommand(identity, {
+      action: "pending",
+      nonce: "legacy_nonce_00001",
+      issuedAt: 10,
+    });
+    const legacy = decodeLegacyCommand(command);
+    const { signature, ...unsigned } = legacy;
+    expect(
+      ed25519.verify(
+        Result.getOrThrow(Base64Url.decode(signature)),
+        new TextEncoder().encode(stableStringify(unsigned)),
+        Result.getOrThrow(Base64Url.decode(legacy.device.publicKey)),
+      ),
+    ).toBe(true);
+    expect(verifyDevicePairingCommand(command, 10)).toEqual(command);
+  });
+
   it("binds the exact operation, target, response key and request to the device signature", () => {
     const command = signDevicePairingCommand(first, {
       action: "request",

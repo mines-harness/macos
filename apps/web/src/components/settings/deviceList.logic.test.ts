@@ -3,6 +3,7 @@ import {
   BearerConnectionTarget,
   PrimaryConnectionTarget,
   RelayConnectionTarget,
+  SshConnectionTarget,
   type EnvironmentConnectionPhase,
 } from "@t3tools/client-runtime/connection";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -85,6 +86,36 @@ it("merges a paired account device into its environment by identity", () => {
   });
 });
 
+it("merges an SSH computer with its account entry using the reported device identity", () => {
+  const saved = environment({ id: "ssh-ovh", name: "mind", phase: "connected" });
+  const ssh = {
+    ...saved,
+    entry: {
+      ...saved.entry,
+      target: new SshConnectionTarget({
+        environmentId: saved.environmentId,
+        label: saved.label,
+        connectionId: "ssh-ovh",
+      }),
+      profile: Option.none(),
+    },
+  };
+  const other = { ...ovh, deviceId: "different-device-1234", label: "mind" };
+  const rows = buildDeviceList({
+    environments: [ssh],
+    environmentDevices: new Map([[ssh.environmentId, ovh]]),
+    directory: { devices: [ovh, other], presence: [{ deviceId: ovh.deviceId, online: true }] },
+  });
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatchObject({
+    environmentId: ssh.environmentId,
+    accountDeviceId: ovh.deviceId,
+    status: "connected",
+    name: "mind",
+  });
+  expect(rows[1]).toMatchObject({ accountDeviceId: other.deviceId, status: "needs-approval" });
+});
+
 it("finds a paired identity on an alternate route", () => {
   const saved = environment({ peerDeviceId: ovh.deviceId });
   const relay = {
@@ -134,7 +165,7 @@ it("requires a live session for Connected and gives disabled routes priority", (
   ).toBe("disabled");
 });
 
-it("filters both local identities from the account directory but keeps the local environment", () => {
+it("excludes the current environment and both of its account identities from other devices", () => {
   const browser = { ...ovh, deviceId: "browser-device-123456", label: "This browser" };
   const host = { ...ovh, deviceId: "host-device-123456", label: "This Mac" };
   const saved = environment({ id: "local", name: "This Mac" });
@@ -156,9 +187,43 @@ it("filters both local identities from the account directory but keeps the local
     directory: { devices: [browser, host, ovh] },
     localDeviceIds: [browser.deviceId, host.deviceId],
   });
-  expect(rows).toHaveLength(2);
-  expect(rows[0]).toMatchObject({ environmentId: local.environmentId, local: true });
-  expect(rows[1]).toMatchObject({ accountDeviceId: ovh.deviceId, local: false });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ accountDeviceId: ovh.deviceId, local: false });
+});
+
+it("distinguishes old unnamed devices without inventing their computer names", () => {
+  const second = { ...ovh, deviceId: "other-device-654321", label: "Mines computer" };
+  const rows = buildDeviceList({
+    environments: [],
+    directory: { devices: [{ ...ovh, label: "Mines computer" }, second] },
+  });
+  expect(rows.map((row) => row.name)).toEqual([
+    "Unknown device · 123456",
+    "Unknown device · 654321",
+  ]);
+});
+
+it("refreshes a generic saved environment label from its account device name", () => {
+  const rows = buildDeviceList({
+    environments: [environment({ name: "Mines computer", peerDeviceId: ovh.deviceId })],
+    directory: { devices: [ovh] },
+  });
+  expect(rows[0]?.name).toBe("OVH");
+});
+
+it("retains registered device platforms before and after pairing", () => {
+  const devices = (["macos", "windows", "linux", "ios", "android"] as const).map(
+    (platform, index) => ({
+      ...ovh,
+      deviceId: `platform-device-${index}`,
+      platform,
+    }),
+  );
+  const rows = buildDeviceList({
+    environments: [environment({ peerDeviceId: devices[0]!.deviceId })],
+    directory: { devices },
+  });
+  expect(rows.map((row) => row.platform)).toEqual(["macos", "windows", "linux", "ios", "android"]);
 });
 
 it("keeps missing presence unknown for old account directories", () => {
