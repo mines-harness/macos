@@ -9,7 +9,11 @@ export class DeviceDirectory extends Context.Service<
   DeviceDirectory,
   {
     readonly initialize: Effect.Effect<void, PeerError>;
-    readonly register: (accountId: string, device: PeerDevice) => Effect.Effect<void, PeerError>;
+    readonly register: (
+      accountId: string,
+      device: PeerDevice,
+      options?: { readonly existingOnly: boolean },
+    ) => Effect.Effect<void, PeerError>;
     readonly list: (accountId: string) => Effect.Effect<ReadonlyArray<PeerDevice>, PeerError>;
     readonly owner: (
       deviceId: string,
@@ -51,14 +55,21 @@ const make = Effect.gen(function* () {
       Effect.asVoid,
       Effect.mapError(mapError),
     ),
-    register: Effect.fn("DeviceDirectory.register")(function* (accountId, device) {
-      const records = yield* sql<{
-        device_id: string;
-      }>`INSERT INTO mines_devices (device_id, account_id, public_key, label)
+    register: Effect.fn("DeviceDirectory.register")(function* (accountId, device, options) {
+      const records = yield* (
+        options?.existingOnly
+          ? sql<{ device_id: string }>`UPDATE mines_devices SET label = ${device.label}
+          WHERE device_id = ${device.deviceId} AND account_id = ${accountId}
+            AND public_key = ${device.publicKey} AND NOT revoked
+          RETURNING device_id`
+          : sql<{
+              device_id: string;
+            }>`INSERT INTO mines_devices (device_id, account_id, public_key, label)
         VALUES (${device.deviceId}, ${accountId}, ${device.publicKey}, ${device.label})
         ON CONFLICT (device_id) DO UPDATE SET label = EXCLUDED.label, revoked = FALSE
         WHERE mines_devices.account_id = EXCLUDED.account_id AND mines_devices.public_key = EXCLUDED.public_key
-        RETURNING device_id`.pipe(Effect.mapError(mapError));
+        RETURNING device_id`
+      ).pipe(Effect.mapError(mapError));
       if (records.length === 0) return yield* new PeerError({ code: "unapproved-device" });
     }),
     list: Effect.fn("DeviceDirectory.list")((accountId: string) =>
