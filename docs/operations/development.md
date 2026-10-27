@@ -198,7 +198,10 @@ Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](
 
 ## Desktop artifacts
 
-Local artifact builds are unsigned by default and write to `release/`:
+Local artifact builds use no distribution certificate by default and write to `release/`.
+macOS bundles are sealed with an ad-hoc signature; downloaded distribution builds still need
+Developer ID signing and notarization to pass Gatekeeper. Open the DMG and drag the `.app` to
+Applications to install it.
 
 ```sh
 vp run dist:desktop:dmg
