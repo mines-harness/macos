@@ -97,6 +97,9 @@ const browserTestProject = {
     include: [
       "vite-plus/test/browser",
       "@base-ui/react/autocomplete",
+      "@base-ui/react/radio-group",
+      "@base-ui/react/radio",
+      "@base-ui/react/toolbar",
       "saxes",
       "@betteroffice/docx/editor",
       "@betteroffice/docx/layout",

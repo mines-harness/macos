@@ -41,7 +41,7 @@ export function expoDelivery(
   const token = accessToken?.trim();
   return PushDelivery.of({
     enabled: Boolean(token),
-    send: (targets, event) =>
+    send: Effect.fn("PushDelivery.send")((targets, event) =>
       !token
         ? Effect.fail(new MinesPushError({ code: "disabled" }))
         : Effect.tryPromise({
@@ -71,6 +71,7 @@ export function expoDelivery(
             },
             catch: () => new MinesPushError({ code: "unavailable" }),
           }),
+    ),
   });
 }
 export class Push extends Context.Service<

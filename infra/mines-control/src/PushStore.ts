@@ -33,17 +33,19 @@ export const layer = Layer.effect(
         yield* sql`CREATE TABLE IF NOT EXISTS mines_push_events (account_id TEXT NOT NULL, event_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(account_id, event_id))`;
         yield* sql`CREATE INDEX IF NOT EXISTS mines_push_event_expiry ON mines_push_events(created_at)`;
       }).pipe(Effect.mapError(failure)),
-      register: (account, deviceId, token) =>
+      register: Effect.fn("PushStore.register")((account, deviceId, token) =>
         sql`INSERT INTO mines_push_devices (device_id, account_id, token) VALUES (${deviceId}, ${account}, ${token}) ON CONFLICT(device_id) DO UPDATE SET token=EXCLUDED.token, updated_at=NOW() WHERE mines_push_devices.account_id=EXCLUDED.account_id`.pipe(
           Effect.asVoid,
           Effect.mapError(failure),
         ),
-      remove: (account, deviceId) =>
+      ),
+      remove: Effect.fn("PushStore.remove")((account, deviceId) =>
         sql`DELETE FROM mines_push_devices WHERE account_id=${account} AND device_id=${deviceId}`.pipe(
           Effect.asVoid,
           Effect.mapError(failure),
         ),
-      targets: (account, sender) =>
+      ),
+      targets: Effect.fn("PushStore.targets")((account, sender) =>
         sql<{
           device_id: string;
           token: string;
@@ -51,7 +53,8 @@ export const layer = Layer.effect(
           Effect.map((rows) => rows.map((row) => ({ deviceId: row.device_id, token: row.token }))),
           Effect.mapError(failure),
         ),
-      claim: (account, eventId) =>
+      ),
+      claim: Effect.fn("PushStore.claim")((account, eventId) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
@@ -63,6 +66,7 @@ export const layer = Layer.effect(
             }),
           )
           .pipe(Effect.mapError(failure)),
+      ),
     });
   }),
 );
