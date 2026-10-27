@@ -195,8 +195,8 @@ describe("resolveLiveThreadBranchUpdate", () => {
 
   it("does not regress a semantic thread ref back to a temporary worktree ref", () => {
     const update = resolveLiveThreadBranchUpdate({
-      threadBranch: "t3code/github-query-rate-limit",
-      gitStatus: status({ refName: "t3code/bda76797" }),
+      threadBranch: "mines/github-query-rate-limit",
+      gitStatus: status({ refName: "mines/bda76797" }),
     });
 
     assert.equal(update, null);

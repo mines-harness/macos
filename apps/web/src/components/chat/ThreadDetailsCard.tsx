@@ -129,39 +129,22 @@ export function ThreadDetailsCard({
         useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", open);
       }}
     >
-      {placement ? (
-        inlineOpen ? (
-          <aside
-            aria-label="Mine details"
-            // Skip the return transition to avoid overlapping the rising preview.
-            className={cn(
-              "absolute z-20",
-              topInset > 0 &&
-                "transition-[top] duration-150 ease-out motion-reduce:transition-none",
-            )}
-            style={{
-              right: placement.right,
-              top: placement.y,
-              width: placement.width,
-              maxHeight: height,
-            }}
-            data-density={density}
-            data-thread-details-panel="inline"
-          >
-            {card}
-          </aside>
-        ) : null
-      ) : (
-        <PopoverPopup
-          anchor={anchor}
-          align="end"
-          // Account for the find panel's 8px card padding.
-          alignOffset={THREAD_DETAILS_CARD_GAP - 8}
-          collisionAvoidance={{ side: "shift", align: "shift", fallbackAxisSide: "none" }}
-          side="bottom"
-          sideOffset={topInset}
-          variant="panel"
-          padding="none"
+      {placement && inlineOpen ? (
+        <aside
+          aria-label="Mine details"
+          // Skip the return transition to avoid overlapping the rising preview.
+          className={cn(
+            "absolute z-20",
+            topInset > 0 && "transition-[top] duration-150 ease-out motion-reduce:transition-none",
+          )}
+          style={{
+            right: placement.right,
+            top: placement.y,
+            width: placement.width,
+            maxHeight: height,
+          }}
+          data-density={density}
+          data-thread-details-panel="inline"
         >
           {card}
         </aside>

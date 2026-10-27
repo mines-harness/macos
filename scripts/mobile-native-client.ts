@@ -226,7 +226,9 @@ const command = Effect.fn("nativeClient.command")(function* (
 const fingerprint = Effect.fn("nativeClient.fingerprint")(function* (platform: NativePlatform) {
   const output = yield* command(yield* HostProcess.ExecutablePath, [
     "--eval",
-    `require('expo/fingerprint').createFingerprintAsync(process.cwd(), { platforms: [process.argv[1]], silent: true }).then(fp => console.log('MINES_NATIVE_FINGERPRINT=' + fp.hash)).catch(e => { console.error(e); process.exitCode = 1; });`,
+    // Same hash on every machine: generated native projects and the config's `extra` (env-specific
+    // values a dev client reads from Metro) stay out, so a Mac and a Linux VM share builds.
+    `const f = require('expo/fingerprint'); f.createFingerprintAsync(process.cwd(), { platforms: [process.argv[1]], silent: true, ignorePaths: ['android/**', 'ios/**'], sourceSkips: f.DEFAULT_SOURCE_SKIPS | f.SourceSkips.ExpoConfigExtraSection }).then(fp => console.log('MINES_NATIVE_FINGERPRINT=' + fp.hash)).catch(e => { console.error(e); process.exitCode = 1; });`,
     platform,
   ]);
   const hash = output
@@ -401,7 +403,7 @@ export const prebuildAndroid = Effect.fn("nativeClient.prebuildAndroid")(functio
   );
 });
 
-const artifactNames = { ios: "T3CodeDev.app", android: "app-debug.apk" } as const;
+const artifactNames = { ios: "minesDev.app", android: "app-debug.apk" } as const;
 // R2 requires equal-sized parts and Workers cap request bodies at 100 MB.
 const partSize = 64 * 1024 * 1024;
 const RemoteCredentials = Schema.fromJsonString(
@@ -435,7 +437,7 @@ interface RemoteCache {
 const remoteCache = Effect.fn("nativeClient.remoteCache")(
   function* (home: string) {
     const environment = yield* HostProcess.Environment;
-    if (environment.T3_NATIVE_CLIENT_CACHE === "off") return null;
+    if (environment.MINES_NATIVE_CLIENT_CACHE === "off") return null;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const { endpoint } = yield* decodeEndpoint(
@@ -573,7 +575,7 @@ const upload = Effect.fn("nativeClient.upload")(function* (
   const uploadUrl = `${remote.url}/${key}/uploads/${encodeURIComponent(created.uploadId)}`;
   yield* Console.error(`Uploading native client ${key} to the shared cache...`);
   yield* Effect.gen(function* () {
-    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-native-upload-" });
+    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "mines-native-upload-" });
     const file =
       platform === "ios"
         ? path.join(directory, "client.tgz")
@@ -705,7 +707,7 @@ const build = Effect.fn("nativeClient.build")(function* (
     if (onEas) {
       yield* buildIosOnEas(staging);
     } else if (platform === "ios") {
-      const output = yield* fs.makeTempDirectoryScoped({ prefix: "t3-native-client-" });
+      const output = yield* fs.makeTempDirectoryScoped({ prefix: "mines-native-client-" });
       yield* command("pod", ["install"], true, path.join(mobile, "ios"));
       // One device-independent arm64 simulator build installs on every iPhone and iPad simulator.
       yield* command(
@@ -713,9 +715,9 @@ const build = Effect.fn("nativeClient.build")(function* (
         [
           "xcodebuild",
           "-workspace",
-          path.join(mobile, "ios/T3CodeDev.xcworkspace"),
+          path.join(mobile, "ios/minesDev.xcworkspace"),
           "-scheme",
-          "T3CodeDev",
+          "minesDev",
           "-configuration",
           "Debug",
           "-destination",
@@ -832,7 +834,7 @@ export const resolveArtifact = Effect.fn("nativeClient.resolveArtifact")(functio
   yield* build(platform, abi, directory, fingerprint);
   yield* writeBuildMs(directory, (yield* Clock.currentTimeMillis) - started);
   yield* prune(path.dirname(directory), fingerprint);
-  if (remote && (yield* HostProcess.Environment).T3_NATIVE_CLIENT_CACHE !== "read") {
+  if (remote && (yield* HostProcess.Environment).MINES_NATIVE_CLIENT_CACHE !== "read") {
     yield* upload(remote, platform, key, directory).pipe(
       Effect.catch((error) => Console.error(`Native client was not shared (${describe(error)}).`)),
     );
@@ -847,6 +849,32 @@ const describe = (error: unknown) =>
   typeof error.message === "string"
     ? error.message
     : String(error);
+
+const install = Effect.fn("nativeClient.install")(function* (
+  platform: NativePlatform,
+  device: string,
+  file: string,
+) {
+  if (platform === "ios") {
+    yield* command("xcrun", ["simctl", "install", device, file], true);
+    return;
+  }
+  yield* command("adb", ["-s", device, "install", "-r", "-d", file]).pipe(
+    Effect.catchTags({
+      NativeClientError: (error) =>
+        Effect.fail(
+          error.message.includes("INSTALL_FAILED_UPDATE_INCOMPATIBLE")
+            ? new NativeClientError({
+                message: `The installed client has a different signature. Remove it with adb -s ${device} uninstall ${bundleId} (this clears its pairings), then run ensure again.`,
+              })
+            : error,
+        ),
+    }),
+  );
+  // Emulators reach Metro through 10.0.2.2; a phone on USB needs the port forwarded.
+  if ((yield* command("adb", ["-s", device, "shell", "getprop", "ro.kernel.qemu"])) !== "1")
+    yield* command("adb", ["-s", device, "reverse", "tcp:8081", "tcp:8081"]).pipe(Effect.ignore);
+});
 
 const reportTelemetry = Effect.fn("nativeClient.reportTelemetry")(
   function* (
@@ -967,7 +995,7 @@ const installIntoSession = Effect.fn("nativeClient.installIntoSession")(function
         agentDevice,
         "open",
         bundleId,
-        `t3code-dev://expo-development-client/?url=${url}&disableOnboarding=1&disableFab=1&disableAutoLaunch=1`,
+        `mines-dev://expo-development-client/?url=${url}&disableOnboarding=1&disableFab=1&disableAutoLaunch=1`,
         "--session",
         session,
       ],
@@ -1085,12 +1113,18 @@ const main = Command.make(
       return yield* new NativeClientError({
         message: "HOME or USERPROFILE must be set to store native client records.",
       });
-    const recordPath = path.join(
-      home,
-      ".cache/mines/native-clients",
-      platform,
-      `${yield* digest(device)}.json`,
-    );
+    const cache = path.join(home, ".cache/mines/native-clients");
+    const recordPath = path.join(cache, platform, `${yield* digest(device)}.json`);
+    // An iOS simulator build is arm64 for every device; an APK carries only the device's own ABI.
+    const abi = Effect.gen(function* () {
+      if (platform === "ios") return null;
+      const value = yield* command("adb", ["-s", device, "shell", "getprop", "ro.product.cpu.abi"]);
+      if (value !== "x86_64" && value !== "arm64-v8a")
+        return yield* new NativeClientError({ message: `Unsupported Android ABI ${value}.` });
+      return value;
+    });
+    let task = `native-client:${platform}`;
+    let savedMs = 0;
     const operations = {
       fingerprint: fingerprint(platform),
       installedBinary: installedBinary(platform, device),
@@ -1102,76 +1136,15 @@ const main = Command.make(
           () => Effect.succeed(null),
         ),
       ),
-      build: Effect.gen(function* () {
-        yield* Console.error(
-          "Native client is missing, stale, or unverified. Building and installing a development client...",
-        );
-        const tracked = yield* command(
-          "git",
-          ["ls-files", `apps/mobile/${platform}`],
-          false,
-          (yield* roots).repo,
-        );
-        if (tracked)
-          return yield* new NativeClientError({
-            message:
-              "Native directory contains tracked files; clean prebuild would overwrite them.",
-          });
-        const prebuild = command(
-          "vp",
-          ["exec", "expo", "prebuild", "--clean", "--platform", platform, "--no-install"],
-          true,
-        ).pipe(Effect.asVoid);
-        yield* platform === "android" ? prebuildAndroid((yield* roots).mobile, prebuild) : prebuild;
-        if (platform === "ios") {
-          const output = yield* fs.makeTempDirectoryScoped({ prefix: "mines-native-client-" });
-          const { mobile } = yield* roots;
-          yield* command("pod", ["install"], true, path.join(mobile, "ios"));
-          yield* command(
-            "xcrun",
-            [
-              "xcodebuild",
-              "-workspace",
-              path.join(mobile, "ios/minesDev.xcworkspace"),
-              "-scheme",
-              "minesDev",
-              "-configuration",
-              "Debug",
-              "-destination",
-              `id=${device}`,
-              "-derivedDataPath",
-              output,
-              "build",
-            ],
-            true,
-          );
-          yield* command(
-            "xcrun",
-            [
-              "simctl",
-              "install",
-              device,
-              path.join(output, "Build/Products/Debug-iphonesimulator/minesDev.app"),
-            ],
-            true,
-          );
-        } else {
-          yield* command(
-            "vp",
-            [
-              "exec",
-              "expo",
-              "run:android",
-              "--device",
-              device,
-              "--no-bundler",
-              "--variant",
-              "debug",
-            ],
-            true,
-          );
-        }
-      }).pipe(Effect.scoped),
+      install: Effect.fn(function* (fingerprint: string) {
+        const deviceAbi = yield* abi;
+        if (deviceAbi) task = `native-client:android-${deviceAbi}`;
+        const artifact = yield* resolveArtifact(home, platform, deviceAbi, fingerprint);
+        savedMs = artifact.buildMs;
+        yield* Console.error(`Installing on ${target.label}...`);
+        yield* install(platform, device, artifact.file);
+        return artifact.source;
+      }),
       saveRecord: Effect.fn(function* (record: NativeClientRecord) {
         yield* fs.makeDirectory(path.dirname(recordPath), { recursive: true });
         yield* fs.writeFileString(recordPath, yield* encodeRecord(record));
@@ -1204,7 +1177,7 @@ const main = Command.make(
     const stamp = DateTime.formatIso(DateTime.makeUnsafe(started)).replaceAll(":", "-");
     const log = path.join(logs, `${stamp}-${platform}.log`);
     const result = yield* ensureClient(operations).pipe(
-      Effect.provideService(BuildLog, environment.T3_NATIVE_CLIENT_VERBOSE === "1" ? null : log),
+      Effect.provideService(BuildLog, environment.MINES_NATIVE_CLIENT_VERBOSE === "1" ? null : log),
       Effect.tapError(() => reportTelemetry(home, task, "failed", 0)),
     );
     if (result.installed && result.source)

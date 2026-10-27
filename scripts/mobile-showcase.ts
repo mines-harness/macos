@@ -147,8 +147,8 @@ export function readPngMetadata(bytes: Uint8Array): PngMetadata {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const colorType = view.getUint8(25);
   return {
-    width: view.getUinmines2(16),
-    height: view.getUinmines2(20),
+    width: view.getUint32(16),
+    height: view.getUint32(20),
     bitDepth: view.getUint8(24),
     colorType,
     hasAlpha: colorType === 4 || colorType === 6,

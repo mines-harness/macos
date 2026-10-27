@@ -98,7 +98,7 @@
     },
     {
       "driver": "fx",
-      "t3CodeRange": ">=0.0.46",
+      "minesRange": ">=0.0.46",
       "recommendedRange": ">=0.0.13",
       "ranges": [
         { "range": ">=0.0.13", "status": "supported" },

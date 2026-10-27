@@ -48,7 +48,7 @@ describe("Pierre file icons", () => {
     ["epub", "epub"],
   ])("uses the document family icon for %s", (extension, family) => {
     for (const path of [`report.${extension}`, `folder/REPORT.${extension.toUpperCase()}`]) {
-      assert.equal(resolvePierreIconForEntry(path, "file")?.name, `t3-file-icon-${family}`);
+      assert.equal(resolvePierreIconForEntry(path, "file")?.name, `mines-file-icon-${family}`);
       assert.isTrue(hasSpecificPierreIconForFileName(path));
     }
   });

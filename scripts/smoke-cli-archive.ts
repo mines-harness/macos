@@ -171,14 +171,10 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
     Effect.orElseSucceed(() => false),
   );
   const apiStatuses = ready
-    ? yield* Effect.all(
-        ["/.well-known/mines/environment", "/api/projects"].map((route) =>
-          httpClient
-            .execute(HttpClientRequest.get(`http://127.0.0.1:${String(port)}${route}`))
-            .pipe(
-              Effect.map((response) => response.status),
-              Effect.timeout(Duration.seconds(5)),
-            ),
+    ? yield* Effect.forEach(["/.well-known/mines/environment", "/api/projects"], (route) =>
+        httpClient.execute(HttpClientRequest.get(`http://127.0.0.1:${String(port)}${route}`)).pipe(
+          Effect.map((response) => response.status),
+          Effect.timeout(Duration.seconds(5)),
         ),
       )
     : [];

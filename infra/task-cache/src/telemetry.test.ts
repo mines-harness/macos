@@ -44,8 +44,8 @@ it("deduplicates shared summaries and retries delivery without credentials in qu
   const home = NodePath.join(root, "home");
   const endpoint = "https://cache.example/projects/t3code";
   try {
-    const stopA = observeSummaries(root, endpoint, { T3_TASK_CACHE_HOST: "test-host" }, home);
-    const stopB = observeSummaries(root, endpoint, { T3_TASK_CACHE_HOST: "test-host" }, home);
+    const stopA = observeSummaries(root, endpoint, { MINES_TASK_CACHE_HOST: "test-host" }, home);
+    const stopB = observeSummaries(root, endpoint, { MINES_TASK_CACHE_HOST: "test-host" }, home);
     const version = NodePath.join(root, "node_modules/.vite/task-cache/v18");
     NodeFS.mkdirSync(version);
     NodeFS.writeFileSync(

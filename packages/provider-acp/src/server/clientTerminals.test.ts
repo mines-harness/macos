@@ -68,7 +68,7 @@ describe("AcpClientTerminals", () => {
         const created = yield* terminals.create({
           sessionId,
           command: process.execPath,
-          args: ["-e", "process.stdout.write(process.env.T3_TEST_ACP_SESSION_TOKEN ?? '')"],
+          args: ["-e", "process.stdout.write(process.env.MINES_TEST_ACP_SESSION_TOKEN ?? '')"],
         });
         yield* terminals.waitForExit({ sessionId, terminalId: created.terminalId });
         const output = yield* terminals.output({ sessionId, terminalId: created.terminalId });
