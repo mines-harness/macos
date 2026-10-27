@@ -14,7 +14,7 @@ export class DesktopLegacyLocalStorage extends Context.Service<
 
 // A fork must never silently import another application's sessions or credentials.
 export const layer = Layer.succeed(DesktopLegacyLocalStorage, {
-  load: () => Effect.void,
-  take: Effect.succeed(Option.none()),
+  load: Effect.fn("DesktopLegacyLocalStorage.load")(() => Effect.void),
+  take: Effect.succeedNone,
   complete: Effect.void,
 });

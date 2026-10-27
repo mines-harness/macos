@@ -261,7 +261,7 @@ const make = Effect.gen(function* () {
     receipt,
     commit,
     subscribe: PubSub.subscribe(changes),
-    notify: (groupId) => PubSub.publish(changes, groupId),
+    notify: Effect.fn("GroupStore.notify")((groupId) => PubSub.publish(changes, groupId)),
     catalogChanges: PubSub.subscribe(catalogChanges),
     catalogEvents,
   });

@@ -4,14 +4,22 @@ import {
   type FileTreeIcons,
 } from "@pierre/trees";
 import { VIDEO_FILE_EXTENSIONS } from "@t3tools/shared/video";
-import { fileIconPathForMimeType } from "@t3tools/shared/filePreview";
+import { fileIconPathForMimeType } from "@t3tools/shared/mediaPreview";
 
 export interface PierreIconResolution {
   name: string;
   token?: string;
 }
 
-const PIERRE_ICON_SPRITE_ID = "mines-pierre-file-icon-sprite";
+const PIERRE_ICON_SPRITE_ID = "t3code-pierre-file-icon-sprite";
+
+const DOCUMENT_ICON_COLORS: Readonly<Record<string, string>> = {
+  "mines-file-icon-pdf": "light-dark(#d52c36, #ff6762)",
+  "mines-file-icon-word": "light-dark(#1a85d4, #69b1ff)",
+  "mines-file-icon-spreadsheet": "light-dark(#199f43, #5ecc71)",
+  "mines-file-icon-slides": "light-dark(#d47628, #ffa359)",
+  "mines-file-icon-epub": "light-dark(#693acf, #9d6afb)",
+};
 
 const MINES_FILE_ICON_SPRITE = `
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">
@@ -30,7 +38,7 @@ const MINES_FILE_ICON_SPRITE = `
     <path fill="currentColor" d="M20.374 20.375h-8.75v-8.75h8.75Zm0 9.625h-8.75v-8.75h8.75ZM30 30h-8.749v-8.75H30Zm-19.251 0H2v-8.75h8.749Z" />
   </symbol>
   <!-- Lucide Loader Circle icon, ISC license. -->
-  <symbol id="mines-tree-icon-loading" viewBox="0 0 24 24">
+  <symbol id="t3-tree-icon-loading" viewBox="0 0 24 24">
     <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M21 12a9 9 0 1 1-6.219-8.56" />
   </symbol>
   <!-- Lucide Diff icon, ISC license. -->
@@ -40,6 +48,48 @@ const MINES_FILE_ICON_SPRITE = `
   <!-- Lucide Code Xml icon, ISC license. -->
   <symbol id="mines-file-icon-xml" viewBox="0 0 24 24">
     <path fill="none" style="stroke: light-dark(#d47628, #ffa359)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16" />
+  </symbol>
+  <!-- Lucide File Type, File Text, File Spreadsheet, Presentation and Book Open icons, ISC license. -->
+  <symbol id="mines-file-icon-pdf" viewBox="0 0 24 24">
+    <g fill="none" style="stroke: ${DOCUMENT_ICON_COLORS["mines-file-icon-pdf"]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M11 18h2" />
+      <path d="M12 12v6" />
+      <path d="M9 13v-.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v.5" />
+    </g>
+  </symbol>
+  <symbol id="mines-file-icon-word" viewBox="0 0 24 24">
+    <g fill="none" style="stroke: ${DOCUMENT_ICON_COLORS["mines-file-icon-word"]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M10 9H8" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </g>
+  </symbol>
+  <symbol id="mines-file-icon-spreadsheet" viewBox="0 0 24 24">
+    <g fill="none" style="stroke: ${DOCUMENT_ICON_COLORS["mines-file-icon-spreadsheet"]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M8 13h2" />
+      <path d="M14 13h2" />
+      <path d="M8 17h2" />
+      <path d="M14 17h2" />
+    </g>
+  </symbol>
+  <symbol id="mines-file-icon-slides" viewBox="0 0 24 24">
+    <g fill="none" style="stroke: ${DOCUMENT_ICON_COLORS["mines-file-icon-slides"]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 3h20" />
+      <path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3" />
+      <path d="m7 21 5-5 5 5" />
+    </g>
+  </symbol>
+  <symbol id="mines-file-icon-epub" viewBox="0 0 24 24">
+    <g fill="none" style="stroke: ${DOCUMENT_ICON_COLORS["mines-file-icon-epub"]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 7v14" />
+      <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+    </g>
   </symbol>
   <!-- Language logos from Simple Icons, CC0. -->
   <symbol id="mines-file-icon-csharp" viewBox="0 0 24 24">
@@ -95,6 +145,20 @@ export const MINES_PIERRE_ICONS = {
     ...Object.fromEntries(
       VIDEO_FILE_EXTENSIONS.map((extension) => [extension, "mines-file-icon-video"]),
     ),
+    pdf: "mines-file-icon-pdf",
+    doc: "mines-file-icon-word",
+    docx: "mines-file-icon-word",
+    odt: "mines-file-icon-word",
+    rtf: "mines-file-icon-word",
+    xls: "mines-file-icon-spreadsheet",
+    xlsx: "mines-file-icon-spreadsheet",
+    ods: "mines-file-icon-spreadsheet",
+    csv: "mines-file-icon-spreadsheet",
+    tsv: "mines-file-icon-spreadsheet",
+    ppt: "mines-file-icon-slides",
+    pptx: "mines-file-icon-slides",
+    odp: "mines-file-icon-slides",
+    epub: "mines-file-icon-epub",
     cs: "mines-file-icon-csharp",
     csx: "mines-file-icon-csharp",
     dart: "mines-file-icon-dart",
@@ -103,6 +167,8 @@ export const MINES_PIERRE_ICONS = {
     ex: "mines-file-icon-elixir",
     exs: "mines-file-icon-elixir",
     hs: "mines-file-icon-haskell",
+    heic: "file-tree-builtin-image",
+    heif: "file-tree-builtin-image",
     lhs: "mines-file-icon-haskell",
     java: "mines-file-icon-java",
     kt: "mines-file-icon-kotlin",
@@ -168,6 +234,8 @@ export function resolvePierreIconForEntry(
 ): PierreIconResolution | null {
   if (kind === "directory") return null;
   const icon = completeIconResolver.resolveIcon("file-tree-icon-file", pathValue);
+  if (icon?.name === "file-tree-builtin-image" && icon.token === undefined)
+    return { ...icon, token: "image" };
   return icon?.token === "default" && mimeType
     ? completeIconResolver.resolveIcon(
         "file-tree-icon-file",
@@ -176,12 +244,22 @@ export function resolvePierreIconForEntry(
     : icon;
 }
 
+export function documentIconColorForFileName(fileName: string) {
+  const icon = resolvePierreIconForEntry(fileName, "file");
+  return icon ? DOCUMENT_ICON_COLORS[icon.name] : undefined;
+}
+
 export function hasSpecificPierreIconForFileName(fileName: string): boolean {
   return resolvePierreIconForEntry(fileName, "file")?.token !== "default";
 }
 
 export function ensurePierreIconSprite(): void {
-  if (typeof document === "undefined" || document.getElementById(PIERRE_ICON_SPRITE_ID)) return;
+  if (
+    typeof document === "undefined" ||
+    !document.body ||
+    document.getElementById(PIERRE_ICON_SPRITE_ID)
+  )
+    return;
   const container = document.createElement("div");
   container.id = PIERRE_ICON_SPRITE_ID;
   container.setAttribute("aria-hidden", "true");

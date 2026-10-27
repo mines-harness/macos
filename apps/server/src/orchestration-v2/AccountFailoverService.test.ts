@@ -183,7 +183,8 @@ it.effect(
       const fixture = setup(yield* DateTime.now);
       const result = yield* AccountFailover.AccountFailoverService.pipe(
         Effect.flatMap((service) => service.recover(fixture.candidate)),
-      ).pipe(Effect.provide(fixture.layer));
+        Effect.provide(fixture.layer),
+      );
       assert.equal(result, "continued");
       assert.deepEqual(fixture.planned, ["first"]);
       assert.deepEqual(fixture.refreshed, ["source", "first"]);
@@ -202,7 +203,8 @@ it.effect("does not probe or dispatch when the provider policy is unconfirmed", 
     const fixture = setup(yield* DateTime.now, { unsupported: true });
     const result = yield* AccountFailover.AccountFailoverService.pipe(
       Effect.flatMap((service) => service.recover(fixture.candidate)),
-    ).pipe(Effect.provide(fixture.layer));
+      Effect.provide(fixture.layer),
+    );
     assert.equal(result, "not_applicable");
     assert.deepEqual(fixture.refreshed, []);
     assert.deepEqual(fixture.dispatched, []);
@@ -214,7 +216,8 @@ it.effect("rejects separate-looking paths that resolve to the same account home"
     const fixture = setup(yield* DateTime.now, { aliasHomes: true });
     const result = yield* AccountFailover.AccountFailoverService.pipe(
       Effect.flatMap((service) => service.recover(fixture.candidate)),
-    ).pipe(Effect.provide(fixture.layer));
+      Effect.provide(fixture.layer),
+    );
     assert.equal(result, "pool_exhausted");
     assert.deepEqual(fixture.dispatched, []);
   }),
@@ -225,7 +228,9 @@ it.effect("does not try another account after an unconfirmed dispatch result", (
     const fixture = setup(yield* DateTime.now, { dispatchFails: true });
     const result = yield* AccountFailover.AccountFailoverService.pipe(
       Effect.flatMap((service) => service.recover(fixture.candidate)),
-    ).pipe(Effect.provide(fixture.layer), Effect.result);
+      Effect.provide(fixture.layer),
+      Effect.result,
+    );
     assert.equal(result._tag, "Failure");
     assert.lengthOf(fixture.dispatched, 1);
     assert.deepEqual(fixture.planned, ["first"]);

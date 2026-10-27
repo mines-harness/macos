@@ -1,3 +1,5 @@
+import * as DocumentText from "../provider/DocumentText.ts";
+import * as Predicate from "effect/Predicate";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -13,6 +15,7 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Effect from "effect/Effect";
@@ -91,10 +94,9 @@ const publicEndpoint = Effect.map(Ref.get(publicRoute), (host) =>
 const layerPublicEndpoint = Layer.mock(GuestPublicEndpoint.GuestPublicEndpoint)({
   current: publicEndpoint,
   ensure: publicEndpoint.pipe(
-    Effect.flatMap((endpoint) =>
-      endpoint === null
-        ? Effect.fail(new GuestPublicEndpoint.GuestPublicEndpointError({ stage: "connection" }))
-        : Effect.succeed(endpoint),
+    Effect.filterOrFail(
+      Predicate.isNotNull,
+      () => new GuestPublicEndpoint.GuestPublicEndpointError({ stage: "connection" }),
     ),
   ),
 });
@@ -147,7 +149,7 @@ const layerTest = GuestShareService.layer.pipe(
   Layer.provide(layerPublicEndpoint),
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(layerConfig),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer))),
 );
 
 const threadId = ThreadId.make("thread:guest-share-service");

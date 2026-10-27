@@ -267,14 +267,14 @@ const make = Effect.gen(function* () {
   const get = Effect.fn("SharedGroupService.get")(function* (input: SharedGroupGetInput) {
     return yield* call(input, { type: "get" }).pipe(
       Effect.flatMap((value) => view(input, value)),
-      Effect.catch((error) =>
-        error.code === "dispatch"
-          ? Effect.succeed({
-              status: "offline" as const,
-              snapshot: null,
-              selectedThreadIds: [] as ReadonlyArray<ThreadId>,
-            })
-          : Effect.fail(error),
+      Effect.catchIf(
+        (error) => error.code === "dispatch",
+        () =>
+          Effect.succeed({
+            status: "offline" as const,
+            snapshot: null,
+            selectedThreadIds: [] as ReadonlyArray<ThreadId>,
+          }),
       ),
     );
   });

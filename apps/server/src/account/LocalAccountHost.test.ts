@@ -265,13 +265,12 @@ it.effect("revokes the temporary full grant used only for explicit device approv
 
 const decodeFrame = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const encodeFrame = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
-const RequestFrame = Schema.Struct({
-  _tag: Schema.Literal("Request"),
+const RequestFrame = Schema.TaggedStruct("Request", {
   id: Schema.Union([Schema.String, Schema.Number]),
   tag: Schema.String,
 });
 const requestFrame = Schema.decodeUnknownOption(RequestFrame);
-const pingFrame = Schema.is(Schema.Struct({ _tag: Schema.Literal("Ping") }));
+const pingFrame = Schema.is(Schema.TaggedStruct("Ping", {}));
 
 it.live("negotiates the required orchestration protocol before performing local account RPC", () =>
   Effect.gen(function* () {

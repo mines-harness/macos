@@ -326,6 +326,7 @@ describe("browser and desktop direct pairing", () => {
       return Effect.gen(function* () {
         const entered = promiseGate<void>();
         const released = promiseGate<PeerSession>();
+        // @effect-diagnostics-next-line abortControllerInEffect:off -- This signal belongs to the caller whose cancellation is under test.
         const controller = new AbortController();
         mock.connect.mockImplementationOnce(() => {
           entered.resolve(undefined);
@@ -410,6 +411,7 @@ describe("browser and desktop direct pairing", () => {
           await release.promise;
         }
       });
+      // @effect-diagnostics-next-line abortControllerInEffect:off -- This signal belongs to the caller whose cancellation is under test.
       const controller = new AbortController();
       const pairing = yield* Effect.forkChild(
         pairBrowserPeer({
@@ -444,6 +446,7 @@ describe("browser and desktop direct pairing", () => {
           await release.promise;
         }
       });
+      // @effect-diagnostics-next-line abortControllerInEffect:off -- This signal belongs to the caller whose cancellation is under test.
       const controller = new AbortController();
       const pairing = yield* Effect.forkChild(
         pairBrowserPeer({
@@ -546,6 +549,7 @@ describe("browser and desktop direct pairing", () => {
           entered.resolve(undefined);
           await release.promise;
         });
+        // @effect-diagnostics-next-line abortControllerInEffect:off -- This signal belongs to the caller whose cancellation is under test.
         const controller = new AbortController();
         const pairing = yield* Effect.forkChild(
           pairBrowserPeer({

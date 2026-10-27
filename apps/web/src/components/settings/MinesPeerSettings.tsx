@@ -1,3 +1,4 @@
+import { useNowSecond } from "../../hooks/useNowSecond";
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -35,7 +36,7 @@ import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { QRCodeSvg } from "../ui/qr-code";
-import { SettingsRow, SettingsSection, useRelativeTimeTick } from "./settingsLayout";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { PeerDeviceStatusText } from "./PeerDeviceStatusText";
 import { useAccountPeerDirectory } from "./useAccountPeerDirectory";
 import { describePeerDevice } from "./peerDeviceStatus.logic";
@@ -113,7 +114,7 @@ function PeerSettingsContent({
     readonly label: string;
   } | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
-  const nowMs = useRelativeTimeTick(15_000);
+  const nowMs = useNowSecond();
   const pairingExpired = pairing !== null && Date.parse(pairing.expiresAt) <= nowMs;
   const refresh = () => {
     trust.refresh();

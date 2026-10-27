@@ -44,20 +44,16 @@ const make = Effect.gen(function* () {
   const writeLock = yield* Semaphore.make(1);
   const resolve = Effect.fn("mines.catalog.path")(function* (accountId: string) {
     if (!/^[a-zA-Z0-9_-]{1,200}$/.test(accountId))
-      return yield* Effect.fail(
-        new MinesCatalogStoreError({ message: "Invalid account identifier." }),
-      );
+      return yield* new MinesCatalogStoreError({ message: "Invalid account identifier." });
     return path.join(directory, `${accountId}.encrypted`);
   });
   const protect = Effect.fn("mines.catalog.protect")(function* () {
     const available = yield* secure.isEncryptionAvailable;
     const backend = yield* secure.selectedStorageBackend;
     if (!available || Option.getOrNull(backend) === "basic_text") {
-      return yield* Effect.fail(
-        new MinesCatalogStoreError({
-          message: "Unlock system secure storage before saving the sidebar.",
-        }),
-      );
+      return yield* new MinesCatalogStoreError({
+        message: "Unlock system secure storage before saving the sidebar.",
+      });
     }
   });
   return DesktopMinesCatalogStore.of({
@@ -78,9 +74,7 @@ const make = Effect.gen(function* () {
       function* (accountId, snapshot, mergeCatalog = false) {
         const file = yield* resolve(accountId);
         if (snapshot.length > 16 * 1024 * 1024 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(snapshot)) {
-          return yield* Effect.fail(
-            new MinesCatalogStoreError({ message: "Invalid sidebar snapshot." }),
-          );
+          return yield* new MinesCatalogStoreError({ message: "Invalid sidebar snapshot." });
         }
         yield* protect();
         let saved = snapshot;

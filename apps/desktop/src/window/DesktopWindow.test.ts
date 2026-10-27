@@ -168,7 +168,7 @@ const layerDesktopAssets = Layer.succeed(DesktopAssets.DesktopAssets, {
     icns: Option.none<string>(),
     png: Option.none<string>(),
   }),
-  resolveResourcePath: (name) => Effect.succeed(Option.some(`/repo/resources/${name}`)),
+  resolveResourcePath: (name) => Effect.succeedSome(`/repo/resources/${name}`),
 } satisfies DesktopAssets.DesktopAssets["Service"]);
 
 const layerDesktopServerExposure = Layer.succeed(DesktopServerExposure.DesktopServerExposure, {

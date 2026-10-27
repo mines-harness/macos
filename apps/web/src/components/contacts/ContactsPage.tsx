@@ -15,7 +15,6 @@ import { useMinesAuth } from "../../cloud/MinesAuthProvider";
 import { isElectron } from "../../env";
 import { hasMinesIdentityConfig } from "../../cloud/publicConfig";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
@@ -60,7 +59,6 @@ export function ContactsPageFrame({
   readonly actions?: ReactNode;
   readonly children: ReactNode;
 }) {
-  useEscapeToGoBack();
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>

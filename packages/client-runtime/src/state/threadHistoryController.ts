@@ -59,20 +59,23 @@ export const layer: Layer.Layer<ThreadHistoryController> = Layer.effect(
   Effect.gen(function* () {
     const handlers = yield* Ref.make(new Map<string, ThreadHistoryHandler>());
     return ThreadHistoryController.of({
-      register: (environmentId, threadId, handler) =>
-        Ref.update(handlers, (current) => {
-          const next = new Map(current);
-          next.set(threadKey({ environmentId, threadId }), handler);
-          return next;
-        }).pipe(
-          Effect.as({
-            environmentId,
-            threadId,
-            handler,
-          } satisfies ThreadHistoryRegistration),
-        ),
-      unregister: (registration) =>
-        Ref.update(handlers, (current) => {
+      register: Effect.fn("ThreadHistoryController.register")(
+        function (environmentId, threadId, handler) {
+          return Ref.update(handlers, (current) => {
+            const next = new Map(current);
+            next.set(threadKey({ environmentId, threadId }), handler);
+            return next;
+          }).pipe(
+            Effect.as({
+              environmentId,
+              threadId,
+              handler,
+            } satisfies ThreadHistoryRegistration),
+          );
+        },
+      ),
+      unregister: Effect.fn("ThreadHistoryController.unregister")(function (registration) {
+        return Ref.update(handlers, (current) => {
           const key = threadKey({
             environmentId: registration.environmentId,
             threadId: registration.threadId,
@@ -85,7 +88,8 @@ export const layer: Layer.Layer<ThreadHistoryController> = Layer.effect(
           const next = new Map(current);
           next.delete(key);
           return next;
-        }),
+        });
+      }),
       loadEarlier: (environmentId, threadId, throughEntryId) =>
         Ref.get(handlers).pipe(
           Effect.flatMap((current) => {

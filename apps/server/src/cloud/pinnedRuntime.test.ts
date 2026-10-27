@@ -500,7 +500,7 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
         // Its argv names only the link, as with `mines serve` run from PATH. Removing the link after
         // spawning leaves the process's executable as the only reference.
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        yield* spawner.spawn(ChildProcess.make(link, ["30"]));
+        yield* spawner.spawn(ChildProcess.make(link, ["-e", "setTimeout(() => {}, 30_000)"]));
         yield* fs.remove(link);
 
         const removed = yield* prunePinnedRuntimes({ baseDir, keep: ["2.0.0"] }).pipe(

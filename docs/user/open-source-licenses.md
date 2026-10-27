@@ -3,7 +3,7 @@
 mines is derived from mines and includes third-party software and adapted assets. To read their license and attribution
 notices:
 
-- On web and desktop, open **Settings → General**, find **Open source licenses** under **About**,
+- On web and desktop, open **Settings → About**, find **Open source licenses** under **Legal**,
   and select **View licenses**.
 - On mobile, open **Settings → About mines → Open source licenses**.
 

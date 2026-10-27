@@ -122,23 +122,21 @@ const make = Effect.gen(function* () {
       ),
   );
   const read = Effect.fn("SharedGroupTransport.readMetadata")(function* () {
-    const identity = yield* trust.identity.pipe(Effect.mapError(unavailable));
+    const identity = yield* trust.identity;
     const key = `mines-shared-groups:${identity.device.deviceId}`;
-    const stored = yield* secrets.get(key).pipe(Effect.mapError(unavailable));
+    const stored = yield* secrets.get(key);
     const data = Option.isSome(stored)
-      ? yield* decodeMetadata(new TextDecoder().decode(stored.value)).pipe(
-          Effect.mapError(unavailable),
-        )
+      ? yield* decodeMetadata(new TextDecoder().decode(stored.value))
       : { selected: [], routes: [] };
     return { key, data };
-  });
+  }, Effect.mapError(unavailable));
   const write = Effect.fn("SharedGroupTransport.writeMetadata")(function* (
     key: string,
     data: typeof Metadata.Type,
   ) {
-    const value = yield* encodeMetadata(data).pipe(Effect.mapError(unavailable));
-    yield* secrets.set(key, new TextEncoder().encode(value)).pipe(Effect.mapError(unavailable));
-  });
+    const value = yield* encodeMetadata(data);
+    yield* secrets.set(key, new TextEncoder().encode(value));
+  }, Effect.mapError(unavailable));
   const attach = Effect.fn("SharedGroupTransport.attach")(function* (
     session: PeerSession,
     grant: SharedGroupDeviceGrant,

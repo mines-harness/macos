@@ -21,7 +21,7 @@ const Html = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512_0
 });
 
 const PAGE_RULES =
-  'Write one self-contained document with inline <style> and <script>. Local images written as absolute file paths (src="/abs/shot.png", CSS url(/abs/bg.webp), or a JS string) are inlined automatically; remote http(s) URLs, such as a CDN chart library, load as-is.';
+  "Inline <style> and <script>. Local images as absolute paths are inlined. Remote URLs load as-is.";
 
 export const HtmlPreviewTool = Tool.make("html_preview", {
   description: `Render an HTML page in mines's headless browser and get back a PNG screenshot, contentHeight (the height the page needs at this width), and its console output: log, info, warning, error, and uncaught exceptions, with stack traces pointing into page.html. console.log is a fine way to report your own checks. Use it to check and iterate on a page before html_render. The first preview on a machine can report that mines is still installing its preview browser; call again a minute later. ${PAGE_RULES} The page gets the theme variables and layout described in html_render.`,
@@ -29,12 +29,12 @@ export const HtmlPreviewTool = Tool.make("html_preview", {
     html: Html,
     width: Schema.optional(
       Schema.Int.annotate({
-        description: `Viewport width in CSS pixels, 240-1600. Defaults to ${HTML_RENDER_COLUMN_WIDTH}, the reply column; use about 390 to check phones.`,
+        description: `CSS pixels, 240 to 1600. Default ${HTML_RENDER_COLUMN_WIDTH}. Use about 390 for phones.`,
       }),
     ),
     appearance: Schema.optional(
       Schema.Literals(["dark", "light"]).annotate({
-        description: "Theme to preview. Defaults to dark.",
+        description: "Default dark.",
       }),
     ),
   }),
@@ -77,9 +77,9 @@ const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
     title: Schema.String.check(
       Schema.isMinLength(1),
       Schema.isMaxLength(HTML_RENDER_MAX_TITLE_LENGTH),
-    ).annotate({ description: "Short name for the page." }),
+    ),
     height: Schema.Int.annotate({
-      description: `The frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT}-${HTML_RENDER_MAX_HEIGHT}. Use html_preview's contentHeight. A lower height makes long content scroll inside the frame on mobile only.`,
+      description: `Frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT} to ${HTML_RENDER_MAX_HEIGHT}. Use the contentHeight from html_preview.`,
     }),
   }),
   success: Schema.Struct({

@@ -150,27 +150,31 @@ const make = Effect.gen(function* () {
     reserve,
     release,
     delivery,
-    deliveries: (threadId) =>
+    deliveries: Effect.fn("GroupPeerStore.deliveries")((threadId) =>
       sql<DeliveryRow>`SELECT * FROM mines_group_peer_deliveries WHERE thread_id = ${threadId} ORDER BY rowid DESC LIMIT 24`.pipe(
         Effect.map((rows) => rows.map(deliveryFromRow)),
         Effect.mapError(storageError),
       ),
+    ),
     start,
-    dispatched: (deliveryId, runId) =>
+    dispatched: Effect.fn("GroupPeerStore.dispatched")((deliveryId, runId) =>
       sql`UPDATE mines_group_peer_deliveries SET run_id = ${runId} WHERE delivery_id = ${deliveryId}`.pipe(
         Effect.asVoid,
         Effect.mapError(storageError),
       ),
-    cancel: (deliveryId) =>
+    ),
+    cancel: Effect.fn("GroupPeerStore.cancel")((deliveryId) =>
       sql`UPDATE mines_group_peer_deliveries SET cancelled = 1 WHERE delivery_id = ${deliveryId}`.pipe(
         Effect.asVoid,
         Effect.mapError(storageError),
       ),
-    defer: (input) =>
+    ),
+    defer: Effect.fn("GroupPeerStore.defer")((input) =>
       sql`INSERT INTO mines_group_peer_pending (id, environment_id, body, unless_active_group) VALUES (${input.id}, ${input.environmentId}, ${encodeRequest(input.request)}, ${input.unlessActiveGroup ? 1 : 0}) ON CONFLICT(id) DO NOTHING`.pipe(
         Effect.asVoid,
         Effect.mapError(storageError),
       ),
+    ),
     pending: sql<{
       id: string;
       environment_id: string;
@@ -187,11 +191,12 @@ const make = Effect.gen(function* () {
       ),
       Effect.mapError(storageError),
     ),
-    acknowledge: (id) =>
+    acknowledge: Effect.fn("GroupPeerStore.acknowledge")((id) =>
       sql`DELETE FROM mines_group_peer_pending WHERE id = ${id}`.pipe(
         Effect.asVoid,
         Effect.mapError(storageError),
       ),
+    ),
   });
 });
 

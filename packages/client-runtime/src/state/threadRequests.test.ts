@@ -17,8 +17,14 @@ import {
   derivePendingThreadRequests,
   declinePendingApprovals,
   sendApprovalFeedback,
+  makeThreadRequestsResolvedAnnouncer,
+  onThreadRequestsResolved,
+  pruneResolvedUserInputDrafts,
+  resolvedQuestionDraftKeys,
   seedUserInputDraftAnswers,
+  userInputDraftKey,
   type ApprovalResponder,
+  type ThreadRequestsResolved,
   type ThreadPendingApproval,
 } from "./threadRequests.ts";
 

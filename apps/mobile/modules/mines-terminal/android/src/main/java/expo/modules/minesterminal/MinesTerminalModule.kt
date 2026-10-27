@@ -11,9 +11,14 @@ class MinesTerminalModule : Module() {
     // logs so a stale native binary is distinguishable from a broken key pipeline.
     Constants(
       "hardwareKeyRevision" to 2,
+      "outputRevision" to 1,
     )
 
     View(MinesTerminalView::class) {
+      AsyncFunction("writeOutput") { view: MinesTerminalView, data: String, reset: Boolean ->
+        view.writeOutput(data, reset)
+      }
+
       Prop("terminalKey") { view: MinesTerminalView, terminalKey: String ->
         view.terminalKey = terminalKey
       }

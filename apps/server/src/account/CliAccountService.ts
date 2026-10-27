@@ -102,19 +102,15 @@ export const layer = Layer.effect(
     const secrets = yield* ServerSecretStore.ServerSecretStore;
     const host = yield* LocalAccountHost.LocalAccountHost;
     const read = Effect.fn("CliAccountService.read")(function* () {
-      const bytes = yield* secrets.get(credentialName).pipe(Effect.mapError(storageError));
+      const bytes = yield* secrets.get(credentialName);
       if (Option.isNone(bytes)) return Option.none<SavedAccount>();
-      const saved = yield* decodeSavedAccount(new TextDecoder().decode(bytes.value)).pipe(
-        Effect.mapError(storageError),
-      );
+      const saved = yield* decodeSavedAccount(new TextDecoder().decode(bytes.value));
       return saved.origin === control.origin ? Option.some(saved) : Option.none<SavedAccount>();
-    });
+    }, Effect.mapError(storageError));
     const save = Effect.fn("CliAccountService.save")(function* (saved: SavedAccount) {
-      const json = yield* encodeSavedAccount(saved).pipe(Effect.mapError(storageError));
-      yield* secrets
-        .set(credentialName, new TextEncoder().encode(json))
-        .pipe(Effect.mapError(storageError));
-    });
+      const json = yield* encodeSavedAccount(saved);
+      yield* secrets.set(credentialName, new TextEncoder().encode(json));
+    }, Effect.mapError(storageError));
     const clear = secrets.remove(credentialName).pipe(Effect.mapError(storageError));
     const savedSession = Effect.fn("CliAccountService.savedSession")(function* () {
       const saved = yield* read();
@@ -251,7 +247,7 @@ export const layer = Layer.effect(
         Option.isNone(cached) ||
         (yield* control.signOut(Redacted.make(cached.value.token)).pipe(
           Effect.as(true),
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.orElseSucceed(() => false),
         ));
       return { hostDisconnected, sessionRevoked, hostUnchanged };
     });

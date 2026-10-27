@@ -832,13 +832,25 @@ const make = Effect.gen(function* () {
   );
   return MineTransferService.of({
     preflight,
-    prepare: (input) => locks.withLock(input.transferId, prepare(input)),
+    prepare: Effect.fn("MineTransferService.prepare")((input) =>
+      locks.withLock(input.transferId, prepare(input)),
+    ),
     readChunk,
-    begin: (input) => locks.withLock(input.manifest.transferId, begin(input)),
-    writeChunk: (input) => locks.withLock(input.transferId, writeChunk(input)),
-    accept: (input) => locks.withLock(input.transferId, accept(input)),
-    finalize: (input) => locks.withLock(input.transferId, finalize(input)),
-    cancel: (input) => locks.withLock(input.transferId, cancel(input)),
+    begin: Effect.fn("MineTransferService.begin")((input) =>
+      locks.withLock(input.manifest.transferId, begin(input)),
+    ),
+    writeChunk: Effect.fn("MineTransferService.writeChunk")((input) =>
+      locks.withLock(input.transferId, writeChunk(input)),
+    ),
+    accept: Effect.fn("MineTransferService.accept")((input) =>
+      locks.withLock(input.transferId, accept(input)),
+    ),
+    finalize: Effect.fn("MineTransferService.finalize")((input) =>
+      locks.withLock(input.transferId, finalize(input)),
+    ),
+    cancel: Effect.fn("MineTransferService.cancel")((input) =>
+      locks.withLock(input.transferId, cancel(input)),
+    ),
     get,
   });
 });

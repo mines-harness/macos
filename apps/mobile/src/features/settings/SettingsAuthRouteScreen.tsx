@@ -14,6 +14,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 
 type FormMode = "sign-in" | "sign-up" | "reset";
 
+// Without cloud config the app has no entry point here and appLinking drops the deep link.
 export function SettingsAuthRouteScreen() {
   return hasMinesIdentityConfig() ? <ConfiguredSettingsAuthRouteScreen /> : null;
 }

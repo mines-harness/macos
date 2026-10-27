@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createHashHistory, createBrowserHistory } from "@tanstack/react-router";
 
+import "@fontsource-variable/inter";
 import "./index.css";
 
-import { prepareProviderAuthDelivery } from "./providerAuthDelivery";
+import { startAppServices } from "./appInit";
 import { isElectron } from "./env";
 import { hasMinesIdentityConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
@@ -15,17 +15,7 @@ import {
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
 
-prepareProviderAuthDelivery();
-
-// Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
-const history = isElectron ? createHashHistory() : createBrowserHistory();
-
-const router = getRouter(history);
-
-if (isElectron) {
-  syncDocumentElectronPlatformClasses(navigator.platform);
-  syncDocumentWindowControlsOverlayClass();
-}
+const router = startAppServices();
 
 let chunkLoadFailed = false;
 let reloadScheduled = false;

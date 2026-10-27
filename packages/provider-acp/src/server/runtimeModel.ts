@@ -294,6 +294,13 @@ export type AcpParsedSessionEvent =
       readonly rawPayload: unknown;
     }
   | {
+      readonly _tag: "NoticeReceived";
+      readonly severity: string;
+      readonly title: string;
+      readonly description?: string;
+      readonly rawPayload: unknown;
+    }
+  | {
       readonly _tag: "UnknownUpdate";
       readonly updateType: string;
       readonly rawPayload: unknown;

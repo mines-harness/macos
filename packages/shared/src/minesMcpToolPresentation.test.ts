@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   MINES_MCP_TOOL_NAMES,
+  resolveMinesMcpSummaryAction,
+  resolveMinesMcpToolDefinition,
   resolveMinesMcpToolPresentation,
 } from "./minesMcpToolPresentation.ts";
 
@@ -32,10 +34,6 @@ describe("resolveMinesMcpToolPresentation", () => {
   });
 
   it("matches OpenCode 2's per-thread server names, whose thread ids hold underscores", () => {
-    expect(resolveMinesMcpToolPresentation("mcp__t3-code__t3_thread_read")).toEqual({
-      displayName: "Read a mine",
-      logo: "mines",
-    });
     expect(
       resolveMinesMcpToolPresentation("t3-code-thread_opencode2-adapter_delegate_task")
         ?.displayName,
@@ -43,5 +41,36 @@ describe("resolveMinesMcpToolPresentation", () => {
     expect(
       resolveMinesMcpToolPresentation("t3-code-thread_opencode2-adapter_not_a_tool"),
     ).toBeNull();
+  });
+});
+
+describe("resolveMinesMcpToolDefinition", () => {
+  it("labels an action tool call as the action it ran", () => {
+    expect(
+      resolveMinesMcpToolDefinition("mcp__t3-code__preview_act", { action: "type" })?.labels,
+    ).toEqual(resolveMinesMcpToolDefinition("preview_type")?.labels);
+    expect(
+      resolveMinesMcpToolDefinition("t3_thread_transfer", { action: "fork" })?.displayName,
+    ).toBe(resolveMinesMcpToolDefinition("t3_thread_fork")?.displayName);
+    expect(resolveMinesMcpToolDefinition("preview_act", { action: "unknown" })?.labels[2]).toBe(
+      "Used",
+    );
+  });
+});
+
+describe("resolveMinesMcpSummaryAction", () => {
+  it("summarizes an action tool by the action each call ran", () => {
+    expect(resolveMinesMcpSummaryAction("mcp__t3-code__t3_queue", { action: "list" })).toBe(
+      "queue-list",
+    );
+    expect(resolveMinesMcpSummaryAction("t3_queue", { action: "edit" })).toBe("queue-edit");
+    expect(resolveMinesMcpSummaryAction("t3_thread_transfer", { action: "status" })).toBe(
+      "thread-transfers",
+    );
+    expect(resolveMinesMcpSummaryAction("t3_thread_configure", {})).toBe("thread-configuration");
+    expect(resolveMinesMcpSummaryAction("schedule_task", { scheduledTaskId: "task-1" })).toBe(
+      "schedule-update",
+    );
+    expect(resolveMinesMcpSummaryAction("delegate_task", { task: "x" })).toBe("delegate");
   });
 });

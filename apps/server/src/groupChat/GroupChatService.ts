@@ -214,7 +214,7 @@ const make = Effect.gen(function* () {
               truncated: text.length > 32_000,
             },
           ];
-        }).pipe(Effect.catch(() => Effect.succeed([]))),
+        }).pipe(Effect.orElseSucceed(() => [])),
       { concurrency: 4 },
     );
     const live = liveMessages.flat();
@@ -1342,10 +1342,9 @@ const make = Effect.gen(function* () {
             request,
             unlessActiveGroup: false,
           });
-          yield* remote.request(member.environmentId, request).pipe(
-            Effect.andThen(peers.acknowledge(id)),
-            Effect.catch(() => Effect.void),
-          );
+          yield* remote
+            .request(member.environmentId, request)
+            .pipe(Effect.andThen(peers.acknowledge(id)), Effect.ignore);
           continue;
         }
         if (!delivery.runId) continue;
@@ -1365,7 +1364,7 @@ const make = Effect.gen(function* () {
             commandId: CommandId.make(`group-stop:${delivery.id}`),
             reason: "Group discussion stopped by the user.",
           })
-          .pipe(Effect.catch(() => Effect.void));
+          .pipe(Effect.ignore);
       }
     return yield* store.get(input.groupId);
   });
@@ -1820,7 +1819,7 @@ const make = Effect.gen(function* () {
                     memberId: peerMember.memberId,
                     threadId: peerMember.threadId,
                   })
-                  .pipe(Effect.catch(() => Effect.void)),
+                  .pipe(Effect.ignore),
               );
           }
         }),

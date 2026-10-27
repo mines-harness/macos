@@ -10,6 +10,7 @@ public final class MinesNativeControlsModule: Module {
   private var filePresentation: MinesNativeFilePresentation?
 
   public func definition() -> ModuleDefinition {
+    Events("videoPlaybackChange")
     Constants {
       if #available(iOS 26.0, *) {
         return [

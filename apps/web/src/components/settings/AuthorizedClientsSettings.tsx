@@ -1,3 +1,4 @@
+import { useNowSecond } from "../../hooks/useNowSecond";
 import { useState } from "react";
 import { AuthAccessReadScope, AuthAccessWriteScope } from "@t3tools/contracts";
 import {
@@ -20,7 +21,7 @@ import {
   toDesktopPairingLinkRecord,
 } from "./ConnectionsSettings.logic";
 import { Button } from "../ui/button";
-import { SettingsRow, SettingsSection, useRelativeTimeTick } from "./settingsLayout";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 /** Session grants are separate from trusted peer keys; both can be revoked. */
 export function AuthorizedClientsSettings() {
@@ -35,7 +36,7 @@ export function AuthorizedClientsSettings() {
   const snapshot = access.data?.type === "snapshot" ? access.data.payload : null;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const now = useRelativeTimeTick(10_000);
+  const now = useNowSecond();
   if (environmentId === null || !canRead) return null;
   const sessions = sortDesktopClientSessions(
     (snapshot?.clientSessions ?? []).map(toDesktopClientSessionRecord),

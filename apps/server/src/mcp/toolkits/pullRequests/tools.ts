@@ -49,13 +49,12 @@ export const PullRequestTargetInput = Schema.Struct({
   ),
   repository: Schema.optional(
     TrimmedNonEmptyString.annotate({
-      description:
-        "Repository path below the host, for example owner/repo. Required with number when url is omitted.",
+      description: "With `number`, when no `url`.",
     }),
   ),
   number: Schema.optional(
     PositiveInt.annotate({
-      description: "Pull request number. Required with repository when url is omitted.",
+      description: "With `repository`, when no `url`.",
     }),
   ),
   host: Schema.optional(
@@ -220,6 +219,10 @@ const PullRequestIdentity = {
   url: Schema.String,
 };
 
+/** A delegated child's report is how its parent learns the PR, so the link result asks for it. */
+export const CHILD_PULL_REQUEST_REPORT_NEXT =
+  "End your reply with: PR <full URL>, head <SHA>, checks and reviews <state>.";
+
 export const LinkPullRequestResult = Schema.Struct({
   ...PullRequestIdentity,
   alreadyLinked: Schema.Boolean.annotate({
@@ -365,8 +368,7 @@ const GuideTarget = Schema.Struct({
 const GuideOutcome = Schema.Struct({
   ...PullRequestIdentity,
   outcome: Schema.Literals(["started", "running", "failed"]).annotate({
-    description:
-      "started: a run began. running: one was already going for this head and the call joined it. failed: this pull request could not be guided; see detail.",
+    description: "started: a run began. running: joined a run for this head. failed: see detail.",
   }),
   detail: Schema.NullOr(Schema.String),
 });
@@ -382,15 +384,14 @@ export const ReadPullRequestGuideResult = Schema.Struct({
   run: Schema.NullOr(PullRequestReviewGuideRun),
   currentHeadSha: Schema.NullOr(Schema.String),
   stale: Schema.Boolean.annotate({
-    description:
-      "True when the guide was written for an earlier head than the pull request has now.",
+    description: "True when the PR head moved after the guide was written.",
   }),
 });
 export type ReadPullRequestGuideResult = typeof ReadPullRequestGuideResult.Type;
 
 const WritePullRequestGuidesTool = Tool.make("write_pull_request_guides", {
   description:
-    "Write review guides for up to 20 pull requests, the tour a maintainer reads in a pull request's Guide tab. Each run reads its change in a temporary checkout and takes minutes, so this returns once the runs are under way; read a guide with read_pull_request_guide to see when it is written. A guide for the same head that is already running is joined, not restarted; a pull request whose guide is current is written again. Each pull request is read through the project in this environment whose checkout has that repository. Fails while review guides are off on this server.",
+    "Write review guides for up to 20 PRs (the tour in the PR Guide tab). Returns once runs start. Each run takes minutes in a temporary checkout. A run for the same head is joined. Read with `read_pull_request_guide`. Fails while guides are off.",
   parameters: Schema.Struct({
     pullRequests: Schema.Array(GuideTarget).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
   }),
@@ -406,7 +407,7 @@ const WritePullRequestGuidesTool = Tool.make("write_pull_request_guides", {
 
 const ReadPullRequestGuideTool = Tool.make("read_pull_request_guide", {
   description:
-    "Read a pull request's stored review guide and its run: run.Running while one is being written, run.Failed with the reason when the last one failed, guide null when none was written. stale is true after a push the guide has not caught up with. Never starts a run.",
+    "Read a PR's stored review guide and run state. `guide` is null when none exists. Never starts a run.",
   parameters: GuideTarget,
   success: ReadPullRequestGuideResult,
   failure: PullRequestToolError,

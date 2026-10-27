@@ -19,21 +19,9 @@ import { useConnectionController } from "../connection/useConnectionController";
 import { optOutOfConnectOnboarding } from "./connectOnboardingOptOut";
 import { hasCloudPublicConfig } from "./publicConfig";
 
+// Only reachable with cloud config: onboarding is requested after a T3 Connect
+// sign-in, and appLinking drops the deep link otherwise.
 export function ConnectOnboardingRouteScreen() {
-  const navigation = useNavigation();
-
-  // Without cloud config, deep links must exit to avoid an empty, undismissable sheet.
-  useEffect(() => {
-    if (hasCloudPublicConfig()) {
-      return;
-    }
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.dispatch(StackActions.replace("Home"));
-    }
-  }, [navigation]);
-
   return hasCloudPublicConfig() ? <ConfiguredConnectOnboardingRouteScreen /> : null;
 }
 

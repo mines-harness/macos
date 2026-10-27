@@ -22,7 +22,7 @@ Choose **Float device over mine** in the toolbar to keep watching and tapping th
 device in a small window while the right panel shows something else; drag the
 window by its handle, resize it from any edge, and use **Open in right panel**
 to bring it back.
-Turn off the device hub in **Settings → Integrations → Devices** to stop the
+Turn off the device hub in **Settings → Devices** to stop the
 helper processes; simulators and emulators keep running until you power them
 off.
 
@@ -83,7 +83,7 @@ once per server. Restart an existing agent session after granting access so it
 receives the device CLI environment.
 
 To keep agents away from simulators, turn off **Agent device access** in
-**Settings → Integrations → Devices**. This hides the device tools from agents
+**Settings → Devices**. This hides the device tools from agents
 started from then on; your own Device panel is unaffected.
 
 ## Remote connections
@@ -98,7 +98,7 @@ still-image stream and Android cannot show video.
 
 ## SSH device hosts
 
-In Settings → Integrations → Devices, choose the environments that should use
+In Settings → Devices, choose the environments that should use
 the host and add it under **Device hosts**. Enter an SSH alias or `user@host`, with
 an optional identity file and port. These resolve on the environment server,
 so use the SSH configuration and keys available there. Password prompts are

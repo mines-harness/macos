@@ -249,7 +249,7 @@ it.effect("provider auth deep links navigate and reveal the running desktop", ()
       }),
   } as unknown as ElectronApp.ElectronApp["Service"];
   const electronWindow = {
-    currentMainOrFirst: Effect.succeed(Option.some(window)),
+    currentMainOrFirst: Effect.succeedSome(window),
     reveal: () => Effect.sync(() => revealed.resolve()),
   } as unknown as ElectronWindow.ElectronWindow["Service"];
   return Effect.gen(function* () {

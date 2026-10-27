@@ -48,7 +48,7 @@ and other phone-only settings ignore the filter.
 
 ## Worktree branch names
 
-In **Settings → Source Control → Worktree branch naming**, choose a static prefix,
+In **Settings → Worktrees → Worktree branch naming**, choose a static prefix,
 a model-selected semantic prefix such as `feat/` or `fix/`, or custom instructions
 for the complete name. The static prefix defaults to `t3/`; a trailing slash is
 optional, and an empty prefix adds nothing. Invalid characters in a static prefix
@@ -150,7 +150,7 @@ access. Source Control contains automatic pull, the default pull request merge m
 generation. The same rows edit environment defaults or project overrides depending on the
 project crumb.
 
-The Project category, shown while a project is selected, holds the project's name, icon, actions,
+The Projects category, under Code, holds the project's name, icon, actions,
 checkouts and removal. Actions belong to a project: editing them creates the project's own list
 on each selected environment, and reset returns to the environment's shared list. A project's
 `mines.json` actions can be imported there.
@@ -161,7 +161,7 @@ built-in default. Leave a setting on **Inherit** to let the next tier decide.
 Browser access changes apply when an agent session next starts.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
-declares many nested submodules, set **Submodules** in **Settings → General** (with the project
+declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the project
 selected to override it there) to **Top level only** to stop at the ones the repository declares
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `mines.json` of the branch being checked out
@@ -176,7 +176,7 @@ are, and cleanup covers both the default folder and the custom one.
 
 ## Storage cleanup
 
-Open **Settings → Storage** to enable automatic cleanup on one machine or all connected
+Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one machine or all connected
 environments. Policies are off by default and run on the server at startup, when changed, and
 hourly. Offline machines keep their existing policies.
 
@@ -223,7 +223,7 @@ from the icon palette, derived from the saved project name. For example, `Nebula
 
 ## Keep the default branch current
 
-In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date
+In Source control, enable **Automatically pull** to keep the default-branch checkout up to date
 with its configured upstream. Choose an environment to set the default or a project to override it.
 On mobile, use **Settings → Source control** to change selected environment defaults or project overrides.
 

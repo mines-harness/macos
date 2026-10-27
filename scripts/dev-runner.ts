@@ -41,8 +41,7 @@ const FETCH_BAD_PORTS = new Set([
 ]);
 // Dev binds loopback; other interfaces cannot establish port availability.
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "::1"] as const;
-// A pruned migrate-dev-db copy is tens of MB; some worktrees hold a full copy
-// of the live database instead.
+// Migration prunes after copying, so large sources also need an automatic-seeding limit.
 const LARGE_DEV_DATABASE_BYTES = 500 * 1024 * 1024;
 
 /** Only loopback and wildcard binds keep the loopback proxy target reachable. */
@@ -603,7 +602,7 @@ const runRepoScript = Effect.fn("dev-runner.runRepoScript")(function* (
 });
 
 /**
- * The first start in a worktree seeds its empty database from the live install
+ * The first start in a worktree seeds its empty database from a small live database
  * and warms the web dependency cache. Each step checks for its own output, so
  * later starts skip it.
  */
@@ -639,8 +638,7 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
     if (
       input.seed &&
       !(yield* exists(path.join(stateDir, "statev2.sqlite"))) &&
-      !(yield* exists(path.join(stateDir, "state.sqlite"))) &&
-      (yield* exists(source))
+      !(yield* exists(path.join(stateDir, "state.sqlite")))
     ) {
       yield* Effect.logInfo(
         `[dev-runner] seeding ${input.worktreeHome} from ${source} (read-only). Seeding requires explicit --seed.`,

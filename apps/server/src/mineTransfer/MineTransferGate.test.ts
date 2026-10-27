@@ -14,9 +14,9 @@ it.layer(NodeServices.layer)("MineTransferGate", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const baseDir = yield* fs.makeTempDirectoryScoped();
-      const config = yield* Effect.gen(function* () {
-        return yield* ServerConfig.ServerConfig;
-      }).pipe(Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)));
+      const config = yield* ServerConfig.ServerConfig.pipe(
+        Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+      );
       const build = Effect.fn("test.buildTransferGate")(function* () {
         return Context.get(
           yield* Layer.build(
@@ -47,9 +47,9 @@ it.layer(NodeServices.layer)("MineTransferGate", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const baseDir = yield* fs.makeTempDirectoryScoped();
-      const config = yield* Effect.gen(function* () {
-        return yield* ServerConfig.ServerConfig;
-      }).pipe(Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)));
+      const config = yield* ServerConfig.ServerConfig.pipe(
+        Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+      );
       const gate = Context.get(
         yield* Layer.build(MineTransferGate.layer.pipe(Layer.provide(ServerConfig.layer(config)))),
         MineTransferGate.MineTransferGate,

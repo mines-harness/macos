@@ -31,7 +31,7 @@ it.effect(
           getEnvironmentId: Effect.succeed(environmentId),
         }),
         Layer.mock(ServerSecretStore.ServerSecretStore)({
-          get: () => Effect.succeed(Option.none()),
+          get: () => Effect.succeedNone,
           set: () => Effect.void,
         }),
         Layer.mock(HostCatalogService.HostCatalogService)({

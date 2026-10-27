@@ -311,7 +311,7 @@ const makeFixture = Effect.fn("MineTransferService.test.makeFixture")(function* 
           return { ...project, id: input.projectId, workspaceRoot: input.workspaceRoot };
         }),
     }),
-    Layer.mock(GroupStore.GroupStore)({ membership: () => Effect.succeed(undefined) }),
+    Layer.mock(GroupStore.GroupStore)({ membership: () => Effect.sync(() => undefined) }),
     Layer.mock(WorkspaceTransfer.WorkspaceTransfer)({
       prepare: () =>
         Effect.gen(function* () {

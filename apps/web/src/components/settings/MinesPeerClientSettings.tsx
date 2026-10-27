@@ -1,3 +1,4 @@
+import { useNowSecond } from "../../hooks/useNowSecond";
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
 import { AsyncResult } from "effect/reactivity";
 import { useEffect, useEffectEvent, useState } from "react";
@@ -17,7 +18,7 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useMinesAuthPrompt } from "../clerk/useMinesAuthPrompt";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { SettingsRow, SettingsSection, useRelativeTimeTick } from "./settingsLayout";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { peerClientConnectionStatus } from "./peerClientStatus.logic";
 
@@ -50,7 +51,7 @@ function PeerClientAccountContent() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState<EnvironmentId | null>(null);
-  const nowMs = useRelativeTimeTick(15_000);
+  const nowMs = useNowSecond();
   const loadAccount = useEffectEvent((accountId: string, active: () => boolean) => {
     void approval(accountId).then((result) => {
       if (!active()) return;

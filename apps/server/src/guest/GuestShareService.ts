@@ -1,3 +1,4 @@
+import * as DocumentText from "../provider/DocumentText.ts";
 import {
   type ChatAttachment,
   ChatAttachmentId,
@@ -263,6 +264,7 @@ const guestVisibleEvent = (event: OrchestrationV2DomainEvent): OrchestrationV2Do
 const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const threads = yield* ThreadManagementService.ThreadManagementService;
+  const documentText = yield* DocumentText.DocumentText;
   const commandOutputs = yield* CommandOutputHub.CommandOutputHub;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -616,6 +618,7 @@ const make = Effect.gen(function* () {
       }).pipe(
         Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
         Effect.provideService(ServerConfig.ServerConfig, config),
+        Effect.provideService(DocumentText.DocumentText, documentText),
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.mapError(() => new GuestShareAccessError({ reason: "rejected" })),
       );

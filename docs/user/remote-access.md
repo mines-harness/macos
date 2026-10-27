@@ -134,7 +134,7 @@ Mobile keeps its manual environment selection.
 ### Tailscale HTTPS
 
 Join both devices to the same tailnet. In the desktop app, enable **Tailscale
-HTTPS** in **Settings → Connections**. Turn it off there to remove that route.
+HTTPS** in **Settings → Sharing & access**. Turn it off there to remove that route.
 
 To start a command-line server with Tailscale HTTPS:
 
@@ -261,7 +261,7 @@ mines on an environment through its MCP server. See
 
 ## Manage or revoke access
 
-On the host, **Settings → Connections** lets authorized administrators create
+On the host, **Settings → Sharing & access** lets authorized administrators create
 pairing links and revoke client sessions. Revoking an unused link prevents new
 pairings; revoke a device's session to remove its existing access. Command-line
 management is available through `mines auth --help`.
