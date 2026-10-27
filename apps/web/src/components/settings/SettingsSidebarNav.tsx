@@ -27,6 +27,7 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
+import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import {

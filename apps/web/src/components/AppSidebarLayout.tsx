@@ -369,7 +369,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onMenuAction((action) => {
-      if (action === "new-thread" && isOnSettings) {
+      if (action === "new-thread" && appModalOpen) {
         openCommandPalette({ open: "new-thread-in" });
         return;
       }
@@ -384,7 +384,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     return () => {
       unsubscribe?.();
     };
-  }, [navigate, pathname, isOnSettings]);
+  }, [navigate, pathname, appModalOpen]);
 
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
@@ -400,7 +400,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           collapsible="offcanvas"
           data-app-sidebar=""
           role="navigation"
-          aria-label={isOnSettings ? "Settings" : "Mines"}
+          aria-label="Mines"
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: sidebarMinimumWidth,

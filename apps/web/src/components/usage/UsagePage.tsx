@@ -178,7 +178,6 @@ function UsageModelDialogHost({
 export function UsagePage() {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
   const appActivity = useAppActivity();
-  useEscapeToGoBack();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const hour12 = usePrimarySettings((settings) => resolveHour12(settings.timestampFormat));
   const shortcutTitle = (
