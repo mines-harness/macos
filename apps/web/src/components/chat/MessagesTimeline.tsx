@@ -756,6 +756,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
   const [findListReady, setFindListReady] = useState(false);
   const handleListLoad = () => {
+    setPositionedThreadKey(null);
     onCitationListLoad();
     setFindListReady(true);
   };
