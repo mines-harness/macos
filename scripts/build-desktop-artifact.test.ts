@@ -28,6 +28,7 @@ import {
   parseWslRuntimeArchiveMembers,
   readWorkspaceConfig,
   createBuildConfig,
+  validateMacPackagedApp,
   DESKTOP_FILE_EXCLUSIONS,
   InvalidAppleTeamIdError,
   UnsupportedDesktopBuildArchitectureError,
@@ -486,6 +487,75 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       );
       assert.match(config.productName as string, /^mines/);
       assert.equal(config.artifactName, "mines-${version}-${arch}.${ext}");
+    }),
+  );
+
+  it.effect("seals local macOS bundles with an ad-hoc signature", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const mac = config.mac as Record<string, unknown>;
+      assert.equal(mac.identity, "-");
+      assert.equal(mac.hardenedRuntime, false);
+      assert.equal(mac.notarize, false);
+    }),
+  );
+
+  it.effect.each(["codesign", "xcrun", "spctl"])(
+    "rejects macOS artifacts when %s rejects the app",
+    (failedCommand) => {
+      const commands: string[] = [];
+      const spawner = ChildProcessSpawner.make((command) => {
+        const executable = (command as unknown as { command: string }).command;
+        commands.push(executable);
+        return Effect.succeed(mockProcess(executable === failedCommand ? 1 : 0));
+      });
+      return Effect.gen(function* () {
+        const error = yield* validateMacPackagedApp("/build/mines (Beta).app", true, false).pipe(
+          Effect.flip,
+        );
+        assert.instanceOf(error, BuildCommandFailedError);
+        assert.equal(commands.at(-1), failedCommand);
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+    },
+  );
+
+  it.effect("checks local macOS integrity without requiring a notarization ticket", () => {
+    const commands: string[] = [];
+    const spawner = ChildProcessSpawner.make((command) => {
+      commands.push((command as unknown as { command: string }).command);
+      return Effect.succeed(mockProcess(0));
+    });
+    return Effect.gen(function* () {
+      yield* validateMacPackagedApp("/build/mines (Beta).app", false, false);
+      assert.deepStrictEqual(commands, ["codesign"]);
+    }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+  });
+
+  it.effect("requires signing and notarization for signed macOS artifacts", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        undefined,
+      );
+      const mac = config.mac as Record<string, unknown>;
+      assert.equal(config.forceCodeSigning, true);
+      assert.equal(mac.notarize, true);
+      assert.equal(mac.hardenedRuntime, true);
+      assert.equal(mac.type, "distribution");
+      assert.notProperty(mac, "identity");
     }),
   );
 

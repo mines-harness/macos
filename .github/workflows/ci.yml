@@ -107,7 +107,7 @@ jobs:
         run: vp run --filter @t3tools/source-control-github generate --check
 
       - name: Check generated Expo GraphQL operations
-        run: vp run --filter t3 generate --check
+        run: vp run --filter mines generate --check
 
       - name: Check
         run: vp check
@@ -282,7 +282,7 @@ jobs:
         env:
           TEST_PACKAGES: ${{ needs.changes.outputs.test_packages }}
         run: |
-          filters=(--filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web')
+          filters=(--filter '!mines' --filter '!@t3tools/monorepo' --filter '!@t3tools/web')
           if [[ -n "$TEST_PACKAGES" ]]; then
             filters=()
             for package in $TEST_PACKAGES; do filters+=(--filter "$package"); done
@@ -420,7 +420,7 @@ jobs:
         env:
           MINES_TRANSFER_BUDGET_REPORT_PATH: ${{ runner.temp }}/t3code-transfer-budget.md
           MINES_TRANSFER_BUDGET_RESULT_PATH: ${{ runner.temp }}/thread-transfer-result.json
-        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: vp run --filter mines test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
       # integration/transferBudgetV2.integration.test.ts writes the report; exactly one shard
       # produces these files. Gating the upload on their presence keeps a

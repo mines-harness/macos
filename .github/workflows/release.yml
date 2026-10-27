@@ -293,7 +293,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!mines' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
 
   # Web browser tests time out when they share a runner with the other package
   # suites: Chromium gets too little CPU and diff workers miss their 10s start budget.
@@ -377,7 +377,7 @@ jobs:
         run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
 
       - name: Test
-        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: vp run --filter mines test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   relay_public_config:
     name: Resolve T3 Connect public config
@@ -535,7 +535,7 @@ jobs:
       - name: Install bundle dependencies
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
-        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+        run: vp install --filter=mines... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
 
       - name: Download relay client tracing config
         uses: actions/download-artifact@v8
@@ -976,7 +976,7 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=t3...
+              - --filter=mines...
               - --filter=@t3tools/scripts...
 
       - name: Build the npm launcher

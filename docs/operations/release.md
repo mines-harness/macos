@@ -551,8 +551,10 @@ risk, manually dispatch `channel=nightly`; this still publishes a real nightly n
 prerelease, desktop updater release, hosted nightly alias, and marketing site, but it does not update stable app aliases or
 commit a version bump to `main`. Only run it when a real nightly release is acceptable.
 
-Manual `channel=stable` is also a real stable-channel release. Omitting signing secrets only makes
-platform artifacts unsigned; it does not prevent publication.
+Manual `channel=stable` is also a real stable-channel release. macOS desktop builds require Apple
+signing and notarization credentials and fail before artifact upload if signature verification,
+the stapled notarization ticket, or Gatekeeper assessment fails. Missing Windows signing secrets
+still produce unsigned Windows artifacts.
 
 ## 2) Apple signing + notarization setup (macOS)
 
@@ -578,7 +580,7 @@ Checklist:
 
 1. Apple Developer account access:
    - Team has rights to create Developer ID certificates.
-2. Create an explicit App ID for `com.t3tools.t3code` and enable Associated Domains.
+2. Create an explicit App ID for `app.mines.desktop` and enable Associated Domains.
 3. Create a `Developer ID Application` certificate and a compatible provisioning profile for that
    App ID with Associated Domains enabled.
 4. Export the certificate + private key as `.p12` from Keychain.
@@ -658,10 +660,11 @@ Checklist:
 
 - macOS build unsigned when expected signed:
   - Check all Apple secrets plus `APPLE_TEAM_ID` are populated and non-empty.
-  - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.com.t3tools.t3code` and includes
+  - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.app.mines.desktop` and includes
     Associated Domains.
 - Windows build unsigned when expected signed:
   - Check all Azure ATS and auth secrets are populated and non-empty.
 - Build fails with signing error:
-  - Retry with secrets removed to confirm unsigned path still works.
+  - Use a local build without `--signed` to check the development packaging path. Its ad-hoc
+    signature seals the bundle but does not provide Developer ID trust or notarization.
   - Re-check certificate/profile names and tenant/client credentials.

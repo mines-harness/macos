@@ -1577,6 +1577,30 @@ export class DesktopBuildAlreadyRunningError extends Schema.TaggedError<DesktopB
   }
 }
 
+export const validateMacPackagedApp = Effect.fn("validateMacPackagedApp")(function* (
+  appPath: string,
+  signed: boolean,
+  verbose: boolean,
+) {
+  yield* runCommand(
+    ChildProcess.make("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]),
+    { label: "codesign (packaged app integrity)", verbose },
+  );
+  if (signed) {
+    yield* runCommand(ChildProcess.make("xcrun", ["stapler", "validate", appPath]), {
+      label: "stapler (packaged app notarization)",
+      verbose,
+    });
+    yield* runCommand(
+      ChildProcess.make("spctl", ["--assess", "--type", "execute", "--verbose=2", appPath]),
+      {
+        label: "spctl (packaged app Gatekeeper assessment)",
+        verbose,
+      },
+    );
+  }
+});
+
 const withDesktopBuildLock = Effect.fn("withDesktopBuildLock")(function* <A, E, R>(
   repoRoot: string,
   build: Effect.Effect<A, E, R>,
@@ -2601,7 +2625,13 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
+    buildConfig.forceCodeSigning = signed;
     buildConfig.mac = {
+      type: "distribution",
+      hardenedRuntime: signed,
+      notarize: signed,
+      // Disabling discovery otherwise leaves Electron's linker signature and no resource seal.
+      ...(!signed ? { identity: "-" } : {}),
       target: target === "dmg" ? [target, "zip"] : [target],
       ...(arch === "universal"
         ? { x64ArchFiles: `{${MAC_UNIVERSAL_PREBUILT_FILES.join(",")}}` }
@@ -3800,6 +3830,18 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       }),
       verbose: options.verbose,
     });
+  }
+
+  if (options.platform === "mac") {
+    yield* validateMacPackagedApp(
+      path.join(
+        stageDistDir,
+        options.arch === "x64" ? "mac" : `mac-${options.arch}`,
+        `${resolveDesktopProductName(appVersion)}.app`,
+      ),
+      options.signed,
+      options.verbose,
+    );
   }
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);
