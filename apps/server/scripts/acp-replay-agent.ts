@@ -88,7 +88,10 @@ function stableStringify(value: unknown): string {
 }
 
 function expandExpectedString(value: string): string {
-  return value.replaceAll("<workspace>", replayWorkspace);
+  return value
+    .replaceAll("<workspace>", replayWorkspace)
+    .replaceAll("<t3_code_instructions>", "<mines_instructions>")
+    .replaceAll("</t3_code_instructions>", "</mines_instructions>");
 }
 
 function matchesExpected(expected: unknown, actual: unknown): boolean {

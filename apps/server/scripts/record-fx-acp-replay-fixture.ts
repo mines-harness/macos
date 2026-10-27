@@ -37,7 +37,7 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const HOME_PLACEHOLDER = "/home/fx-replay";
 const FX_INSTANCE_ID = ProviderInstanceId.make("fx");
-const T3_INSTRUCTIONS_BODY = /<t3_code_instructions>\n[\s\S]*?\n<\/t3_code_instructions>/u;
+const MINES_INSTRUCTIONS_BODY = /<mines_instructions>\n[\s\S]*?\n<\/mines_instructions>/u;
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu;
 const TOKEN = /\b(?:sk-|gho_|ghp_|xai-|vercel_)[A-Za-z0-9_-]{8,}\b/gu;
 
@@ -174,7 +174,7 @@ function wireToEntries(wire: ReadonlyArray<WireMessage>): {
   return { entries, droppedFrames };
 }
 
-/** Replaces T3-owned request content. User prompt text, clientCapabilities, and _meta stay. */
+/** Replaces mines-owned request content. User prompt text, clientCapabilities, and _meta stay. */
 function normalizeOutboundFrame(frame: Record<string, unknown>, runtimeInstructions: string) {
   const params = isRecord(frame.params) ? frame.params : undefined;
   if (params === undefined) return frame;
@@ -209,8 +209,8 @@ function normalizeOutboundFrame(frame: Record<string, unknown>, runtimeInstructi
               ? {
                   ...part,
                   text: part.text.replace(
-                    T3_INSTRUCTIONS_BODY,
-                    "<t3_code_instructions>\n<any>\n</t3_code_instructions>",
+                    MINES_INSTRUCTIONS_BODY,
+                    "<mines_instructions>\n<any>\n</mines_instructions>",
                   ),
                 }
               : part,
@@ -461,7 +461,7 @@ const recordScenario = Effect.fn("recordFxScenario")(function* (fixtureName: str
       generatedBy: "live-fx-recorder",
       fxVersion: initializeAgent.version ?? "unknown",
       normalization:
-        "Session ids are fx-session-NN, the workspace is <workspace>, HOME is /home/fx-replay and the recording user is fx-replay. T3-owned prompt text, MCP servers and initialize params other than clientCapabilities and _meta are <any>. User skill names, emails and token-shaped strings are removed. Timestamps are kept as recorded.",
+        "Session ids are fx-session-NN, the workspace is <workspace>, HOME is /home/fx-replay and the recording user is fx-replay. mines-owned prompt text, MCP servers and initialize params other than clientCapabilities and _meta are <any>. User skill names, emails and token-shaped strings are removed. Timestamps are kept as recorded.",
       droppedFrames,
     },
     entries: [
