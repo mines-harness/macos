@@ -34,7 +34,7 @@ import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 /**
  * Short enough that a run which stops to ask the user something is noticed
- * soon, since `mines_thread_wait` only returns on a terminal run.
+ * soon, since `t3_thread_wait` only returns on a terminal run.
  */
 const WAIT_SLICE_MS = 15_000;
 const READ_PAGE_LIMIT = 100;

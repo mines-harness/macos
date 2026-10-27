@@ -182,7 +182,7 @@ function wireToEntries(wire: ReadonlyArray<WireMessage>): {
     const pending = direction === "outgoing" ? agentRequests : minesRequests;
     const method = pending.get(String(message.id));
     if (method === undefined) {
-      // Grok answers internal requests on this stream; mines drops them before replay.
+      // Grok answers internal requests on this stream; T3 drops them before replay.
       droppedFrames += 1;
       continue;
     }

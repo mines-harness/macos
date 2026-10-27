@@ -151,7 +151,7 @@ function TimelineListFooter({
   readonly children?: ReactNode;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
-  // oxlint-disable-next-line t3code/react-effect-budget -- reports growth of the footer's content, which the list does not follow
+  // oxlint-disable-next-line mines/react-effect-budget -- reports growth of the footer's content, which the list does not follow
   useLayoutEffect(() => {
     const content = contentRef.current;
     if (!content || !onGrow) return;

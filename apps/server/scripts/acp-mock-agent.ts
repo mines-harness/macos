@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-const emitNotice = process.env.T3_ACP_EMIT_NOTICE === "1";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -25,6 +24,7 @@ const emitToolCalls = process.env.MINES_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.MINES_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
 const emitV2Fidelity = process.env.MINES_ACP_EMIT_V2_FIDELITY === "1";
+const emitNotice = process.env.MINES_ACP_EMIT_NOTICE === "1";
 const vibeRetryOutcome = process.env.MINES_ACP_VIBE_RETRY_OUTCOME;
 const emitGenericToolPlaceholders = process.env.MINES_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
 const emitPostSettleMonitorFlow = process.env.MINES_ACP_EMIT_POST_SETTLE_MONITOR_FLOW === "1";
@@ -55,6 +55,7 @@ const emitGrokBackgroundTaskStarted =
   process.env.MINES_ACP_EMIT_GROK_BACKGROUND_TASK_STARTED === "1";
 const emitGrokBackgroundTaskPoll = process.env.MINES_ACP_GROK_BACKGROUND_TASK_COMPLETION === "poll";
 const emitForeignSessionUpdates = process.env.MINES_ACP_EMIT_FOREIGN_SESSION_UPDATES === "1";
+const omitInitializeModelState = process.env.MINES_ACP_OMIT_INITIALIZE_MODEL_STATE === "1";
 const waitForResumeRelease = process.env.MINES_ACP_WAIT_FOR_RESUME_RELEASE === "1";
 const completeFirstPromptOnCancel = process.env.MINES_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
 const floodStderr = process.env.MINES_ACP_FLOOD_STDERR === "1";
@@ -580,7 +581,7 @@ const program = Effect.gen(function* () {
       return {
         protocolVersion: 2,
         info: { name: "mines-acp-mock-agent", version: "0.0.0" },
-        _meta: { modelState: modelState() },
+        ...(omitInitializeModelState ? {} : { _meta: { modelState: modelState() } }),
         capabilities: {
           session: {
             ...(supportsSessionLifecycle ? { fork: {}, additionalDirectories: {} } : {}),
@@ -1360,9 +1361,9 @@ const program = Effect.gen(function* () {
             rawInput: { variant: "WebFetch", url: "https://t3.codes" },
             rawOutput: {
               type: "WebFetch",
-              Content: { url: "https://t3.codes", content: "T3 Code page" },
+              Content: { url: "https://t3.codes", content: "mines page" },
             },
-            content: [{ type: "content", content: { type: "text", text: "T3 Code page" } }],
+            content: [{ type: "content", content: { type: "text", text: "mines page" } }],
           },
           {
             sessionUpdate: "tool_call_update",
@@ -1675,7 +1676,7 @@ const program = Effect.gen(function* () {
           },
         });
         if (exitAfterRunningCommandLaunch) {
-          // The test sends `_test/exit` once mines has recorded the published processes.
+          // The test sends `_test/exit` once T3 has recorded the published processes.
           yield* Effect.promise(() => runningCommandPublished);
           return yield* Effect.never;
         }

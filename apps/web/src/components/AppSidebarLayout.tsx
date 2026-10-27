@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
-import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import {
   releaseThreadUndoShortcut,

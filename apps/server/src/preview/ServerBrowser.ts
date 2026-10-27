@@ -259,7 +259,7 @@ interface ViewerState {
 }
 
 interface EncoderWindow {
-  __t3Recorder: {
+  __minesRecorder: {
     cursor(x: number, y: number, click: boolean): void;
     frame(data: string, width: number): Promise<boolean>;
     stop(): Promise<{ mimeType: string | null; count: number; bytes: number }>;
@@ -1473,7 +1473,7 @@ const make = Effect.gen(function* () {
         });
         await encoder.evaluate(
           ([data, width]) =>
-            (globalThis as unknown as EncoderWindow).__t3Recorder.frame(data, width),
+            (globalThis as unknown as EncoderWindow).__minesRecorder.frame(data, width),
           [firstFrame, tab.page.viewportSize()?.width ?? UNATTACHED_FILL_VIEWPORT.width] as const,
         );
         const opened = await tab.page.context().newCDPSession(tab.page);
@@ -1484,7 +1484,7 @@ const make = Effect.gen(function* () {
           const delivered: Promise<void> = encoder
             .evaluate(
               ([data, width]) =>
-                (globalThis as unknown as EncoderWindow).__t3Recorder.frame(data, width),
+                (globalThis as unknown as EncoderWindow).__minesRecorder.frame(data, width),
               [frame.data, cssWidth] as const,
             )
             .then(async (accepted) => {
@@ -1559,7 +1559,7 @@ const make = Effect.gen(function* () {
         await Promise.all(recording.framesInFlight);
         await recording.session.detach().catch(constVoid);
         const stopped = await recording.encoder.evaluate(() =>
-          (globalThis as unknown as EncoderWindow).__t3Recorder.stop(),
+          (globalThis as unknown as EncoderWindow).__minesRecorder.stop(),
         );
         mimeType = stopped.mimeType;
         // Checked before the transfer so an oversized video never lands in this process.
@@ -1571,7 +1571,8 @@ const make = Effect.gen(function* () {
         }
         for (let index = 0; index < stopped.count; index += 1) {
           const chunk = await recording.encoder.evaluate(
-            (chunkIndex) => (globalThis as unknown as EncoderWindow).__t3Recorder.chunk(chunkIndex),
+            (chunkIndex) =>
+              (globalThis as unknown as EncoderWindow).__minesRecorder.chunk(chunkIndex),
             index,
           );
           chunks.push(Buffer.from(chunk, "base64"));
@@ -1625,7 +1626,7 @@ const make = Effect.gen(function* () {
         void encoder
           ?.evaluate(
             ([px, py, click]) =>
-              (globalThis as unknown as EncoderWindow).__t3Recorder?.cursor(px, py, click),
+              (globalThis as unknown as EncoderWindow).__minesRecorder?.cursor(px, py, click),
             [x, y, next === "click"] as const,
           )
           .catch(constVoid);

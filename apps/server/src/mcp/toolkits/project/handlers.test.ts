@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   type Project as ProjectRecord,
   type ModelSelection,
@@ -46,6 +47,13 @@ const clientLaunchHarness = (input: {
   };
   const layerDependencies = Layer.mergeAll(
     ServerSettings.layerTest({
+      providerInstances: {
+        [modelSelection.instanceId]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          enabled: true,
+          config: {},
+        },
+      },
       ...(input.defaultRuntimeMode === undefined
         ? {}
         : { defaultRuntimeMode: input.defaultRuntimeMode }),

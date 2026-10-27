@@ -190,7 +190,7 @@ export function ThreadMcpApp(props: {
     reopenDocument();
     setPresentedFullscreen(false);
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- Navigation focus is outside React; listen only while the app is presented full screen, and stop on unmount.
+  // oxlint-disable-next-line mines/react-effect-budget -- Navigation focus is outside React; listen only while the app is presented full screen, and stop on unmount.
   useEffect(() => {
     if (!presentedFullscreen) return;
     return navigation.addListener("focus", () => returnedFromFullscreen());
@@ -255,7 +255,7 @@ export function ThreadMcpApp(props: {
   // The host sends the call once the app initializes, so a stored item that
   // lands late still reaches it. A completed call can arrive under a new
   // revision, which is a new atom, so the host follows the current one.
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes the MCP host to the current tool call
+  // oxlint-disable-next-line mines/react-effect-budget -- subscribes the MCP host to the current tool call
   useEffect(() => {
     if (host === null) return;
     return appAtomRegistry.subscribe(
@@ -355,7 +355,7 @@ export function ThreadMcpApp(props: {
           return result.value;
         },
         openLink: async (url) => {
-          // WebViews cannot prove user activation; confirm links to prevent timer-driven navigation out of mines.
+          // WebViews cannot prove user activation; confirm links to prevent timer-driven navigation out of T3.
           if (!(await confirm(`Open a link from ${app.server}?`, url, "Open"))) {
             throw new McpAppHostRefusal("Declined by the user.");
           }

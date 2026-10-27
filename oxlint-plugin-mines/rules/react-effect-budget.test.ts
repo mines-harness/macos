@@ -12,7 +12,7 @@ ${Array.from({ length: effects }, (_, index) => (index % 2 === 0 ? "  useEffect(
 }
 `;
 
-const reports = (output: string) => output.match(/t3code\(react-effect-budget\)/g)?.length ?? 0;
+const reports = (output: string) => output.match(/mines\(react-effect-budget\)/g)?.length ?? 0;
 const lint = (filename: string) =>
   createOxlintRuleHarness("mines/react-effect-budget", { filename });
 

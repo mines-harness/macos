@@ -800,7 +800,7 @@ export const resolveArtifact = Effect.fn("nativeClient.resolveArtifact")(functio
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const key = `${platform}/${abi ? `development-${abi}` : "development"}/${fingerprint}`;
-  const directory = path.join(home, ".cache/t3code/native-clients/artifacts", key);
+  const directory = path.join(home, ".cache/mines/native-clients/artifacts", key);
   const artifact = { directory, file: path.join(directory, artifactNames[platform]) };
   if (yield* fs.exists(artifact.file)) {
     yield* Console.error(`Using cached client ${key}.`);
@@ -847,32 +847,6 @@ const describe = (error: unknown) =>
   typeof error.message === "string"
     ? error.message
     : String(error);
-
-const install = Effect.fn("nativeClient.install")(function* (
-  platform: NativePlatform,
-  device: string,
-  file: string,
-) {
-  if (platform === "ios") {
-    yield* command("xcrun", ["simctl", "install", device, file], true);
-    return;
-  }
-  yield* command("adb", ["-s", device, "install", "-r", "-d", file]).pipe(
-    Effect.catchTags({
-      NativeClientError: (error) =>
-        Effect.fail(
-          error.message.includes("INSTALL_FAILED_UPDATE_INCOMPATIBLE")
-            ? new NativeClientError({
-                message: `The installed client has a different signature. Remove it with adb -s ${device} uninstall ${bundleId} (this clears its pairings), then run ensure again.`,
-              })
-            : error,
-        ),
-    }),
-  );
-  // Emulators reach Metro through 10.0.2.2; a phone on USB needs the port forwarded.
-  if ((yield* command("adb", ["-s", device, "shell", "getprop", "ro.kernel.qemu"])) !== "1")
-    yield* command("adb", ["-s", device, "reverse", "tcp:8081", "tcp:8081"]).pipe(Effect.ignore);
-});
 
 const reportTelemetry = Effect.fn("nativeClient.reportTelemetry")(
   function* (

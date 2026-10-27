@@ -145,12 +145,12 @@ const MINES_MCP_TOOLS: Readonly<Record<string, MinesMcpToolDefinition>> = {
     "schedule-delete",
   ),
   request_secret: tool(["Ask for", "Asking for", "Asked for", "a secret"], "secret-request"),
-  create_threads: tool(["Create", "Creating", "Created", "mines"], "thread-create"),
-  mines_thread_start: tool(["Start", "Starting", "Started", "a mine"], "thread-create"),
-  mines_thread_list: tool(["List", "Listing", "Listed", "mines"], "thread-list"),
-  mines_thread_read: tool(["Read", "Reading", "Read", "a mine"], "thread-read"),
-  mines_thread_send: tool(["Send", "Sending", "Sent", "to a mine"], "thread-send"),
-  mines_thread_wait: tool(["Wait", "Waiting", "Waited", "for a mine"], "thread-wait"),
+  create_threads: tool(["Create", "Creating", "Created", "T3 threads"], "thread-create"),
+  mines_thread_start: tool(["Start", "Starting", "Started", "a T3 thread"], "thread-create"),
+  mines_thread_list: tool(["List", "Listing", "Listed", "T3 threads"], "thread-list"),
+  mines_thread_read: tool(["Read", "Reading", "Read", "a T3 thread"], "thread-read"),
+  mines_thread_send: tool(["Send", "Sending", "Sent", "to a T3 thread"], "thread-send"),
+  mines_thread_wait: tool(["Wait", "Waiting", "Waited", "for a T3 thread"], "thread-wait"),
   mines_workflow_stop: tool(
     ["Stop", "Stopping", "Requested a stop for", "a workflow"],
     "workflow-stop",
@@ -160,14 +160,17 @@ const MINES_MCP_TOOLS: Readonly<Record<string, MinesMcpToolDefinition>> = {
     "background-wait",
   ),
   mines_thread_interrupt: tool(
-    ["Interrupt", "Interrupting", "Requested an interrupt of", "a mine"],
+    ["Interrupt", "Interrupting", "Requested an interrupt of", "a T3 thread"],
     "thread-interrupt",
   ),
   mines_worktree_handoff: tool(
-    ["Hand off", "Handing off", "Handed off", "mine to a git worktree"],
+    ["Hand off", "Handing off", "Handed off", "thread to a git worktree"],
     "worktree-handoff",
   ),
-  mines_worktree_status: tool(["Get", "Getting", "Got", "mine worktree status"], "worktree-status"),
+  mines_worktree_status: tool(
+    ["Get", "Getting", "Got", "thread worktree status"],
+    "worktree-status",
+  ),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],
@@ -273,6 +276,11 @@ const MINES_MCP_TOOLS: Readonly<Record<string, MinesMcpToolDefinition>> = {
     ["Run", "Running", "Requested a run of", "a scheduled task"],
     "schedule-run",
   ),
+  mines_queue: tool(["Manage", "Managing", "Managed", "queued messages"], "queue-edit"),
+  mines_pending_request: tool(
+    ["Handle", "Handling", "Handled", "pending questions"],
+    "question-respond",
+  ),
   mines_queue_list: tool(["List", "Listing", "Listed", "queued messages"], "queue-list"),
   mines_queue_read: tool(["Read", "Reading", "Read", "a queued message"], "queue-read"),
   mines_queue_edit: tool(["Edit", "Editing", "Edited", "a queued message"], "queue-edit"),
@@ -301,19 +309,29 @@ const MINES_MCP_TOOLS: Readonly<Record<string, MinesMcpToolDefinition>> = {
     "question-respond",
   ),
   mines_thread_configuration: tool(
-    ["Read", "Reading", "Read", "mine configuration"],
+    ["Read", "Reading", "Read", "thread configuration"],
     "thread-configuration",
   ),
-  mines_thread_configure: tool(["Set", "Setting", "Set", "mine model"], "thread-configure"),
-  mines_thread_fork: tool(["Fork", "Forking", "Requested a fork of", "this mine"], "thread-fork"),
+  mines_thread_configure: tool(
+    ["Use", "Using", "Used", "thread model settings"],
+    "thread-configure",
+  ),
+  mines_thread_transfer: tool(["Use", "Using", "Used", "thread transfers"], "thread-fork"),
+  mines_thread_fork: tool(["Fork", "Forking", "Requested a fork of", "this thread"], "thread-fork"),
   mines_thread_merge_back: tool(
-    ["Merge", "Merging", "Requested a merge of", "mine context"],
+    ["Merge", "Merging", "Requested a merge of", "thread context"],
     "thread-merge",
   ),
-  mines_thread_search: tool(["Search", "Searching", "Searched", "mine content"], "thread-search"),
-  mines_thread_transfers: tool(["Read", "Reading", "Read", "mine transfers"], "thread-transfers"),
-  mines_thread_organize: tool(["Organize", "Organizing", "Organized", "a mine"], "thread-organize"),
-  mines_thread_update: tool(["Update", "Updating", "Updated", "mine metadata"], "thread-update"),
+  mines_thread_search: tool(["Search", "Searching", "Searched", "thread content"], "thread-search"),
+  mines_thread_transfers: tool(["Read", "Reading", "Read", "thread transfers"], "thread-transfers"),
+  mines_thread_organize: tool(
+    ["Organize", "Organizing", "Organized", "a thread"],
+    "thread-organize",
+  ),
+  mines_thread_update: tool(
+    ["Update", "Updating", "Updated", "T3 thread metadata"],
+    "thread-update",
+  ),
   mines_worktree_list: tool(["List", "Listing", "Listed", "workspace branches"], "worktree-list"),
   mines_preview_list: tool(["List", "Listing", "Listed", "preview tabs"], "browser", "browser"),
   mines_preview_close: tool(["Close", "Closing", "Closed", "a preview tab"], "browser", "browser"),
@@ -325,7 +343,10 @@ const MINES_MCP_TOOLS: Readonly<Record<string, MinesMcpToolDefinition>> = {
     ["Update", "Updating", "Updated", "environment preferences"],
     "environment-update",
   ),
-  mines_thread_launch: tool(["Launch", "Launching", "Launched", "a project mine"], "thread-create"),
+  mines_thread_launch: tool(
+    ["Launch", "Launching", "Launched", "a project thread"],
+    "thread-create",
+  ),
   mines_project_list: tool(["List", "Listing", "Listed", "projects"], "project-list"),
   mines_project_read: tool(["Read", "Reading", "Read", "a project"], "project-read"),
   mines_project_create: tool(
@@ -355,18 +376,17 @@ export const MINES_MCP_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(MIN
 
 function normalizeMinesMcpToolLabel(value: string): string {
   return value
+    .replace(/\s+(?:complete|completed)\s*$/i, "")
+    .trim()
     .replace(
       /t3_(thread|workflow|background|worktree|queue|pending_request|preview|environment|project|attachment)/g,
       "mines_$1",
-    )
-    .replace(/\s+(?:complete|completed)\s*$/i, "")
-    .trim();
+    );
 }
 
 // ACP tool prefixes vary; match loosely but require a known display-name entry.
 function resolveMinesMcpToolName(value: string): string | null {
   const label = normalizeMinesMcpToolLabel(value);
-  if (Object.hasOwn(MINES_MCP_TOOLS, label)) return label;
   const mcpMatch = /^mcp__(?<server>.+?)__(?<tool>.+)$/i.exec(label);
   if (mcpMatch?.groups) {
     const { server, tool } = mcpMatch.groups;
@@ -383,6 +403,7 @@ function resolveMinesMcpToolName(value: string): string | null {
     return namespaceMatch.groups.tool ?? null;
   }
 
+  if (Object.hasOwn(MINES_MCP_TOOLS, label)) return label;
   const prefixed = /^(?:mcp[-_]{1,2})?(?:mines|t3[-_ ]?code)(?:__|[-_.:/ ])(?<tool>.+)$/i.exec(
     label,
   );
@@ -402,16 +423,63 @@ export function resolveMinesMcpToolId(toolName: string | null | undefined): stri
   return name !== null && Object.hasOwn(MINES_MCP_TOOLS, name) ? name : null;
 }
 
+type SummaryInput = Readonly<Record<string, unknown>>;
+
+const asSummaryInput = (input: unknown): SummaryInput | undefined =>
+  typeof input === "object" && input !== null ? (input as SummaryInput) : undefined;
+
+/** Action tools present each call as the single-purpose tool its action replaced. */
+const ACTION_TOOLS: Readonly<Record<string, (action: string) => string | undefined>> = {
+  preview_act: (action) => `preview_${action}`,
+  mines_queue: (action) => `mines_queue_${action}`,
+  mines_pending_request: (action) => `mines_pending_request_${action}`,
+  mines_thread_transfer: (action) =>
+    ({
+      fork: "mines_thread_fork",
+      merge_back: "mines_thread_merge_back",
+      status: "mines_thread_transfers",
+    })[action],
+};
+
+/** Pass the call's input so an action tool resolves to the labels and summary of its action. */
 export function resolveMinesMcpToolDefinition(
   toolName: string | null | undefined,
+  input?: unknown,
 ): MinesMcpToolDefinition | null {
   const name = toolName == null ? null : resolveMinesMcpToolName(toolName);
-  return name !== null && Object.hasOwn(MINES_MCP_TOOLS, name) ? MINES_MCP_TOOLS[name]! : null;
+  if (name === null || !Object.hasOwn(MINES_MCP_TOOLS, name)) return null;
+  const action = asSummaryInput(input)?.action;
+  const actionTool = typeof action === "string" ? ACTION_TOOLS[name]?.(action) : undefined;
+  return actionTool !== undefined && Object.hasOwn(MINES_MCP_TOOLS, actionTool)
+    ? MINES_MCP_TOOLS[actionTool]!
+    : MINES_MCP_TOOLS[name]!;
+}
+
+/** Tools whose summary depends on which fields a call sets. */
+const ACTION_SUMMARIES: Readonly<
+  Record<string, (input: SummaryInput) => MinesMcpToolSummaryAction | undefined>
+> = {
+  mines_thread_configure: ({ modelSelection }) =>
+    modelSelection === undefined ? "thread-configuration" : "thread-configure",
+  schedule_task: ({ scheduledTaskId }) =>
+    scheduledTaskId === undefined ? "schedule-create" : "schedule-update",
+};
+
+export function resolveMinesMcpSummaryAction(
+  toolName: string | null | undefined,
+  input: unknown,
+): MinesMcpToolSummaryAction | null {
+  const definition = resolveMinesMcpToolDefinition(toolName, input);
+  if (definition === null) return null;
+  const summarize = ACTION_SUMMARIES[resolveMinesMcpToolName(toolName!) ?? ""];
+  const fields = asSummaryInput(input);
+  return (fields && summarize?.(fields)) ?? definition.summaryAction;
 }
 
 export function resolveMinesMcpToolPresentation(
   toolName: string | null | undefined,
+  input?: unknown,
 ): MinesMcpToolPresentation | null {
-  const definition = resolveMinesMcpToolDefinition(toolName);
+  const definition = resolveMinesMcpToolDefinition(toolName, input);
   return definition === null ? null : { displayName: definition.displayName, logo: "mines" };
 }

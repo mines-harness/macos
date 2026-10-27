@@ -14,6 +14,28 @@ const metroConfig: Promise<{ transformer: { babelTransformerPath: string } }> =
 
 // Remove bailout entries and manual memoization when compilation starts; this check rejects stale entries.
 const KNOWN_BAILOUTS: Record<string, string> = {
+  "src/catalog/MobileCatalogContextModal.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/catalog/MobileGroupModal.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/catalog/MobileGroupParticipantsModal.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/agent-awareness/MinesPush.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/cloud/MinesAccountProvider.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/contacts/SharedGroupModal.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/contacts/SharedGroupsScreen.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/settings/SettingsAuthRouteScreen.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/threads/ThreadGuestShareModal.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/threads/ThreadMineTransferControl.tsx":
+    "compiler does not support this existing Mines try/catch flow",
+  "src/features/voice-input/ComposerLiveVoiceControl.tsx":
+    "compiler does not support this existing Mines try/catch flow",
   "src/components/ui/Menu.tsx": "ref read during render",
   "src/features/diffs/nativeReviewDiffSurface.ts": "ref read during render",
   "src/features/home/thread-swipe-actions.tsx": "ref read during render",

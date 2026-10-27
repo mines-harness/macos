@@ -232,7 +232,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 });
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter({
-  showUndoNotice = false,
+  showUndoNotice: _showUndoNotice = false,
 }: {
   showUndoNotice?: boolean;
 }) {

@@ -109,7 +109,7 @@ export interface ImportThreadNode<T extends ImportCandidate = ImportCandidate> {
   readonly children: ImportThreadNode<T>[];
 }
 
-export function importThreadForest<T extends ImportCandidate>(candidates: readonly T[]) {
+function importThreadForest<T extends ImportCandidate>(candidates: readonly T[]) {
   const nodes: ImportThreadNode<T>[] = candidates.flatMap((candidate) =>
     (candidate.threads ?? []).map((thread) => ({ candidate, thread, children: [] })),
   );

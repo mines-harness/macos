@@ -23,4 +23,4 @@ export { orchestrationProtocolCompatibilityError } from "./compatibility.ts";
 // Flat so consumers' inferred command types can name it.
 export { OutdatedHostUpdateError } from "./outdatedHostUpdate.ts";
 
-export { EnvironmentRegistry as EnvironmentRegistryService } from "./registry.ts";
+export type { EnvironmentRegistry as EnvironmentRegistryService } from "./registry.ts";

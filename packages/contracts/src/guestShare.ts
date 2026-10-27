@@ -11,7 +11,6 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 
-export const GUEST_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_GUEST_SHARE_TTL_MS = 6 * 60 * 60 * 1000;
 export const GUEST_SHARE_MAX_GUESTS = 100;
 export const GUEST_BANNED_IP_LIMIT = 1_000;

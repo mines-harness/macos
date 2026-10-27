@@ -86,13 +86,13 @@ export function observeSummaries(
   const cache = env.VITE_CACHE_PATH || NodePath.join(root, "node_modules/.vite/task-cache");
   const queue = NodePath.join(home, ".cache/t3-task-cache/telemetry");
   let host =
-    env.T3_TASK_CACHE_HOST ||
+    env.MINES_TASK_CACHE_HOST ||
     (env.GITHUB_ACTIONS === "true"
       ? `${env.RUNNER_ENVIRONMENT || "github"}/${env.RUNNER_OS || NodeOS.platform()}/${env.RUNNER_ARCH || NodeOS.arch()}`
       : NodeOS.hostname());
   try {
     host =
-      env.T3_TASK_CACHE_HOST ||
+      env.MINES_TASK_CACHE_HOST ||
       NodeFS.readFileSync(NodePath.join(home, ".agents/MACHINE"), "utf8").trim() ||
       host;
   } catch {

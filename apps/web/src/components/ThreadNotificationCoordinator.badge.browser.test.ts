@@ -234,6 +234,7 @@ it.each([
   ["failed pre-expiry compaction", true, "error", ["Mine failed"]],
 ] as const)("notifies for %s only when attention is needed", async (_, silent, status, titles) => {
   await using app = setup();
+  using _timers = fakeTimers();
   app.setEnvironmentIds(["one"]);
   state.shells.set("one", shell({ latestRunSilent: silent }));
   app.start();
@@ -244,7 +245,6 @@ it.each([
       latestTurn: { turnId: "turn", state: status, completedAt: "2026-09-13T07:01:00.000Z" },
     }),
   );
-  using _timers = fakeTimers();
 
   await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
   expect(TestNotification.sent.map((notification) => notification.title)).toEqual(titles);

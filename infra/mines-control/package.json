@@ -26,6 +26,7 @@
     "@types/nodemailer": "8.0.2",
     "@types/pg": "8.23.1",
     "@types/ws": "catalog:",
+    "typescript": "catalog:",
     "vite-plus": "catalog:"
   }
 }

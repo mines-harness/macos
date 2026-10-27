@@ -215,47 +215,63 @@ export function createEncryptedHistoryCache(input: {
     });
   return Persistence.EnvironmentCacheStore.of({
     ...input.base,
-    loadShell: (environmentId) =>
+    loadShell: Effect.fn("Persistence.EnvironmentCacheStore.loadShell")((environmentId) =>
       load(environmentId, null, "shell", (text) => decodeShell(text).snapshot),
-    saveShell: (environmentId, snapshot) =>
+    ),
+    saveShell: Effect.fn("Persistence.EnvironmentCacheStore.saveShell")((environmentId, snapshot) =>
       save(
         environmentId,
         null,
         "shell",
         encodeShell({ schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION, environmentId, snapshot }),
       ),
-    loadThread: (environmentId, threadId) =>
-      load(environmentId, threadId, "tail", (text) => decodeThread(text).snapshot),
-    saveThread: (environmentId, snapshot) =>
-      save(
-        environmentId,
-        snapshot.projection.thread.id,
-        "tail",
-        encodeThread({
-          schemaVersion: ORCHESTRATION_THREAD_CACHE_SCHEMA_VERSION,
+    ),
+    loadThread: Effect.fn("Persistence.EnvironmentCacheStore.loadThread")(
+      (environmentId, threadId) =>
+        load(environmentId, threadId, "tail", (text) => decodeThread(text).snapshot),
+    ),
+    saveThread: Effect.fn("Persistence.EnvironmentCacheStore.saveThread")(
+      (environmentId, snapshot) =>
+        save(
           environmentId,
-          threadId: snapshot.projection.thread.id,
-          snapshot,
+          snapshot.projection.thread.id,
+          "tail",
+          encodeThread({
+            schemaVersion: ORCHESTRATION_THREAD_CACHE_SCHEMA_VERSION,
+            environmentId,
+            threadId: snapshot.projection.thread.id,
+            snapshot,
+          }),
+        ),
+    ),
+    loadBodyRange: Effect.fn("Persistence.EnvironmentCacheStore.loadBodyRange")(
+      (environmentId, threadId, cursor) =>
+        load(environmentId, threadId, "page", decodeBody, cursor),
+    ),
+    saveBodyRange: Effect.fn("Persistence.EnvironmentCacheStore.saveBodyRange")(
+      (environmentId, threadId, cursor, body) =>
+        save(environmentId, threadId, "page", encodeBody(body), cursor),
+    ),
+    loadHistoryPage: Effect.fn("Persistence.EnvironmentCacheStore.loadHistoryPage")(
+      (environmentId, threadId, cursor) =>
+        load(environmentId, threadId, "page", decodePage, cursor),
+    ),
+    saveHistoryPage: Effect.fn("Persistence.EnvironmentCacheStore.saveHistoryPage")(
+      (environmentId, threadId, cursor, page) =>
+        save(environmentId, threadId, "page", encodePage(page), cursor),
+    ),
+    protectThread: Effect.fn("Persistence.EnvironmentCacheStore.protectThread")(
+      (environmentId, threadId) =>
+        Effect.sync(() => {
+          const id = encodeKey([input.accountId(), environmentId, threadId]);
+          active.set(id, (active.get(id) ?? 0) + 1);
+          return () => {
+            const count = (active.get(id) ?? 1) - 1;
+            if (count === 0) active.delete(id);
+            else active.set(id, count);
+          };
         }),
-      ),
-    loadBodyRange: (environmentId, threadId, cursor) =>
-      load(environmentId, threadId, "page", decodeBody, cursor),
-    saveBodyRange: (environmentId, threadId, cursor, body) =>
-      save(environmentId, threadId, "page", encodeBody(body), cursor),
-    loadHistoryPage: (environmentId, threadId, cursor) =>
-      load(environmentId, threadId, "page", decodePage, cursor),
-    saveHistoryPage: (environmentId, threadId, cursor, page) =>
-      save(environmentId, threadId, "page", encodePage(page), cursor),
-    protectThread: (environmentId, threadId) =>
-      Effect.sync(() => {
-        const id = encodeKey([input.accountId(), environmentId, threadId]);
-        active.set(id, (active.get(id) ?? 0) + 1);
-        return () => {
-          const count = (active.get(id) ?? 1) - 1;
-          if (count === 0) active.delete(id);
-          else active.set(id, count);
-        };
-      }),
+    ),
     currentOwnerId: input.accountId,
     captureOwner: () => {
       const account = input.accountId();
@@ -314,18 +330,23 @@ export function createEncryptedHistoryCache(input: {
       state.index = { ...state.index, entries: [] };
       await persistIndex(state);
     }),
-    setHistoryCacheBudget: (bytes) =>
-      run("save-thread", async (state, account) => {
-        if (!Number.isSafeInteger(bytes) || bytes < 16 * 1024 ** 2)
-          throw new Error("Cache budget must be at least 16 MiB.");
-        state.index = { ...state.index, budget: bytes };
-        await trim(state, account);
-      }),
-    removeThread: (environmentId, threadId) =>
-      remove(environmentId, threadId).pipe(
-        Effect.andThen(input.base.removeThread(environmentId, threadId)),
-      ),
-    clear: (environmentId) =>
+    setHistoryCacheBudget: Effect.fn("Persistence.EnvironmentCacheStore.setHistoryCacheBudget")(
+      (bytes) =>
+        run("save-thread", async (state, account) => {
+          if (!Number.isSafeInteger(bytes) || bytes < 16 * 1024 ** 2)
+            throw new Error("Cache budget must be at least 16 MiB.");
+          state.index = { ...state.index, budget: bytes };
+          await trim(state, account);
+        }),
+    ),
+    removeThread: Effect.fn("Persistence.EnvironmentCacheStore.removeThread")(
+      (environmentId, threadId) =>
+        remove(environmentId, threadId).pipe(
+          Effect.andThen(input.base.removeThread(environmentId, threadId)),
+        ),
+    ),
+    clear: Effect.fn("Persistence.EnvironmentCacheStore.clear")((environmentId) =>
       remove(environmentId).pipe(Effect.andThen(input.base.clear(environmentId))),
+    ),
   });
 }

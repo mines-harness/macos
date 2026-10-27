@@ -54,7 +54,7 @@ function entry(
     projectTitle: "t3code",
     repository: "pingdotgg/t3code",
     title: "Add the pull requests page",
-    url: `https://github.com/pingdotgg/t3code/pull/${overrides.number}`,
+    url: `https://github.com/pingdotgg/mines/pull/${overrides.number}`,
     author: { login: "octocat", name: null, avatarUrl: null },
     headBranch: `feat/branch-${overrides.number}`,
     baseBranch: "main",

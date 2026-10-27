@@ -9,7 +9,7 @@ const EFFECT_HOOKS = new Set(["useEffect", "useLayoutEffect", "useInsertionEffec
 const EFFECT_HOOK_TEXT = /use(?:Layout|Insertion)?Effect/;
 const UNBUDGETED_FILE = /\.test\.[cm]?[jt]sx?$|[\\/](?:test|__tests__)[\\/]/;
 const budgets: Readonly<Record<string, number>> = budget;
-const JUSTIFIED = /oxlint-disable-next-line[^\n]*t3code\/react-effect-budget\s+--\s*\S/;
+const JUSTIFIED = /oxlint-disable-next-line[^\n]*mines\/react-effect-budget\s+--\s*\S/;
 
 // An effect with a stated reason on the line above is a reviewed decision: it is not counted, and it
 // is always reported so that the suppression comment above it is used.

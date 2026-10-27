@@ -55,6 +55,7 @@ function makeMockDetachedHandle(input: MockSpawnResult & { readonly onUnref?: ()
 
 const layerTest = (input: {
   readonly platform: NodeJS.Platform;
+  readonly fileSystem?: FileSystem.FileSystem;
   readonly env?: Record<string, string>;
   readonly resolveExecutable?: (command: string) => string | undefined;
   readonly onSpawn?: (command: ChildProcess.StandardCommand) => void;
@@ -81,7 +82,15 @@ const layerTest = (input: {
   );
 
   return Layer.mergeAll(
-    ExternalLauncher.layer.pipe(Layer.provide(Layer.merge(NodeServices.layer, layerSpawner))),
+    ExternalLauncher.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          layerSpawner,
+          input.fileSystem ? Layer.succeed(FileSystem.FileSystem, input.fileSystem) : Layer.empty,
+        ),
+      ),
+    ),
     Layer.succeed(HostProcess.Platform, input.platform),
     Layer.succeed(
       SpawnExecutableResolution,
@@ -477,6 +486,20 @@ for (const { platform, installPath, onPath } of [
           Effect.provide(
             layerTest({
               platform,
+              fileSystem: {
+                ...fs,
+                stat: (filePath) =>
+                  filePath.startsWith("/Applications/")
+                    ? Effect.fail(
+                        PlatformError.systemError({
+                          _tag: "NotFound",
+                          module: "FileSystem",
+                          method: "stat",
+                          pathOrDescriptor: filePath,
+                        }),
+                      )
+                    : fs.stat(filePath),
+              },
               env: {
                 HOME: home,
                 LOCALAPPDATA: home,

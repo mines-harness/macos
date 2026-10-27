@@ -3,7 +3,6 @@ import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
   CheckpointScopeId,
-  GitCommandError,
   MessageId,
   NodeId,
   ProviderSessionId,
@@ -36,8 +35,7 @@ import * as CatalogRunContextService from "../catalog/CatalogRunContextService.t
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as WorkspaceRunLease from "../workspace/WorkspaceRunLease.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
+
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";

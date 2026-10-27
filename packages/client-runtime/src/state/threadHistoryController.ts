@@ -90,34 +90,40 @@ export const layer: Layer.Layer<ThreadHistoryController> = Layer.effect(
           return next;
         });
       }),
-      loadEarlier: (environmentId, threadId, throughEntryId) =>
-        Ref.get(handlers).pipe(
-          Effect.flatMap((current) => {
-            const handler = current.get(threadKey({ environmentId, threadId }));
-            if (handler === undefined) {
-              return Effect.succeed({ _tag: "noop" } satisfies ThreadHistoryLoadEarlierResult);
-            }
-            return handler.loadEarlier(throughEntryId);
-          }),
-        ),
-      loadEarlierBody: (environmentId, threadId, sourceThreadId, itemId) =>
-        Ref.get(handlers).pipe(
-          Effect.flatMap(
-            (current) =>
-              current
-                .get(threadKey({ environmentId, threadId }))
-                ?.loadEarlierBody?.(sourceThreadId, itemId) ??
-              Effect.succeed({ _tag: "noop" } as const),
+      loadEarlier: Effect.fn("ThreadHistoryController.loadEarlier")(
+        (environmentId, threadId, throughEntryId) =>
+          Ref.get(handlers).pipe(
+            Effect.flatMap((current) => {
+              const handler = current.get(threadKey({ environmentId, threadId }));
+              if (handler === undefined) {
+                return Effect.succeed({ _tag: "noop" } satisfies ThreadHistoryLoadEarlierResult);
+              }
+              return handler.loadEarlier(throughEntryId);
+            }),
           ),
-        ),
-      reconcilePendingWork: (environmentId, threadId) =>
-        Ref.get(handlers).pipe(
-          Effect.flatMap(
-            (current) =>
-              current.get(threadKey({ environmentId, threadId }))?.reconcilePendingWork() ??
-              Effect.void,
+      ),
+      loadEarlierBody: Effect.fn("ThreadHistoryController.loadEarlierBody")(
+        (environmentId, threadId, sourceThreadId, itemId) =>
+          Ref.get(handlers).pipe(
+            Effect.flatMap(
+              (current) =>
+                current
+                  .get(threadKey({ environmentId, threadId }))
+                  ?.loadEarlierBody?.(sourceThreadId, itemId) ??
+                Effect.succeed({ _tag: "noop" } as const),
+            ),
           ),
-        ),
+      ),
+      reconcilePendingWork: Effect.fn("ThreadHistoryController.reconcilePendingWork")(
+        (environmentId, threadId) =>
+          Ref.get(handlers).pipe(
+            Effect.flatMap(
+              (current) =>
+                current.get(threadKey({ environmentId, threadId }))?.reconcilePendingWork() ??
+                Effect.void,
+            ),
+          ),
+      ),
     });
   }),
 );

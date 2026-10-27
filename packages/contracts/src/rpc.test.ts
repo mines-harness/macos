@@ -6,6 +6,8 @@ import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 import { GroupListResult } from "./groupChat.ts";
 
+const decodeGroupList = Schema.decodeSync(GroupListResult);
+
 describe("WebSocket RPC contracts", () => {
   it("checks voice capabilities before a draft has a saved thread", () => {
     const capabilities = WsRpcGroup.requests.get(WS_METHODS.voiceGetCapabilities);
@@ -19,7 +21,7 @@ describe("WebSocket RPC contracts", () => {
   });
 
   it("keeps group lists from older hosts readable without membership refs", () => {
-    expect(Schema.decodeSync(GroupListResult)({ groups: [] })).toEqual({
+    expect(decodeGroupList({ groups: [] })).toEqual({
       groups: [],
       memberships: [],
     });

@@ -146,13 +146,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       title="Model"
       description={
         isProjectScope
-          ? "Model for new threads in this project."
+          ? "Model for new mines in this project."
           : !unavailable &&
               !mixedModel &&
               modelSource !== "project" &&
               settings.defaultModelSelection === null
             ? "Default model for new threads, selected automatically. Projects can override it."
-            : "Default model for new threads. Projects can override it."
+            : "Default model for new mines. Projects can override it."
       }
       resetAction={
         settings.defaultModelSelection !== null ? (
@@ -459,7 +459,7 @@ export function WorktreeSubmodulesRow() {
       description={
         isProjectScope
           ? "How new worktrees in this project populate git submodules."
-          : "How new worktrees populate git submodules. Projects and their t3.json can override it."
+          : "How new worktrees populate git submodules. Projects and their mines.json can override it."
       }
       resetAction={
         !isProjectScope && settings.worktreeSubmodules !== null ? (

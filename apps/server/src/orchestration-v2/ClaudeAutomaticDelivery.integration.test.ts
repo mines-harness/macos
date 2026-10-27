@@ -10,6 +10,7 @@ import {
   NodeId,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
   ScheduledTaskUpsertInput,
   ThreadId,
   type OrchestrationV2DomainEvent,
@@ -323,7 +324,17 @@ it.effect.each(deliveries)(
               Effect.provide(
                 ScheduledTaskService.layer.pipe(
                   Layer.provide(ThreadManagementService.layer),
-                  Layer.provide(ServerSettings.layerTest()),
+                  Layer.provide(
+                    ServerSettings.layerTest({
+                      providerInstances: {
+                        [modelSelection.instanceId]: {
+                          driver: ProviderDriverKind.make("claudeAgent"),
+                          enabled: true,
+                          config: {},
+                        },
+                      },
+                    }),
+                  ),
                   Layer.provide(
                     Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
                       ensureTranscript: () =>

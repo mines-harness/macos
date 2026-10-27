@@ -433,7 +433,7 @@ export function NewTaskFlowProvider(
         projectHasThreads: selectedProjectHasThreads,
       })
     : "local";
-  // Do not persist the provisional workspace default while mines.json is loading; it would override
+  // Do not persist the provisional workspace default while t3.json is loading; it would override
   // the file's eventual default.
   const defaultWorkspaceModeSettled =
     selectedProjectDraft.workspaceSelection?.mode !== undefined ||

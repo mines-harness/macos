@@ -1,6 +1,6 @@
 import {
-  t3ConnectTroubleshootingUrl,
-  type T3ConnectTroubleshootingSection,
+  t3ConnectTroubleshootingUrl as minesConnectTroubleshootingUrl,
+  type T3ConnectTroubleshootingSection as MinesConnectTroubleshootingSection,
 } from "@t3tools/contracts";
 import type { RelayEnvironmentStatusResponse } from "@t3tools/contracts/relay";
 import * as DateTime from "effect/DateTime";
@@ -212,7 +212,7 @@ function steps(host: string, located: Located, failure: ConnectionAttemptError |
 function helpSection(
   located: Located,
   failure: ConnectionAttemptError | null,
-): T3ConnectTroubleshootingSection {
+): MinesConnectTroubleshootingSection {
   switch (located.cause) {
     case "offline":
       return "this-device-cant-reach-t3-connect";
@@ -329,7 +329,7 @@ export function presentConnectionDiagnosis(
     hops,
     steps: steps(host, located, failure),
     facts,
-    moreInfoUrl: relayPath ? t3ConnectTroubleshootingUrl(helpSection(located, failure)) : null,
+    moreInfoUrl: relayPath ? minesConnectTroubleshootingUrl(helpSection(located, failure)) : null,
   };
 }
 

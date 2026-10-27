@@ -18,7 +18,6 @@ import {
   type MessageId,
   type ModelSelection,
   type ProviderInteractionMode,
-  type RuntimeMode,
   type ServerConfig as MinesServerConfig,
   type UsageLimitsReport,
 } from "@t3tools/contracts";

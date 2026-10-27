@@ -18,6 +18,7 @@ const TEST_EXCLUDE = [
 // Directories whose tests belong to a package's own test config. desktop also
 // owns the kde-snap-shot tests through its `include`.
 const TEST_CONFIG_PACKAGES = [
+  "infra/mines-control",
   "apps/desktop",
   "apps/mobile",
   "apps/server",
@@ -279,7 +280,7 @@ export default defineConfig({
         { paths: [...RESTRICTED_IMPORT_PATHS, RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS] },
       ],
       "mines/no-global-process-runtime": "error",
-      "mines/no-inline-schema-compile": "warn",
+      "mines/no-inline-schema-compile": "error",
       "mines/no-low-value-comments": "error",
       "mines/no-manual-effect-runtime-in-tests": "error",
       "mines/no-native-title-tooltip": "error",
@@ -314,28 +315,6 @@ export default defineConfig({
       {
         files: ["apps/web/src/**/*.browser.test.{ts,tsx}"],
         rules: { "mines/no-frame-waits-in-browser-tests": "error" },
-      },
-      {
-        // Burn-down list: these files still have polling loops, so they stay at "warn".
-        // Remove a file when you convert its loops. New polling loops in all other
-        // test files fail lint. Do not add new files to this list.
-        files: [
-          "apps/mobile/src/features/agent-awareness/remoteRegistration.test.ts",
-          "apps/server/src/background/HostPowerMonitor.test.ts",
-          "apps/server/src/orchestration-v2/Adapters/AcpAdapterV2.test.ts",
-          "apps/server/src/orchestration-v2/FoundationPersistence.test.ts",
-          "apps/server/src/project/ProjectEnrichmentService.test.ts",
-          "apps/server/src/project/ProjectService.test.ts",
-          "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts",
-          "apps/server/src/usage/UsageService.test.ts",
-          "packages/client-runtime/src/connection/supervisor.test.ts",
-          "packages/client-runtime/src/rpc/client.test.ts",
-          "packages/client-runtime/src/rpc/session.test.ts",
-          "packages/client-runtime/src/state/shell-sync.test.ts",
-          "packages/client-runtime/src/state/threads-sync.test.ts",
-          "packages/shared/src/atomicWrite.test.ts",
-        ],
-        rules: { "mines/no-polling-loop-in-tests": "warn" },
       },
       {
         files: ["apps/**/src/**", "packages/**/src/**"],
@@ -598,7 +577,7 @@ export default defineConfig({
         },
       },
       {
-        // The sign-in masthead is mines brand artwork: fixed gradients, not theme surfaces.
+        // The sign-in masthead is T3 brand artwork: fixed gradients, not theme surfaces.
         files: ["apps/web/src/components/auth/AuthSurfaceShell.tsx"],
         rules: { "shadcn/no-arbitrary-values": "off" },
       },

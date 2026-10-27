@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { developerIdentity } from "./developerAuth.ts";
 
-export const routePrefix = "/projects/t3code/native-clients/";
+export const routePrefix = "/projects/mines/native-clients/";
 
 export class NativeClientsError extends Schema.TaggedError<NativeClientsError>()(
   "NativeClientsError",

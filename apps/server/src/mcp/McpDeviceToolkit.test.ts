@@ -135,7 +135,7 @@ const layerDeviceServiceMock = Layer.mock(DeviceService.DeviceService)({
   close: () => Effect.void,
   agentCli: Effect.succeed("/cli"),
   testHost: () => Effect.die("not used"),
-  // As for an EAS device, agent-device knows the device by a different id than mines.
+  // As for an EAS device, agent-device knows the device by a different id than T3.
   agentTarget: () =>
     Effect.succeed({
       agentDeviceId: "SIM-UDID",

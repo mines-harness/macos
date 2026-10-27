@@ -13,6 +13,8 @@ describe("resolveMinesMcpToolPresentation", () => {
       const presentation = resolveMinesMcpToolPresentation(tool);
       for (const prefix of [
         "mcp__mines__",
+        "mines-web_",
+        "mines-thread_opencode2-adapter_",
         "mines.",
         "mines:",
         "mcp__t3-code__",

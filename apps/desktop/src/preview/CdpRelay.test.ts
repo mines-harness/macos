@@ -114,7 +114,7 @@ describe("CDP relay", () => {
       }),
     );
     await settle();
-    expect(written).toEqual([{ id: 1, result: {}, sessionId: "t3-preview-page" }]);
+    expect(written).toEqual([{ id: 1, result: {}, sessionId: "mines-preview-page" }]);
     expect(send).not.toHaveBeenCalled();
   });
 

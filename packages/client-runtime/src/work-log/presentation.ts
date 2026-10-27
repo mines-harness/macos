@@ -10,6 +10,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import {
+  resolveMinesMcpSummaryAction,
   resolveMinesMcpToolDefinition,
   type MinesMcpToolDefinition,
   type MinesMcpToolSummaryAction,
@@ -229,7 +230,10 @@ export function resolveWorkEntryToolPresentation(
   >,
   fallbackStatus?: "inProgress" | "completed",
 ) {
-  const definition = resolveMinesMcpToolDefinition(workEntryToolName(entry));
+  const definition = resolveMinesMcpToolDefinition(
+    workEntryToolName(entry),
+    workEntryToolInput(entry),
+  );
   const status = entry.toolLifecycleStatus ?? fallbackStatus;
   return resolveMinesMcpToolPresentation(
     definition,
@@ -464,11 +468,6 @@ function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
 }
 
 function minesToolSummaryCall(entry: WorkLogPresentationEntry): MinesToolSummaryCall {
-  const item = entry.structuredPayload;
-  const data =
-    entry.toolData !== null && typeof entry.toolData === "object"
-      ? (entry.toolData as Record<string, unknown>)
-      : undefined;
   return {
     input: workEntryToolInput(entry),
     output: workEntryToolOutput(entry),
@@ -548,8 +547,10 @@ export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEnt
   >();
   const sources = new Map<string, ToolActivitySource>();
   for (const entry of entries) {
-    const minesAction =
-      resolveMinesMcpToolDefinition(workEntryToolName(entry))?.summaryAction ?? null;
+    const minesAction = resolveMinesMcpSummaryAction(
+      workEntryToolName(entry),
+      minesToolSummaryCall(entry).input,
+    );
     if (entry.toolSource && minesAction === null) {
       sources.set(entry.toolSource.key, entry.toolSource);
       continue;

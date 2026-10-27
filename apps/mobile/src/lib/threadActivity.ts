@@ -644,7 +644,8 @@ function itemToolPresentation(item: OrchestrationV2TurnItem): MinesMcpToolPresen
     return null;
   }
   return (
-    resolveMinesMcpToolPresentation(item.toolName) ?? resolveMinesMcpToolPresentation(item.title)
+    resolveMinesMcpToolPresentation(item.toolName, item.input) ??
+    resolveMinesMcpToolPresentation(item.title, item.input)
   );
 }
 

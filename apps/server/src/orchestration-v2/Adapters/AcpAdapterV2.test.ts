@@ -395,7 +395,7 @@ function assertReinjectedInstructions(
 ) {
   const text = blocks[0]?.text ?? "";
   assert.include(text, "mines interaction mode: Default");
-  assert.include(text, "mines collaborative browser");
+  assert.include(text, "## mines browser");
   assert.include(text, "mines orchestration");
   assert.include(text, `<user_request>\n${request}\n</user_request>`);
 }
@@ -982,7 +982,7 @@ describe("AcpAdapterV2", () => {
       const firstDefault = yield* runTurn(2, defaultPolicy, "First default request.");
       assert.equal(firstDefault.textBlockCount, 2);
       assert.include(firstDefault.prompt, "mines interaction mode: Default");
-      assert.include(firstDefault.prompt, "mines collaborative browser");
+      assert.include(firstDefault.prompt, "## mines browser");
       assert.include(firstDefault.prompt, "mines orchestration");
       assert.notInclude(
         firstDefault.methods,
@@ -1146,7 +1146,7 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
-  // regression: #21499 turns blocked only on mines thread waits must show as waiting
+  // regression: #21499 turns blocked only on T3 thread waits must show as waiting
   it.effect.each(["agent_message_chunk"] as const)(
     "keeps named ACP %s open while deriving thread wait execution state",
     (sessionUpdate) =>
@@ -2077,7 +2077,7 @@ describe("AcpAdapterV2", () => {
             childProcessSpawner,
             mockAgentPath,
             protocolEvents,
-            environment: { T3_ACP_EMIT_NOTICE: "1" },
+            environment: { MINES_ACP_EMIT_NOTICE: "1" },
           }),
         },
         selfInvocation,
@@ -2290,7 +2290,7 @@ describe("AcpAdapterV2", () => {
         results: [{ url: "https://t3.codes" }, { url: "https://github.com/pingdotgg/t3code" }],
       });
       assert.deepEqual(webItem("grok-web-fetch", "completed")?.results, [
-        { url: "https://t3.codes", snippet: "T3 Code page" },
+        { url: "https://t3.codes", snippet: "mines page" },
       ]);
       const completedCompaction = items.find(
         (item) =>
@@ -3539,7 +3539,7 @@ describe("AcpAdapterV2", () => {
       );
       const blocks = rawProtocolPromptTextBlocks(Option.getOrThrow(prompt));
       if (native) {
-        // Same shape as a typed native command: one bare text block, no mines instructions.
+        // Same shape as a typed native command: one bare text block, no T3 instructions.
         assert.deepEqual(blocks, [{ type: "text", text: sent }]);
       } else {
         assert.isTrue(blocks.some((block) => block.text.includes(sent)));

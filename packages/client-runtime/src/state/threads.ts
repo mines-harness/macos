@@ -885,9 +885,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     const page = response.success;
     if (!isCurrentOwner()) return { _tag: "noop" } as const;
     if (Option.isNone(cachedBody) && cache.saveBodyRange)
-      yield* cache
-        .saveBodyRange(environmentId, threadId, cacheKey, page)
-        .pipe(Effect.catch(() => Effect.void));
+      yield* cache.saveBodyRange(environmentId, threadId, cacheKey, page).pipe(Effect.ignore);
     yield* applyLock.withPermits(1)(
       SubscriptionRef.update(state, (latest) => {
         if (Option.isNone(latest.data)) return latest;
@@ -998,7 +996,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           Effect.ensuring(Effect.sync(() => foregroundActivity?.setBusy(lastWorkActive))),
         );
       }),
-      Effect.catch(() => Effect.void),
+      Effect.ignore,
     ),
   ).pipe(Effect.forkScoped);
 

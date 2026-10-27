@@ -46,7 +46,6 @@ import type {
   RuntimeRequestId,
   ScopedThreadRef,
   ServerConfig as MinesServerConfig,
-  ThreadId,
   UsageLimitsReport,
 } from "@t3tools/contracts";
 import {

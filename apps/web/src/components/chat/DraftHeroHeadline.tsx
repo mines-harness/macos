@@ -5,7 +5,7 @@ import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/envir
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { FolderPlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { catalogHostId, resolveCatalogContext } from "@t3tools/client-runtime/catalog";
 import { useMinesCatalog } from "~/catalog/useMinesCatalog";
 

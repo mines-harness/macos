@@ -48,7 +48,7 @@ describe("Pierre file icons", () => {
     ["epub", "epub"],
   ])("uses the document family icon for %s", (extension, family) => {
     for (const path of [`report.${extension}`, `folder/REPORT.${extension.toUpperCase()}`]) {
-      assert.equal(resolvePierreIconForEntry(path, "file")?.name, `mines-file-icon-${family}`);
+      assert.equal(resolvePierreIconForEntry(path, "file")?.name, `t3-file-icon-${family}`);
       assert.isTrue(hasSpecificPierreIconForFileName(path));
     }
   });
@@ -58,7 +58,7 @@ describe("Pierre file icons", () => {
       [
         ...Object.values(MINES_PIERRE_ICONS.byFileName),
         ...Object.values(MINES_PIERRE_ICONS.byFileExtension),
-      ].filter((name) => name.startsWith("t3-")),
+      ].filter((name) => name.startsWith("mines-")),
     );
     for (const iconName of customIconNames) {
       assert.include(MINES_PIERRE_ICONS.spriteSheet, `id="${iconName}"`);

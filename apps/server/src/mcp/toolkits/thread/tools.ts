@@ -58,7 +58,7 @@ const ThreadOrganizeTool = Tool.make("mines_thread_organize", {
     Crypto.Crypto,
   ],
 })
-  .annotate(Tool.Title, "Organize a thread")
+  .annotate(Tool.Title, "Organize a mine")
   .annotate(Tool.Destructive, true);
 
 const commandTool = {

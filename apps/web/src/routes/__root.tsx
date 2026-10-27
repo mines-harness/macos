@@ -23,7 +23,7 @@ import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { MineTransferDialogHost } from "../components/chat/MineTransferDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
-import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
+
 import { BackgroundImportCoordinator } from "../components/onboarding/BackgroundImportStatus";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";

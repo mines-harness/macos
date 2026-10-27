@@ -5,8 +5,8 @@ import { Button } from "../../components/ui/Button";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 
 import { useMinesAccount } from "./MinesAccountProvider";
-import { StackActions, useNavigation } from "@react-navigation/native";
-import { useEffect, useState } from "react";
+import { useNavigation } from "@react-navigation/native";
+import { useState } from "react";
 import { Platform, RefreshControl, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 

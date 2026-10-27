@@ -481,7 +481,7 @@ describe("composer file attachments", () => {
       });
       expect(mocks.manipulate).not.toHaveBeenCalled();
       expect(mocks.delete).toHaveBeenCalledWith(
-        `file:///documents/t3-composer-attachments/attachment-id-${name}`,
+        `file:///documents/mines-composer-attachments/attachment-id-${name}`,
       );
     });
 
@@ -602,7 +602,7 @@ describe("composer file attachments", () => {
         error: "unreadable image",
       });
       expect(mocks.delete).toHaveBeenCalledWith(
-        "file:///documents/t3-composer-attachments/attachment-id-photo.png",
+        "file:///documents/mines-composer-attachments/attachment-id-photo.png",
       );
     });
   });

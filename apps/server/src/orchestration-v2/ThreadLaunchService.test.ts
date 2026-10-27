@@ -142,7 +142,16 @@ function makeHarness(options: HarnessOptions = {}) {
     layerRegistry,
     { databaseLayer: layerDatabase, runEffectWorker: false },
   );
-  const layerServerSettings = ServerSettings.layerTest(options.serverSettings);
+  const layerServerSettings = ServerSettings.layerTest({
+    providerInstances: {
+      [claudeModelSelection.instanceId]: {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        enabled: true,
+        config: {},
+      },
+    },
+    ...options.serverSettings,
+  });
   const layerReceipts = CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase));
   const layerThreadManagement = ThreadManagement.layer.pipe(
     Layer.provide(layerOrchestrator),

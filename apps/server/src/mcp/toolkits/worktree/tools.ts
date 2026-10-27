@@ -27,7 +27,7 @@ const WorktreeToolFailure = Schema.Union([WorktreeMcpFailure, OrchestratorMcpFai
 
 const WorktreeHandoffTool = Tool.make("mines_worktree_handoff", {
   description:
-    "Needs an agent running inside a mine. Move this agent mine into a new git worktree. To launch a separate agent already bound to a new or existing worktree, use mines_thread_launch with workspaceStrategy instead. Creates the worktree branch (optionally from the base branch's remote), re-points the mine at the worktree, and by default runs the project's setup script there. Changing the workspace detaches the live provider session, so the current turn ends shortly after the handoff is recorded; call this as the last action of the turn. To keep working after the handoff, pass continuationPrompt with the remaining work: it is queued as the mine's next message and starts a new turn inside the worktree with the conversation preserved. Without it the mine stays idle until the next message. The worktree is not removed automatically when the mine is deleted. Fails if the mine is already attached to a worktree.",
+    "Move THIS thread into a new git worktree on a new branch. Runs the setup script by default. A separate agent in a worktree: `mines_thread_launch` with `workspaceStrategy`. Call last in your turn. The move ends the live session. `continuationPrompt` resumes work there next turn. Without it, the thread waits. The worktree stays after the thread is deleted. Fails if this thread has a worktree.",
   parameters: WorktreeMcpHandoffInput,
   success: WorktreeMcpHandoffResult,
   failure: WorktreeToolFailure,
@@ -42,8 +42,11 @@ const WorktreeHandoffTool = Tool.make("mines_worktree_handoff", {
 
 const WorktreeStatusTool = Tool.make("mines_worktree_status", {
   description:
-    "Needs an agent running inside a mine. Report this agent mine's worktree binding: whether it is attached to a git worktree, the worktree path and branch, the project's main workspace root, and the server default for mines_worktree_handoff's startFromOrigin. Call this before mines_worktree_handoff to check whether a handoff is possible or has already happened.",
-  // Empty Struct emits object|array, making MCP clients reject the server; use EmptyParams for an object schema.
+    "Report this thread's worktree: attached or not, path, branch, project root, and the `startFromOrigin` default. Check before `mines_worktree_handoff`.",
+  // No `parameters`: Tool.make defaults to Tool.EmptyParams, which serializes
+  // to a top-level `type: "object"` JSON Schema. An explicit empty
+  // Schema.Struct({}) serializes to `anyOf: [object, array]`, which is not a
+  // valid MCP tool input schema and makes clients reject the whole server.
   success: WorktreeMcpStatusResult,
   failure: WorktreeToolFailure,
   failureMode: "return",
@@ -57,7 +60,7 @@ const WorktreeStatusTool = Tool.make("mines_worktree_status", {
 
 const WorktreeListTool = Tool.make("mines_worktree_list", {
   description:
-    "List branch refs and their associated checkout paths for a mine's workspace (omit threadId for this mine) using the app's ref inventory. Detached worktrees without a branch are not included. Use mines_worktree_status for the mine binding and mines_worktree_handoff to create a new worktree.",
+    "List branch refs and checkout paths for a thread's workspace. Omit `threadId` for this thread. Detached worktrees with no branch are left out.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     query: VcsListRefsInput.fields.query,

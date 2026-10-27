@@ -149,11 +149,6 @@ function adjacentModelPickerProvider(input: {
 
 const EMPTY_MODEL_JUMP_LABELS = new Map<string, string>();
 const MODEL_LIST_ESTIMATED_ITEM_SIZE = 52;
-// Rendered heights in `--spacing` units. Chrome is the search box and list padding, plus a 1px border.
-const ONE_LINE_ROW_UNITS = 8;
-const TWO_LINE_ROW_UNITS = { classic: 11.25, redesign: 12 };
-const ROW_SEPARATOR_UNITS = 0.5;
-const LIST_CHROME_UNITS = 15.5;
 
 function ModelListSeparator() {
   return <div className="h-0.5" />;
@@ -578,32 +573,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const redesign = useClientSettings((s) => s.redesignEnabled);
   const rowsMixProviders = !redesign || isSearching || selectedInstanceId === "favorites";
   // Fit the tallest tab so switching tabs never resizes the popup and moves the rail under the cursor.
-  const tallestTabUnits = (() => {
-    const unitsByTab = new Map<ProviderInstanceId | "favorites", number>();
-    const addRow = (tab: ProviderInstanceId | "favorites", twoLine: boolean) => {
-      const rowUnits = twoLine
-        ? TWO_LINE_ROW_UNITS[redesign ? "redesign" : "classic"]
-        : ONE_LINE_ROW_UNITS;
-      const previous = unitsByTab.get(tab);
-      unitsByTab.set(
-        tab,
-        previous === undefined ? rowUnits : previous + ROW_SEPARATOR_UNITS + rowUnits,
-      );
-    };
-    const tabsWithLegacyRow = new Set<ProviderInstanceId>();
-    for (const model of flatModels) {
-      if (!matchesLockedProvider(model)) continue;
-      const isFavorite = favoritesSet.has(providerModelKey(model.instanceId, model.slug));
-      if (isFavorite) addRow("favorites", true);
-      if (model.isLegacy && !isFavorite) {
-        tabsWithLegacyRow.add(model.instanceId);
-      } else {
-        addRow(model.instanceId, !redesign || Boolean(model.subProvider));
-      }
-    }
-    for (const instanceId of tabsWithLegacyRow) addRow(instanceId, true);
-    return Math.max(0, ...unitsByTab.values());
-  })();
+
   const lockedDisabledInstanceIds = (() => {
     if (!isLocked) {
       return undefined;

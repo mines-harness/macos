@@ -730,7 +730,7 @@ export const make = Effect.fn("EasDeviceHost.make")(function* (config: EasDevice
     agentEndpoint: (deviceId) =>
       Option.match(sessionFor(deviceId), {
         onNone: () => Effect.fail(unavailable("This EAS Simulator device is no longer running.")),
-        // agent-device selects the simulator by its UDID, not the session id mines shows.
+        // agent-device selects the simulator by its UDID, not the session id T3 shows.
         onSome: (session) => Effect.succeed({ ...session.agent, agentDeviceId: session.udid }),
       }),
     endsDevices: true,

@@ -81,7 +81,7 @@ function ToastContent(props: ToastProps & { readonly glassReady?: boolean }) {
         <View className="min-w-0 flex-1" accessibilityLiveRegion="polite">
           <AppText
             textRole="footnote"
-            className="font-t3-semibold"
+            className="font-mines-semibold"
             numberOfLines={props.singleLine ? 1 : undefined}
             accessibilityLabel={props.singleLine ? message : undefined}
           >

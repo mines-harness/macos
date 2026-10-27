@@ -76,7 +76,7 @@ const handlers = {
   mines_background_wait: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { scope, threads } = yield* readCaller();
-      const caller = yield* McpInvocationContext.requireThreadScope(scope, "t3_background_wait");
+      const caller = yield* McpInvocationContext.requireThreadScope(scope, "mines_background_wait");
       return yield* threads
         .awaitBackgroundTasks({
           threadId: caller.thread.threadId,

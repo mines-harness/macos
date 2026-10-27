@@ -56,7 +56,7 @@ describe("AcpClientTerminals", () => {
       const terminals = yield* makeAcpClientTerminals({
         defaultCwd: process.cwd(),
         environmentForSession: (sessionId) => ({
-          T3_TEST_ACP_SESSION_TOKEN: sessionId === "session-a" ? "token-a" : "token-b",
+          MINES_TEST_ACP_SESSION_TOKEN: sessionId === "session-a" ? "token-a" : "token-b",
         }),
       });
       yield* Effect.addFinalizer(() => terminals.disposeAll);

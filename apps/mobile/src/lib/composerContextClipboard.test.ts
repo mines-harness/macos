@@ -173,7 +173,7 @@ describe("mobile context clipboard imports", () => {
     const controller = new AbortController();
     mocks.dispose.mockImplementationOnce(() => controller.abort());
     const imageOnly = {
-      text: "![Checkout](t3-context://v1/image/image-source)",
+      text: "![Checkout](mines-context://v1/image/image-source)",
       fragment: encodeComposerContextFragment({
         version: 1,
         source: { environmentId: EnvironmentId.make("source") },
