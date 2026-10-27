@@ -3,6 +3,7 @@ import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
 } from "@t3tools/client-runtime/state/runtime";
+import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 
@@ -12,6 +13,15 @@ export const peerState = createEnvironmentRpcQueryAtomFamily(connectionAtomRunti
   staleTimeMs: 15_000,
   idleTtlMs: 60_000,
 });
+
+export const peerIdentityState = Atom.family((_identityKey: string) =>
+  createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+    label: "mines:peer:identity",
+    tag: WS_METHODS.peerGetState,
+    staleTimeMs: 15_000,
+    idleTtlMs: 60_000,
+  }),
+);
 
 export const peerConnectionState = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "mines:peer:connection",

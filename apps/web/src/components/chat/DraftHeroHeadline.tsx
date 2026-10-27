@@ -382,6 +382,15 @@ export function DraftHeroHeadline({
           <DraftParticipantPicker
             draftId={draftId}
             environmentId={activeProjectRef?.environmentId ?? primaryEnvironmentId!}
+            contextEntityId={
+              activeProjectRef
+                ? catalogHostId(
+                    "project",
+                    activeProjectRef.environmentId,
+                    activeProjectRef.projectId,
+                  )
+                : null
+            }
           />
         ) : null}
       </div>

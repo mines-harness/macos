@@ -10,6 +10,7 @@ import {
   type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2LiveVoice,
   type OrchestrationV2ProviderThreadNativeMetadata,
   type OrchestrationV2ThreadProjection,
   type ProviderDriverKind,
@@ -73,6 +74,7 @@ export interface ThreadLaunchInitialMessage {
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
+  readonly liveVoice?: OrchestrationV2LiveVoice;
 }
 
 export interface ThreadLaunchInput {
@@ -472,6 +474,7 @@ const make = Effect.gen(function* () {
         worktreePath !== null &&
         branch !== null &&
         initialMessage !== undefined &&
+        initialMessage.liveVoice === undefined &&
         isTemporaryWorktreeBranch(branch)
       ) {
         const oldBranch = branch;
@@ -961,6 +964,9 @@ const make = Effect.gen(function* () {
                 : { senderThreadId: input.initialMessage.senderThreadId }),
               attachments: input.initialMessage.attachments,
               ...(input.initialMessage.context ? { context: input.initialMessage.context } : {}),
+              ...(input.initialMessage.liveVoice
+                ? { liveVoice: input.initialMessage.liveVoice }
+                : {}),
               ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
               modelSelection: input.modelSelection,
               dispatchMode: { type: "defer_start", workspaceStrategy },
@@ -1105,6 +1111,7 @@ const make = Effect.gen(function* () {
                 text: message.text,
                 attachments: message.attachments,
                 ...(message.context ? { context: message.context } : {}),
+                ...(run.liveVoice ? { liveVoice: run.liveVoice } : {}),
               },
             }),
       },

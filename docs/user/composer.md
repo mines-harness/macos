@@ -175,10 +175,12 @@ and use **Attach again** or remove the missing file before sending.
 
 ## Live voice with Codex
 
-With a connected ChatGPT account and a supported Codex runtime, choose **Live voice**
-in a mine to speak with its agent. Codex checks your account's availability when
-the conversation starts. Voice can direct coding work using the mine's existing
-workspace and permissions; **Stop** ends the voice session and its active run.
+Select a GPT model and choose **Talk with GPT** to speak with its agent using a
+connected ChatGPT account and a supported Codex runtime. You can start from a new
+mine before sending a prompt; any unsent text and attachments stay in the composer.
+Codex checks your account's availability when the conversation starts. Voice uses
+the selected workspace and permissions; **Stop** ends the voice session and its
+active run, including pending workspace preparation.
 
 Microphone access starts only when you choose the action. Audio connects to
 OpenAI through Codex using your connected account, without a separate API key.

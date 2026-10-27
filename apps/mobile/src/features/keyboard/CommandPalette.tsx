@@ -45,6 +45,8 @@ import { useProjects, useThreadShell, useThreadShells } from "../../state/entiti
 import { useThreadSearch } from "../../state/queries";
 import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { threadEnvironment } from "../../state/threads";
+import { openGuestShareDialog } from "../../state/guest-sharing";
+import { useCanShareWithGuest } from "../threads/useThreadGuestShare";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceEnvironments } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -75,6 +77,7 @@ const ROW_HEIGHT = 50;
 const SECTION_LABEL_HEIGHT = 26;
 
 const ACTION_ICONS: Record<string, AppSymbolName> = {
+  shareLink: "square.and.arrow.up",
   newTask: "square.and.pencil",
   newThread: "square.and.pencil",
   addProject: "folder.badge.plus",
@@ -221,6 +224,7 @@ export function CommandPalette(props: {
   const projects = useProjects();
   const threads = useThreadShells();
   const activeThreadRef = useMemo(() => parseActiveThreadPath(props.pathname), [props.pathname]);
+  const canShare = useCanShareWithGuest(activeThreadRef?.environmentId ?? null);
   const activeThread = useThreadShell(activeThreadRef);
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const environments = useWorkspaceEnvironments();
@@ -362,6 +366,15 @@ export function CommandPalette(props: {
       });
     }
     if (activeThreadRef) {
+      if (canShare) {
+        actions.push({
+          key: "shareLink",
+          kind: "action",
+          title: "Share link",
+          searchTerms: ["guest", "invite", "viewer", "permission"],
+          run: () => openGuestShareDialog(activeThreadRef),
+        });
+      }
       const threadActions = [
         ["files", "Go to file", ["open", "files", "browse", "search"]],
         ["terminal", "Open terminal", ["shell", "console"]],
@@ -440,6 +453,7 @@ export function CommandPalette(props: {
     selectTab,
     activeThread,
     activeThreadRef,
+    canShare,
     environments.length,
     navigation,
     projects,

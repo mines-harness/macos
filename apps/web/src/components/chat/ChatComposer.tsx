@@ -23,6 +23,7 @@ import type {
   ProviderApprovalDecision,
   ThreadContextRecord,
   ProviderInteractionMode,
+  ProviderVoiceStartInput,
   ResolvedKeybindingsConfig,
   RuntimeMode,
   RuntimeRequestId,
@@ -296,6 +297,7 @@ import {
 } from "./preparingComposerImages";
 import { ComposerControlsBar } from "./ComposerControlsBar";
 import { ComposerLiveVoiceControl } from "./ComposerLiveVoiceControl";
+import { isGptVoiceModel, liveVoiceTargetBlockReason } from "../../voice/liveVoicePeer";
 import { UltraReasoningFeedback, useUltraReasoningFeedbackState } from "./UltraReasoningFeedback";
 import { useComposerCommandKey } from "./useComposerCommandKey";
 import { useAtomValue } from "@effect/atom-react";
@@ -493,6 +495,10 @@ export interface ChatComposerProps {
   onRemoveEditingQueuedAttachment: (attachmentId: string) => void;
 
   onCompactContext: () => void;
+  onPrepareLiveVoiceStart: (input: {
+    runtimeMode: RuntimeMode;
+    interactionMode: ProviderInteractionMode;
+  }) => Promise<Pick<ProviderVoiceStartInput, "bootstrap">>;
   onSend: (
     e?: { preventDefault: () => void },
     dispatchMode?: ComposerDispatchMode,
@@ -619,6 +625,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPageScrollKeyUp,
     onPageScrollRelease,
     onCompactContext,
+    onPrepareLiveVoiceStart,
     onSend,
     onResume,
     onInterrupt,
@@ -1032,6 +1039,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     selectedModelOptionsForDispatch,
   );
+  const liveVoiceModelSelection =
+    multipleModelSelections === null
+      ? selectedModelSelection
+      : (multipleModelSelections.find((selection) => isGptVoiceModel(selection.model)) ?? null);
+  const liveVoiceTargetBlock = liveVoiceTargetBlockReason({
+    hasParticipants,
+    hasMultipleModels: multipleModelSelections !== null,
+  });
+  const prepareLiveVoiceStartStable = useStableCallback(async () => {
+    if (liveVoiceTargetBlock) throw new Error(liveVoiceTargetBlock);
+    return onPrepareLiveVoiceStart({
+      runtimeMode: compatibleRuntimeMode,
+      interactionMode,
+    });
+  });
   const selectedModelForPicker = selectedModel;
   const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
   for (const entry of providerInstanceEntries) {
@@ -1109,10 +1131,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hasWrappedPrompt = useComposerMultilinePrompt(composerMenuAnchor);
   const hasMultilinePrompt = prompt.includes("\n") || hasWrappedPrompt;
   const [isTasksDrawerOpen, setIsTasksDrawerOpen] = useState(false);
+  const [liveVoiceActive, setLiveVoiceActive] = useState(false);
   // A pending question stays expanded: its card moves into the banner dock,
   // so collapsing would leave the surface empty and squashed beneath it.
   const isComposerCollapsedMobile =
     isMobileViewport &&
+    !liveVoiceActive &&
     !forceExpandedOnMobile &&
     !isComposerFocused &&
     !hasMultilinePrompt &&
@@ -3899,20 +3923,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
                   {composerAttachButton}
-                  {routeKind === "server" &&
-                  selectedProvider === "codex" &&
-                  multipleModelSelections === null ? (
+                  {liveVoiceModelSelection && isGptVoiceModel(liveVoiceModelSelection.model) ? (
                     <ComposerLiveVoiceControl
                       key={`${environmentId}:${routeThreadRef.threadId}:${selectedInstanceId}:${selectedModel}`}
                       environmentId={environmentId}
                       threadId={routeThreadRef.threadId}
-                      modelSelection={selectedModelSelection}
-                      startDisabled={
-                        !canOperateThread ||
-                        isSendBusy ||
-                        phase === "running" ||
-                        pendingPrimaryAction !== null ||
-                        environmentUnavailable !== null
+                      modelSelection={liveVoiceModelSelection}
+                      isDraft={routeKind === "draft"}
+                      prepareStart={prepareLiveVoiceStartStable}
+                      onActiveChange={setLiveVoiceActive}
+                      startDisabledReason={
+                        liveVoiceTargetBlock ??
+                        (requiresProjectSelection
+                          ? "Choose a project to start Live voice."
+                          : null) ??
+                        (!canOperateThread ? "This connection cannot change mines." : null) ??
+                        (isSendBusy || isPreparingWorktree || isRevertingCheckpoint
+                          ? "Wait for this mine’s current action to finish."
+                          : null) ??
+                        (phase === "running" ? "This mine already has work in progress." : null) ??
+                        (pendingPrimaryAction !== null
+                          ? "Resolve the pending request before starting Live voice."
+                          : null) ??
+                        (environmentUnavailable !== null
+                          ? "Connect to this machine to use Live voice."
+                          : null)
                       }
                     />
                   ) : null}

@@ -4,6 +4,7 @@ import {
   MessageId,
   type EnvironmentId,
   type ModelSelection,
+  type ProviderVoiceStartInput,
   type RunId,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -36,12 +37,18 @@ export function ComposerLiveVoiceControl({
   environmentId,
   threadId,
   modelSelection,
-  startDisabled,
+  isDraft,
+  startDisabledReason,
+  prepareStart,
+  onActiveChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly modelSelection: ModelSelection;
-  readonly startDisabled: boolean;
+  readonly isDraft: boolean;
+  readonly startDisabledReason: string | null;
+  readonly prepareStart: () => Promise<Pick<ProviderVoiceStartInput, "bootstrap">>;
+  readonly onActiveChange: (active: boolean) => void;
 }) {
   const environment = useEnvironment(environmentId);
   const connected = environment?.connection.phase === "connected";
@@ -50,13 +57,18 @@ export function ComposerLiveVoiceControl({
   const stopCommand = useAtomCommand(voiceStop, { reportFailure: false });
   const capability = useEnvironmentQuery(
     connected && permitted
-      ? voiceCapabilities({ environmentId, input: { threadId, modelSelection } })
+      ? voiceCapabilities({
+          environmentId,
+          input: isDraft ? { modelSelection } : { threadId, modelSelection },
+        })
       : null,
   );
   const active = useRef<ActiveVoice | null>(null);
   const mounted = useRef(true);
   const [runId, setRunId] = useState<RunId | null>(null);
   const [phase, setPhase] = useState<"idle" | "connecting" | "live">("idle");
+  useEffect(() => onActiveChange(phase !== "idle"), [onActiveChange, phase]);
+  useEffect(() => () => onActiveChange(false), [onActiveChange]);
   const session = useEnvironmentQuery(
     runId ? voiceSession({ environmentId, input: { threadId, runId } }) : null,
   );
@@ -107,7 +119,7 @@ export function ComposerLiveVoiceControl({
   const start = async () => {
     if (
       active.current ||
-      startDisabled ||
+      startDisabledReason !== null ||
       !connected ||
       !permitted ||
       !capability.data?.live.supported
@@ -139,6 +151,8 @@ export function ComposerLiveVoiceControl({
       active.current = current;
       const sdp = await media.offer;
       if (active.current !== current) return;
+      const prepared = await prepareStart();
+      if (active.current !== current) return;
       const result = await startCommand({
         environmentId,
         input: {
@@ -147,6 +161,7 @@ export function ComposerLiveVoiceControl({
           messageId: MessageId.make(randomUUID()),
           modelSelection,
           sdp,
+          ...prepared,
         },
       });
       if (result._tag !== "Success") {
@@ -173,8 +188,17 @@ export function ComposerLiveVoiceControl({
     }
   };
 
-  if (!capability.data?.live.supported && phase === "idle") return null;
-  const unavailable = liveVoiceUnavailableReason();
+  const unavailable =
+    startDisabledReason ??
+    (!connected ? "Connect to this machine to use Live voice." : null) ??
+    (!permitted ? "This connection cannot start Live voice." : null) ??
+    capability.error ??
+    (!capability.data
+      ? "Checking Live voice availability…"
+      : !capability.data.live.supported
+        ? (capability.data.live.reason ?? "Live voice is unavailable for this account.")
+        : null) ??
+    liveVoiceUnavailableReason();
   const label = phase === "idle" ? "Talk with GPT" : "End voice conversation";
   return (
     <Tooltip>
@@ -183,10 +207,7 @@ export function ComposerLiveVoiceControl({
           <ComposerControl
             aria-label={label}
             aria-pressed={phase !== "idle"}
-            disabled={
-              phase === "idle" &&
-              (startDisabled || !connected || !permitted || unavailable !== null)
-            }
+            disabled={phase === "idle" && unavailable !== null}
             onClick={() => {
               if (phase === "idle") void start();
               else end();

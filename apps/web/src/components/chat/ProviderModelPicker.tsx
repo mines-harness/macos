@@ -184,6 +184,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     ? selectedEntries.map((selection) => selection.label).join(", ") || "Choose models"
     : undefined;
   const reasoningLabel = !selectedEntries && !props.triggerLabel ? props.modelReasoning : undefined;
+  const modelSpeed = !selectedEntries && activeEntry ? props.modelSpeed : null;
+  const detailLabel =
+    reasoningLabel ??
+    (modelSpeed === "ultrafast" ? "Ultrafast" : modelSpeed === "fast" ? "Fast" : undefined);
   const triggerTooltipContent = shortcutLabel
     ? `${props.triggerLabel ?? allModelNames ?? triggerLabel} · ${shortcutLabel}`
     : (props.triggerLabel ?? allModelNames ?? triggerLabel);
@@ -210,7 +214,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               props.compact
                 ? "max-w-42 shrink-0"
                 : !props.isComposerOwned && "max-w-48 sm:max-w-56",
-              reasoningLabel && "h-auto min-h-7 py-1",
+              detailLabel && "h-auto min-h-7 py-1",
               props.triggerClassName,
             )}
             disabled={props.disabled}
@@ -265,32 +269,32 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 <span
                   className={cn(
                     "min-w-0 flex-1 overflow-hidden",
-                    reasoningLabel ? "flex flex-col items-end" : "truncate",
+                    detailLabel ? "flex flex-col items-end" : "truncate",
                   )}
                 />
               }
             >
               <span
-                className={cn("max-w-full truncate", reasoningLabel && "leading-none")}
-                data-chat-provider-model-picker-label={reasoningLabel ? undefined : "true"}
+                className={cn("max-w-full truncate", detailLabel && "leading-none")}
+                data-chat-provider-model-picker-label={detailLabel ? undefined : "true"}
               >
                 {props.triggerLabel ?? multipleLabel ?? triggerTitle}
               </span>
-              {reasoningLabel ? (
-                <span className="max-w-full truncate text-2xs leading-none font-normal text-muted-foreground">
-                  {reasoningLabel}
+              {detailLabel ? (
+                <span className="flex max-w-full items-center gap-0.5 text-2xs leading-none font-normal text-muted-foreground">
+                  {modelSpeed && activeEntry ? (
+                    <TraitsSpeedIcon
+                      provider={activeEntry.driverKind}
+                      speedIcon={modelSpeed}
+                      size="text"
+                    />
+                  ) : null}
+                  <span className="min-w-0 truncate">{detailLabel}</span>
                 </span>
               ) : null}
             </TooltipTrigger>
             <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
           </Tooltip>
-          {props.modelSpeed && !selectedEntries && activeEntry ? (
-            <TraitsSpeedIcon
-              provider={activeEntry.driverKind}
-              speedIcon={props.modelSpeed}
-              size={size}
-            />
-          ) : null}
           {selectedModel?.isUnavailable && !selectedEntries && props.triggerLabel === undefined ? (
             <Badge variant="outline" size="sm">
               Unavailable

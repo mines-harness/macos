@@ -20,6 +20,7 @@ export function isCatalogLibraryEntryVisible(input: {
   readonly pinned: boolean;
   readonly mode?: "personal" | "workgroups";
   readonly primaryEnvironmentId?: string | null;
+  readonly nestedUnderMine?: boolean;
 }) {
   if (input.thread && input.thread.archivedAt !== null) return false;
   if (!input.pinned) {
@@ -35,6 +36,7 @@ export function isCatalogLibraryEntryVisible(input: {
   if (input.entity.kind !== "thread") return true;
   return (
     input.pinned ||
+    input.nestedUnderMine ||
     (input.entity.importSource?.kind !== "subagent" &&
       input.thread?.lineage.relationshipToParent !== "subagent")
   );

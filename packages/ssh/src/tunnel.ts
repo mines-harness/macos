@@ -563,18 +563,21 @@ SH
 mv "$RUNNER_NEXT" "$RUNNER_FILE"
 chmod 700 "$RUNNER_FILE"
 MINES_ARCHIVE_MODE=@@MINES_ARCHIVE_MODE@@
+MINES_HELPER_RUNNER="$RUNNER_FILE"
 if [ "$MINES_ARCHIVE_MODE" = "1" ]; then
-  # The archive ships the helpers below inside the executable; the remote
-  # needs no Node at all. Resolving the runner once here also downloads the
-  # archive before the port and readiness probes rely on it.
-  "$RUNNER_FILE" --version >/dev/null
+  # Reconnecting to a running host must not require downloading the desktop's CLI release.
+  if [ -x "$DEFAULT_SERVER_HOME/bin/mines" ] && "$DEFAULT_SERVER_HOME/bin/mines" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE" >/dev/null 2>&1; then
+    MINES_HELPER_RUNNER="$DEFAULT_SERVER_HOME/bin/mines"
+  else
+    "$RUNNER_FILE" --version >/dev/null
+  fi
 elif ! ensure_remote_node_path; then
   printf 'Remote host is missing node on PATH. Install Node or configure a supported version manager for non-interactive shells.\\n' >&2
   exit 1
 fi
 pick_port() {
   if [ "$MINES_ARCHIVE_MODE" = "1" ]; then
-    "$RUNNER_FILE" __ssh-helper pick-port "$PORT_FILE" "@@MINES_DEFAULT_REMOTE_PORT@@" "@@MINES_REMOTE_PORT_SCAN_WINDOW@@"
+    "$MINES_HELPER_RUNNER" __ssh-helper pick-port "$PORT_FILE" "@@MINES_DEFAULT_REMOTE_PORT@@" "@@MINES_REMOTE_PORT_SCAN_WINDOW@@"
     return
   fi
   node - "$PORT_FILE" "@@MINES_DEFAULT_REMOTE_PORT@@" "@@MINES_REMOTE_PORT_SCAN_WINDOW@@" <<'NODE'
@@ -583,7 +586,7 @@ NODE
 }
 wait_ready() {
   if [ "$MINES_ARCHIVE_MODE" = "1" ]; then
-    "$RUNNER_FILE" __ssh-helper wait-ready "$REMOTE_PORT" "$1" "@@MINES_READY_PROBE_TIMEOUT_MS@@"
+    "$MINES_HELPER_RUNNER" __ssh-helper wait-ready "$REMOTE_PORT" "$1" "@@MINES_READY_PROBE_TIMEOUT_MS@@"
     return
   fi
   node - "$REMOTE_PORT" "$1" "@@MINES_READY_PROBE_TIMEOUT_MS@@" <<'NODE'
@@ -608,7 +611,7 @@ server_running() {
 }
 resolve_default_runtime_port() {
   if [ "$MINES_ARCHIVE_MODE" = "1" ]; then
-    "$RUNNER_FILE" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE"
+    "$MINES_HELPER_RUNNER" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE"
     return
   fi
   node - "$DEFAULT_RUNTIME_FILE" <<'NODE'
@@ -647,7 +650,7 @@ OWN_RUNTIME=0
 if [ "$REMOTE_MANAGED" = "managed" ] && [ -n "$REMOTE_PID" ]; then
   if [ "$DEFAULT_RUNTIME_PID" = "$REMOTE_PID" ]; then
     OWN_RUNTIME=1
-  elif [ "$MINES_ARCHIVE_MODE" = "1" ] && [ "$(cat "$LAUNCHER_FILE" 2>/dev/null || true)" = "$REMOTE_PID" ] && "$RUNNER_FILE" __ssh-helper runtime-owned "$DEFAULT_RUNTIME_FILE" "$REMOTE_PID"; then
+  elif [ "$MINES_ARCHIVE_MODE" = "1" ] && [ "$(cat "$LAUNCHER_FILE" 2>/dev/null || true)" = "$REMOTE_PID" ] && "$MINES_HELPER_RUNNER" __ssh-helper runtime-owned "$DEFAULT_RUNTIME_FILE" "$REMOTE_PID"; then
     OWN_RUNTIME=1
   fi
 fi
@@ -704,6 +707,7 @@ else
   REMOTE_MANAGED=""
 fi
 if [ -z "$REMOTE_PORT" ]; then
+  MINES_HELPER_RUNNER="$RUNNER_FILE"
   REMOTE_PORT="$(pick_port)" || true
   if [ -z "$REMOTE_PORT" ]; then
     if [ "$MINES_ARCHIVE_MODE" = "1" ]; then
@@ -754,7 +758,11 @@ cat >"$RUNNER_FILE" <<'SH'
 SH
 chmod 700 "$RUNNER_FILE"
 PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"
-"$RUNNER_FILE" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json
+MINES_PAIRING_RUNNER="$RUNNER_FILE"
+if [ "@@MINES_ARCHIVE_MODE@@" = "1" ] && [ -x "$DEFAULT_SERVER_HOME/bin/mines" ] && "$DEFAULT_SERVER_HOME/bin/mines" __ssh-helper runtime-port "$DEFAULT_SERVER_HOME/userdata/server-runtime.json" >/dev/null 2>&1; then
+  MINES_PAIRING_RUNNER="$DEFAULT_SERVER_HOME/bin/mines"
+fi
+"$MINES_PAIRING_RUNNER" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json
 `;
 
 const REMOTE_STOP_SCRIPT = `set -eu
@@ -870,6 +878,7 @@ function buildRemoteLaunchScript(input?: RemoteMinesRunnerOptions): string {
 function buildRemotePairingScript(stateKey: string, input?: RemoteMinesRunnerOptions): string {
   return applyScriptPlaceholders(REMOTE_PAIRING_SCRIPT, {
     MINES_STATE_KEY: stateKey,
+    MINES_ARCHIVE_MODE: isNodeScriptRunner(input) ? "0" : "1",
     MINES_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteMinesRunnerScript(input)),
   });
 }

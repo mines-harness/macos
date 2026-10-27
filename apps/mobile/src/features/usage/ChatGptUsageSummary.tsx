@@ -5,6 +5,7 @@ import { Linking, Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { environmentPresentations } from "../../state/presentation";
+import { CodexResetStatus } from "./CodexResetStatus";
 
 export function ChatGptUsageSummary({
   selectedEnvironmentIds,
@@ -36,6 +37,7 @@ export function ChatGptUsageSummary({
       <Text className="text-xs text-foreground-muted">
         {usage.accounts.join(", ")}. Open ChatGPT with the account you connected.
       </Text>
+      <CodexResetStatus />
     </View>
   );
 }

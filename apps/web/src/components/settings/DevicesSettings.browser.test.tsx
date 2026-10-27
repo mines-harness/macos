@@ -138,7 +138,7 @@ it("hides reconnect through each remote update stage and restores it after an in
       .element(screen.getByRole("button", { name: "Reconnect", exact: true }))
       .not.toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Forget", exact: true }))
+      .element(screen.getByRole("button", { name: "Forget Test server", exact: true }))
       .toBeDisabled();
   }
   await act(() =>
@@ -155,5 +155,7 @@ it("hides reconnect through each remote update stage and restores it after an in
   await expect
     .element(screen.getByRole("button", { name: "Reconnect", exact: true }))
     .toBeVisible();
-  await expect.element(screen.getByRole("button", { name: "Forget", exact: true })).toBeEnabled();
+  await expect
+    .element(screen.getByRole("button", { name: "Forget Test server", exact: true }))
+    .toBeEnabled();
 });

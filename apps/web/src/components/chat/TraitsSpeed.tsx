@@ -46,15 +46,16 @@ export function TraitsSpeedIcon({
 }: {
   provider: ProviderDriverKind;
   speedIcon: "fast" | "ultrafast";
-  size?: ComposerControlSize;
+  size?: ComposerControlSize | "text";
 }) {
   return (
     <>
       <ComposerControlIcon
         icon={speedIcon === "ultrafast" ? UltrafastIcon : ZapIcon}
-        size={size}
+        size={size === "text" ? "xs" : size}
         className={cn(
           "fill-current opacity-80",
+          size === "text" && "size-[1em]",
           size === "xs"
             ? "text-current"
             : provider === "claudeAgent"

@@ -25,6 +25,7 @@ function environment(input: {
   peerDeviceId?: string;
   phase?: EnvironmentConnectionPhase;
   enabled?: boolean;
+  error?: string;
 }) {
   const environmentId = EnvironmentId.make(input.id ?? "ovh");
   const label = input.name ?? "OVH";
@@ -46,7 +47,7 @@ function environment(input: {
       ),
       enabled: input.enabled ?? true,
     },
-    connection: { phase: input.phase ?? "available", error: null, traceId: null },
+    connection: { phase: input.phase ?? "available", error: input.error ?? null, traceId: null },
   };
 }
 
@@ -163,6 +164,17 @@ it("requires a live session for Connected and gives disabled routes priority", (
     buildDeviceList({ environments: [environment({ enabled: false, phase: "connected" })] })[0]
       ?.status,
   ).toBe("disabled");
+});
+
+it("shows the connection failure while a saved device retries instead of a pending connection", () => {
+  const error = "The requested CLI release could not be downloaded (404).";
+  for (const phase of ["connecting", "reconnecting", "error", "unsupported"] as const) {
+    const rows = buildDeviceList({
+      environments: [environment({ peerDeviceId: ovh.deviceId, phase, error })],
+      directory: { devices: [ovh], presence: [{ deviceId: ovh.deviceId, online: true }] },
+    });
+    expect(rows[0]).toMatchObject({ status: "unavailable", presence: "online", error });
+  }
 });
 
 it("excludes the current environment and both of its account identities from other devices", () => {

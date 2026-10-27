@@ -8,6 +8,7 @@ import * as Cause from "effect/Cause";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { act, render } from "../../test/render";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { peerDeviceAccountIdAtom } from "../state/catalogIdentity";
 
 const state = vi.hoisted(() => ({
   accountId: null as string | null,
@@ -40,7 +41,13 @@ vi.mock("../state/session", () => ({
   readEnvironmentScope: () => true,
   useEnvironmentsWithScope: () => new Set(state.hosts.map((host) => host.id)),
 }));
-vi.mock("../state/catalogIdentity", () => ({ bindCatalogIdentity: { kind: "bind" } }));
+vi.mock("../state/catalogIdentity", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return {
+    bindCatalogIdentity: { kind: "bind" },
+    peerDeviceAccountIdAtom: Atom.make<string | null>(null).pipe(Atom.keepAlive),
+  };
+});
 vi.mock("../state/peers", () => ({ peerConfigure: { kind: "configure" } }));
 vi.mock("./publicConfig", () => ({ minesControlUrl: () => "https://account.example.com" }));
 vi.mock("../components/ui/toast", () => ({ toastManager: { add: vi.fn() } }));
@@ -71,6 +78,7 @@ function setup() {
     );
   state.configure.mockReset().mockResolvedValue(AsyncResult.success({}));
   appAtomRegistry.set(minesAccountIdAtom, null);
+  appAtomRegistry.set(peerDeviceAccountIdAtom, null);
   appAtomRegistry.set(minesAccountEnvironmentIdsAtom, new Set());
   appAtomRegistry.set(minesCatalogIdentityAtom, { ready: false, accountId: null, readToken: null });
 }
@@ -96,6 +104,7 @@ describe("mines identity without a relay session", () => {
       router: false,
     });
     expect(appAtomRegistry.get(minesAccountIdAtom)).toBeNull();
+    expect(appAtomRegistry.get(peerDeviceAccountIdAtom)).toBe("account-a");
     expect(appAtomRegistry.get(minesCatalogIdentityAtom).ready).toBe(false);
     expect(appAtomRegistry.get(minesAccountEnvironmentIdsAtom).size).toBe(0);
     await act(() => cleared.resolve(AsyncResult.success(["account-a-device"])));
@@ -109,6 +118,7 @@ describe("mines identity without a relay session", () => {
     state.accountId = null;
     await screen.rerender(<MinesIdentityBridge>Signed out</MinesIdentityBridge>);
     expect(appAtomRegistry.get(minesAccountIdAtom)).toBeNull();
+    expect(appAtomRegistry.get(peerDeviceAccountIdAtom)).toBeNull();
     expect(appAtomRegistry.get(minesAccountEnvironmentIdsAtom).size).toBe(0);
     expect(appAtomRegistry.get(minesCatalogIdentityAtom).readToken).toBeNull();
   });

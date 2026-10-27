@@ -177,7 +177,7 @@ export function buildThreadActionMenuItems(
       ? [{ id: "transfer-mine" as const, label: "Transfer mine…", icon: "arrow-right-left" }]
       : []),
     ...(state.canShareWithGuest
-      ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
+      ? [{ id: "share-guest" as const, label: "Share link", icon: "user-plus" }]
       : []),
     ...(state.projectFilter
       ? [

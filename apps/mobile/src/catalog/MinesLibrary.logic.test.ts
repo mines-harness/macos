@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   MinesCatalog,
+  catalogHostId,
   type MinesCatalogEntry,
   type MinesCatalogSnapshot,
 } from "@t3tools/client-runtime/catalog";
@@ -60,8 +61,21 @@ function nestedThreadSnapshot(): MinesCatalogSnapshot {
 }
 
 describe("thread hierarchy", () => {
-  it("opens nested parent threads by default with independent pinned shortcut paths", () => {
+  it("keeps child families closed until their parent is expanded", () => {
     const rows = buildLibraryRows(nestedThreadSnapshot(), new Set(), new Set(), new Set());
+    expect(rows.filter((row) => "entry" in row).map((row) => [row.key, row.open])).toEqual([
+      ["pins/parent", false],
+      ["library/parent", false],
+    ]);
+  });
+
+  it("expands nested threads with independent pinned shortcut paths", () => {
+    const rows = buildLibraryRows(
+      nestedThreadSnapshot(),
+      new Set(),
+      new Set(["pins/parent", "pins/parent/child", "library/parent", "library/parent/child"]),
+      new Set(),
+    );
     const entries = rows.filter((row) => "entry" in row);
     expect(entries.map((row) => [row.key, row.depth])).toEqual([
       ["pins/parent", 0],
@@ -76,8 +90,8 @@ describe("thread hierarchy", () => {
   it("collapses only the chosen parent path and filters hidden descendants", () => {
     const rows = buildLibraryRows(
       nestedThreadSnapshot(),
-      new Set(["pins/parent"]),
       new Set(),
+      new Set(["library/parent", "library/parent/child"]),
       new Set(["grandchild"]),
     );
     const entries = rows.filter((row) => "entry" in row);
@@ -89,5 +103,58 @@ describe("thread hierarchy", () => {
     expect(entries.find((row) => row.key === "pins/parent")?.open).toBe(false);
     expect(entries.find((row) => row.key === "library/parent")?.open).toBe(true);
     expect(entries.find((row) => row.key === "library/parent/child")?.hasChildren).toBe(false);
+  });
+
+  it("lists subagents only under mines or as pinned aliases, keeping forks and other environments", () => {
+    let id = 0;
+    const catalog = new MinesCatalog({ createId: () => `placement-${++id}` });
+    const childId = catalogHostId("thread", "device-a", "child");
+    const otherChildId = catalogHostId("thread", "device-b", "child");
+    catalog.upsert({ id: "parent", kind: "thread", title: "Build" });
+    catalog.upsert({ id: "project", kind: "project", title: "App" });
+    catalog.upsert({ id: childId, kind: "thread", title: "Agent" }, { parentId: "project" });
+    catalog.upsert({ id: otherChildId, kind: "thread", title: "Fork" });
+    catalog.pin(childId);
+    const listed = () =>
+      buildLibraryRows(
+        catalog.getSnapshot(),
+        new Set(),
+        new Set(["library/project", "library/parent"]),
+        new Set(),
+        new Set([childId]),
+      ).filter((row) => "entry" in row);
+
+    expect(listed().map((row) => row.entry.entity.id)).toEqual([
+      childId,
+      "parent",
+      "project",
+      otherChildId,
+    ]);
+    expect(listed().find((row) => row.entry.entity.id === "project")?.hasChildren).toBe(false);
+    catalog.move(childId, null);
+    expect(listed().filter((row) => row.entry.entity.id === childId)).toHaveLength(1);
+    catalog.move(childId, "parent");
+    expect(
+      listed()
+        .filter((row) => row.entry.entity.id === childId)
+        .map((row) => [row.pinned, row.depth]),
+    ).toEqual([
+      [true, 0],
+      [false, 1],
+    ]);
+  });
+
+  it("hides archived children in both pinned and nested placements", () => {
+    const snapshot = nestedThreadSnapshot();
+    const rows = buildLibraryRows(
+      { ...snapshot, pins: [snapshot.roots[0]!.children[0]!] },
+      new Set(),
+      new Set(["library/parent"]),
+      new Set(["child"]),
+      new Set(["child", "grandchild"]),
+    );
+    const entries = rows.filter((row) => "entry" in row);
+    expect(entries.map((row) => row.entry.entity.id)).toEqual(["parent"]);
+    expect(entries[0]?.hasChildren).toBe(false);
   });
 });

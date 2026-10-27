@@ -48,7 +48,7 @@ const make = Effect.gen(function* () {
   const directory = yield* DeviceDirectory.DeviceDirectory;
   const contacts = yield* Contacts.Contacts;
   const crypto = yield* Crypto.Crypto;
-  const registrations = yield* Semaphore.make(1);
+  const deviceChanges = yield* Semaphore.make(1);
   const tickets = new Map<string, { accountId: string; device: PeerDevice; expiresAt: number }>();
   const proofs = new Map<string, number>();
   const connections = new Map<string, { accountId: string; connections: Set<SignalConnection> }>();
@@ -113,7 +113,7 @@ const make = Effect.gen(function* () {
       )
         return yield* new PeerError({ code: "unapproved-device" });
       yield* directory.register(accountId, verified.device);
-    }, registrations.withPermit),
+    }, deviceChanges.withPermit),
     ticket: Effect.fn("Signaling.ticket")(function* (accountId, value) {
       const verified = yield* proof(value, "ticket");
       const devices = yield* directory.list(accountId);
@@ -160,7 +160,7 @@ const make = Effect.gen(function* () {
             connections.delete(current.deviceId);
         },
       };
-    }),
+    }, deviceChanges.withPermit),
     forward: Effect.fn("Signaling.forward")(function* (accountId, device, signal) {
       const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
       const verified = yield* Effect.try({
@@ -223,7 +223,7 @@ const make = Effect.gen(function* () {
       for (const [token, ticket] of tickets)
         if (ticket.accountId === accountId && ticket.device.deviceId === deviceId)
           tickets.delete(token);
-    }),
+    }, deviceChanges.withPermit),
   });
 });
 

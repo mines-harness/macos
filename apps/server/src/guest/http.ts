@@ -7,7 +7,6 @@ import {
   GUEST_SHARE_PARAM,
   GUEST_MESSAGE_MAX_ATTACHMENT_BYTES,
   GUEST_MESSAGE_MAX_ATTACHMENTS,
-  GUEST_SHARE_TTL_MS,
   GuestRedeemRequest,
   GuestStreamEvent,
   GuestSubmitRequest,
@@ -17,9 +16,11 @@ import {
   OrchestrationV2GetTurnItemResult,
 } from "@t3tools/contracts";
 import * as ByteSize from "effect/ByteSize";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse, Multipart } from "effect/http";
@@ -28,6 +29,8 @@ import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage";
 import { htmlRenderFileName } from "@t3tools/shared/htmlRender";
 
 import { assetFileResponse, downloadContentDisposition } from "../http.ts";
+import { CloudManagedEndpointRuntime } from "../cloud/ManagedEndpointRuntime.ts";
+import { guestRequestIp } from "./guestRequestIp.ts";
 import type { GuestUpload } from "./guestAttachments.ts";
 import { GuestShareAccessError, GuestShareService } from "./GuestShareService.ts";
 
@@ -51,7 +54,10 @@ const errorResponse = (error: GuestShareAccessError) =>
     { reason: error.reason, message: error.message },
     {
       status:
-        error.reason === "invalid" || error.reason === "inactive" || error.reason === "unavailable"
+        error.reason === "invalid" ||
+        error.reason === "inactive" ||
+        error.reason === "unavailable" ||
+        error.reason === "forbidden"
           ? 403
           : error.reason === "empty" ||
               error.reason === "too_many_files" ||
@@ -79,13 +85,27 @@ const sessionToken = Effect.map(HttpServerRequest.HttpServerRequest, (request) =
   sessionFor(request, requestedShareId(request)),
 );
 
+/** Only a verified proxy or the socket peer supplies a guest identity address. */
+const requestIpAddress = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const connector = yield* CloudManagedEndpointRuntime;
+  const facts =
+    request.headers["cf-connecting-ip"] === undefined ? null : yield* connector.inspectConnector;
+  const ipAddress = guestRequestIp({
+    ipAddress: Option.getOrUndefined(request.remoteAddress),
+    headers: request.headers,
+    relayHostname: (facts?.readyConnections ?? 0) > 0 ? (facts?.hostname ?? null) : null,
+  });
+  return ipAddress === null ? yield* new GuestShareAccessError({ reason: "invalid" }) : ipAddress;
+});
+
 /** The `?item=` a per-item route names. */
 const itemParam = Effect.map(HttpServerRequest.HttpServerRequest, (request) =>
   new URLSearchParams(request.url.split("?", 2)[1] ?? "").get("item"),
 );
 
 /** Server-sent events with a heartbeat, never cached or buffered on the way. */
-const eventStreamResponse = <A, I>(
+const eventStreamResponse = <A>(
   events: Stream.Stream<A>,
   encode: (event: A) => Effect.Effect<string, Schema.SchemaError>,
 ) => {
@@ -134,21 +154,21 @@ const redeemRoute = HttpRouter.add(
     const body = yield* readJson.pipe(Effect.flatMap(decodeRedeem), Effect.option);
     if (body._tag === "None") return yield* badRequest;
     const guestShares = yield* GuestShareService;
-    return yield* guestShares.redeem(body.value).pipe(
-      Effect.flatMap(({ token, shareId }) =>
+    return yield* guestShares.redeem(body.value, yield* requestIpAddress).pipe(
+      Effect.flatMap(({ token, shareId, expiresAt }) =>
         HttpServerResponse.empty({ status: 204, headers: NO_STORE }).pipe(
           HttpServerResponse.setCookie(guestSessionCookieName(shareId), token, {
             httpOnly: true,
             secure: true,
             sameSite: "strict",
             path: GUEST_ROUTE_PREFIX,
-            maxAge: Duration.millis(GUEST_SHARE_TTL_MS),
+            expires: DateTime.toDateUtc(DateTime.makeUnsafe(expiresAt)),
           }),
         ),
       ),
       Effect.catchTags({ GuestShareAccessError: errorResponse }),
     );
-  }),
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 // The parser stops a request with too many parts or bytes before it reaches the disk; the
@@ -182,9 +202,11 @@ export const readSubmission = Effect.gen(function* () {
         }),
     ),
   );
-  const fields = yield* decodeSubmit({ shareId: parts.shareId, text: parts.text ?? "" }).pipe(
-    Effect.option,
-  );
+  const fields = yield* decodeSubmit({
+    shareId: parts.shareId,
+    text: parts.text ?? "",
+    ...(parts.requestId === undefined ? {} : { requestId: parts.requestId }),
+  }).pipe(Effect.option);
   if (fields._tag === "None") return null;
   const files = parts.file;
   const uploads: ReadonlyArray<GuestUpload> = Array.isArray(files)
@@ -207,10 +229,12 @@ const submitRoute = HttpRouter.add(
     // and store up to 10 MB.
     const shareId = requestedShareId(request);
     const session = sessionFor(request, shareId);
-    yield* guestShares.check(session);
+    const ipAddress = yield* requestIpAddress;
+    yield* guestShares.check(session, ipAddress);
     const submission = yield* readSubmission;
     if (submission === null || submission.fields.shareId !== shareId) return yield* badRequest;
-    yield* guestShares.submit(session, submission.fields, submission.uploads);
+    // The pre-body check recorded this IP; a newer request may have changed it since.
+    yield* guestShares.submit(session, submission.fields, submission.uploads, ipAddress, false);
     return HttpServerResponse.empty({ status: 204, headers: NO_STORE });
   }).pipe(
     Effect.catchTags({ GuestShareAccessError: errorResponse }),
@@ -224,11 +248,11 @@ const streamRoute = HttpRouter.add(
   `${GUEST_ROUTE_PREFIX}/stream`,
   Effect.gen(function* () {
     const guestShares = yield* GuestShareService;
-    return yield* guestShares.stream(yield* sessionToken).pipe(
+    return yield* guestShares.stream(yield* sessionToken, yield* requestIpAddress).pipe(
       Effect.map((events) => eventStreamResponse(events, encodeStreamEvent)),
       Effect.catchTags({ GuestShareAccessError: errorResponse }),
     );
-  }),
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 // Lets a returning guest skip the name form when this browser already joined the share.
@@ -238,12 +262,12 @@ const sessionRoute = HttpRouter.add(
   Effect.gen(function* () {
     const guestShares = yield* GuestShareService;
     return yield* guestShares
-      .check(yield* sessionToken)
+      .check(yield* sessionToken, yield* requestIpAddress)
       .pipe(
         Effect.as(HttpServerResponse.empty({ status: 204, headers: NO_STORE })),
         Effect.catchTags({ GuestShareAccessError: errorResponse }),
       );
-  }),
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 // The response carries the asset route's sandbox CSP: the page gets an opaque origin, so its
@@ -255,7 +279,7 @@ const renderRoute = HttpRouter.add(
     const itemId = yield* itemParam;
     if (!itemId) return yield* badRequest;
     const guestShares = yield* GuestShareService;
-    return yield* guestShares.render(yield* sessionToken, itemId).pipe(
+    return yield* guestShares.render(yield* sessionToken, itemId, yield* requestIpAddress).pipe(
       Effect.flatMap(({ path, title }) =>
         assetFileResponse({ path, mimeType: "text/html", fileName: htmlRenderFileName(title) }),
       ),
@@ -263,7 +287,7 @@ const renderRoute = HttpRouter.add(
       Effect.map((response) => HttpServerResponse.setHeaders(response, NO_STORE)),
       Effect.catchTags({ GuestShareAccessError: errorResponse }),
     );
-  }),
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 const itemRoute = HttpRouter.add(
@@ -273,7 +297,7 @@ const itemRoute = HttpRouter.add(
     const itemId = yield* itemParam;
     if (!itemId) return yield* badRequest;
     const guestShares = yield* GuestShareService;
-    return yield* guestShares.item(yield* sessionToken, itemId).pipe(
+    return yield* guestShares.item(yield* sessionToken, itemId, yield* requestIpAddress).pipe(
       Effect.flatMap((result) =>
         encodeItem(result).pipe(
           Effect.mapError(() => new GuestShareAccessError({ reason: "unavailable" })),
@@ -282,7 +306,7 @@ const itemRoute = HttpRouter.add(
       Effect.map((body) => HttpServerResponse.jsonUnsafe(body, { headers: NO_STORE })),
       Effect.catchTags({ GuestShareAccessError: errorResponse }),
     );
-  }),
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 // Ends when the command settles; the page closes its EventSource on that last frame, so the
@@ -294,11 +318,13 @@ const commandOutputRoute = HttpRouter.add(
     const itemId = yield* itemParam;
     if (!itemId) return yield* badRequest;
     const guestShares = yield* GuestShareService;
-    return yield* guestShares.commandOutput(yield* sessionToken, itemId).pipe(
-      Effect.map((frames) => eventStreamResponse(frames, encodeOutputFrame)),
-      Effect.catchTags({ GuestShareAccessError: errorResponse }),
-    );
-  }),
+    return yield* guestShares
+      .commandOutput(yield* sessionToken, itemId, yield* requestIpAddress)
+      .pipe(
+        Effect.map((frames) => eventStreamResponse(frames, encodeOutputFrame)),
+        Effect.catchTags({ GuestShareAccessError: errorResponse }),
+      );
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 // Images of the four checked types load inline; anything else downloads as bytes, so a guest's
@@ -311,27 +337,29 @@ const attachmentRoute = HttpRouter.add(
     const attachmentId = new URLSearchParams(request.url.split("?", 2)[1] ?? "").get("id");
     if (!attachmentId) return yield* badRequest;
     const guestShares = yield* GuestShareService;
-    return yield* guestShares.attachment(yield* sessionToken, attachmentId).pipe(
-      Effect.flatMap(({ path, attachment }) =>
-        HttpServerResponse.file(path, {
-          headers: {
-            ...NO_STORE,
-            "x-content-type-options": "nosniff",
-            "content-security-policy": "default-src 'none'; sandbox",
-            ...(attachment.type === "image" &&
-            isProviderSendTurnSupportedImageMimeType(attachment.mimeType)
-              ? { "content-type": attachment.mimeType }
-              : {
-                  "content-type": "application/octet-stream",
-                  "content-disposition": downloadContentDisposition(attachment.name),
-                }),
-          },
-        }),
-      ),
-      Effect.catchTags({ GuestShareAccessError: errorResponse }),
-      Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 500, headers: NO_STORE })),
-    );
-  }),
+    return yield* guestShares
+      .attachment(yield* sessionToken, attachmentId, yield* requestIpAddress)
+      .pipe(
+        Effect.flatMap(({ path, attachment }) =>
+          HttpServerResponse.file(path, {
+            headers: {
+              ...NO_STORE,
+              "x-content-type-options": "nosniff",
+              "content-security-policy": "default-src 'none'; sandbox",
+              ...(attachment.type === "image" &&
+              isProviderSendTurnSupportedImageMimeType(attachment.mimeType)
+                ? { "content-type": attachment.mimeType }
+                : {
+                    "content-type": "application/octet-stream",
+                    "content-disposition": downloadContentDisposition(attachment.name),
+                  }),
+            },
+          }),
+        ),
+        Effect.catchTags({ GuestShareAccessError: errorResponse }),
+        Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 500, headers: NO_STORE })),
+      );
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
 );
 
 export const layer = Layer.mergeAll(

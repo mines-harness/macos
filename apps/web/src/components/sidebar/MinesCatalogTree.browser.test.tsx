@@ -40,6 +40,7 @@ vi.mock("../../state/entities", () => ({
   useProjects: () => state.empty,
   useQuietThreadShells: () => state.empty,
   useServerConfigs: () => state.emptyMap,
+  useThreadShell: () => null,
 }));
 vi.mock("../../state/environments", () => ({
   useConnectedEnvironmentIds: () => state.empty,
@@ -48,9 +49,16 @@ vi.mock("../../state/environments", () => ({
   useEnvironments: () => ({ presentationById: state.emptyMap }),
 }));
 vi.mock("../../hooks/useHandleNewThread", () => ({ useNewThreadHandler: () => vi.fn() }));
+vi.mock("../../hooks/useThreadActions", () => ({
+  useThreadActions: () => ({ archiveThread: vi.fn() }),
+}));
+vi.mock("../../hooks/useSettings", () => ({ useClientSettings: () => false }));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
 vi.mock("../../state/groups", () => ({ groupList: vi.fn() }));
-vi.mock("../../state/threads", () => ({ threadEnvironment: { archive: {}, unarchive: {} } }));
+vi.mock("../../state/threads", () => ({
+  threadEnvironment: { archive: {}, unarchive: {} },
+  useThreadFamily: () => {},
+}));
 vi.mock("../../state/shell", () => ({ liveShellEnvironmentIdsAtom: {} }));
 vi.mock("../../state/use-orchestration-command", () => ({
   useOrchestrationCommand: () => vi.fn(),

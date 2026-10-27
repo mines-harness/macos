@@ -59,6 +59,7 @@ function DeviceVersionAction({
         targetVersion={targetVersion}
         label="Update CLI"
         appearance="icon"
+        variant="plain"
       />
     );
   }
@@ -93,8 +94,8 @@ function DeviceVersionAction({
       threadContinuation={supportsServerUpdateThreadContinuation(config)}
       targetVersion={targetVersion}
       label="Update CLI"
-      size="xs"
       appearance="icon"
+      variant="plain"
     />
   );
 }

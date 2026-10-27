@@ -41,6 +41,8 @@ const SETTINGS_SEARCH_TERMS = {
     "auto-resume",
     "plan mode",
     "working section",
+    "guest links",
+    "share link",
   ],
   SettingsFollowUp: ["queue", "steer", "while the agent is running"],
   SettingsArchive: ["archive", "archived", "restore", "unarchive"],

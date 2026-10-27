@@ -1,4 +1,6 @@
+import { guestShareGuests, guestSharePermission } from "@t3tools/contracts";
 import type {
+  GuestSessionId,
   GuestShareView,
   GuestThreadModel,
   OrchestrationV2AppThread,
@@ -24,15 +26,40 @@ export function guestThreadModel(
 export function guestShareView(
   thread: OrchestrationV2AppThread,
   model: GuestThreadModel,
+  guestId?: GuestSessionId,
 ): GuestShareView | null {
   const share = thread.guestShare;
-  if (!share || share.guestName === null) return null;
+  if (!share) return null;
+  const guests = guestShareGuests(share);
+  const guest = guests.find((candidate) => candidate.id === guestId);
+  const guestName = guestId === undefined ? share.guestName : guest?.name;
+  if (!guestName) return null;
   return {
     shareId: share.id,
     title: thread.title,
-    guestName: share.guestName,
+    guestName,
+    permission: guestSharePermission(share),
+    ...(guestId === undefined ? {} : { guestId }),
+    guests: guests.map(({ id, name, joinedAt }) => ({ id, name, joinedAt })),
     expiresAt: share.expiresAt,
     messages: share.messages,
     model,
+  };
+}
+
+export function guestVisibleThread(thread: OrchestrationV2AppThread): OrchestrationV2AppThread {
+  const { guestBannedIps: _bannedIps, ...visible } = thread;
+  return {
+    ...visible,
+    ...(thread.guestShare == null
+      ? {}
+      : {
+          guestShare: {
+            ...thread.guestShare,
+            guests: guestShareGuests(thread.guestShare).map(
+              ({ ipAddress: _ip, ...guest }) => guest,
+            ),
+          },
+        }),
   };
 }

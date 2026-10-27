@@ -95,8 +95,11 @@ export function ParticipantPicker({
           <span className="max-w-64 truncate">{participantLabel(value, label)}</span>
         </span>
       </ComboboxTrigger>
-      <ComboboxPopup align="center" className="w-80">
-        <ComboboxSearchInput aria-label="Search mines" placeholder="Search your mines…" />
+      <ComboboxPopup align="center" className="w-96">
+        <ComboboxSearchInput
+          aria-label="Search mines"
+          placeholder="Search your mines or contacts..."
+        />
         <ComboboxEmpty>No matching mines.</ComboboxEmpty>
         <ComboboxList>
           {(item: ParticipantCandidate) => (

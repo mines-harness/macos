@@ -26,6 +26,7 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
+import { CodexResetStatus } from "./CodexResetStatus";
 import { usageProviderKind, useProviderColors } from "./usageProviders";
 
 const DRIVER_LABEL: Partial<Record<string, string>> = {
@@ -350,6 +351,7 @@ export function UsageLimitsSection({
                   />
                 );
               })}
+              {pool.driver === "codex" ? <CodexResetStatus /> : null}
             </View>
           </Fragment>
         );

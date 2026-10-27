@@ -1,6 +1,32 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createLiveVoicePeer } from "./liveVoicePeer";
+import { createLiveVoicePeer, isGptVoiceModel, liveVoiceTargetBlockReason } from "./liveVoicePeer";
+
+describe("GPT live voice visibility", () => {
+  it.each(["gpt-6.1-sol", "GPT-5.6", "openai/gpt-5.5", "opencode/gpt-5.4", "openai.gpt-5.5"])(
+    "shows the waveform for selected model %s before a mine exists",
+    (model) => expect(isGptVoiceModel(model)).toBe(true),
+  );
+
+  it.each(["claude-sonnet-4-6", "openai/o3", "grok-4", "", "custom-gpt-proxy"])(
+    "hides the waveform when selected model %s is not GPT",
+    (model) => expect(isGptVoiceModel(model)).toBe(false),
+  );
+});
+
+describe("live voice target", () => {
+  it("allows a single GPT mine while keeping participant drafts separate", () => {
+    expect(
+      liveVoiceTargetBlockReason({ hasParticipants: false, hasMultipleModels: false }),
+    ).toBeNull();
+    expect(liveVoiceTargetBlockReason({ hasParticipants: true, hasMultipleModels: false })).toMatch(
+      /participant/,
+    );
+    expect(liveVoiceTargetBlockReason({ hasParticipants: false, hasMultipleModels: true })).toMatch(
+      /one model/,
+    );
+  });
+});
 
 function setup() {
   const microphone = { stop: vi.fn(), addEventListener: vi.fn() };

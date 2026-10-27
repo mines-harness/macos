@@ -3,6 +3,7 @@ import {
   GUEST_COMMAND_OUTPUT_ROUTE,
   GUEST_RENDER_ROUTE,
   GuestMessageId,
+  GuestSessionId,
   GuestShareId,
   GuestStreamEvent,
   MessageId,
@@ -119,8 +120,9 @@ const view: GuestShareView = {
 const opening = (
   runs: ReadonlyArray<OrchestrationV2Run>,
   turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
+  guestView: GuestShareView = view,
 ): ReadonlyArray<GuestStreamEvent> => [
-  { type: "view", view },
+  { type: "view", view: guestView },
   {
     type: "thread",
     item: {
@@ -216,6 +218,56 @@ function visit(path: string): Disposable {
 }
 
 describe("GuestPage", () => {
+  it("lets viewers follow the conversation without a message composer", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using _session = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(
+        fakeEventSource(
+          opening([run("run-1", 1, "completed")], items, { ...view, permission: "viewer" }),
+        ) as never,
+      );
+    await using screen = await render(<GuestPage />);
+
+    await expect.element(screen.getByText(/Viewer access/)).toBeVisible();
+    await expect.element(screen.getByLabelText("Message", { exact: true })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("button", { name: "Send" })).not.toBeInTheDocument();
+  });
+
+  it("shows direct sending permission and another guest's nickname on their waiting message", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using _session = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    using _stream = vi.spyOn(window, "EventSource").mockImplementation(
+      fakeEventSource(
+        opening([run("run-1", 1, "completed")], items, {
+          ...view,
+          permission: "send",
+          guestId: GuestSessionId.make("sam"),
+          messages: [
+            {
+              id: GuestMessageId.make("alex-question"),
+              guestId: GuestSessionId.make("alex"),
+              guestName: "Alex",
+              text: "Please check the settings too.",
+              status: "pending",
+              submittedAt: "2026-10-23T10:01:00.000Z",
+            },
+          ],
+        }),
+      ) as never,
+    );
+    await using screen = await render(<GuestPage />);
+
+    await expect.element(screen.getByText("Messages go straight to the agent")).toBeVisible();
+    await expect.element(screen.getByText("Alex (guest)", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("Please check the settings too.")).toBeVisible();
+  });
+
   it("shows the shared thread in the real timeline without opening an environment connection", async () => {
     using _page = visit(`/guest?share=${SHARE_ID}`);
     using _session = vi
@@ -277,9 +329,40 @@ describe("GuestPage", () => {
     const form = body as FormData;
     expect(form.get("shareId")).toBe(SHARE_ID);
     expect(form.get("text")).toBe("");
+    expect(form.get("requestId")).toEqual(expect.any(String));
     expect((form.get("file") as File).name).toBe("notes.txt");
     // Sent files leave the composer.
     await expect.element(screen.getByText("notes.txt")).not.toBeInTheDocument();
+  });
+
+  it("reuses a submission identity after a lost response and gives an accepted new message another one", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    const submissions: Array<FormData> = [];
+    using _session = vi.spyOn(window, "fetch").mockImplementation(async (_url, init) => {
+      if (init?.body instanceof FormData) {
+        submissions.push(init.body);
+        if (submissions.length === 1) throw new TypeError("Connection lost");
+      }
+      return new Response(null, { status: 204 });
+    });
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(fakeEventSource(opening([], [])) as never);
+    await using screen = await render(<GuestPage />);
+
+    await userEvent.type(screen.getByLabelText("Message", { exact: true }), "Check login");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Could not reach the server.");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await expect.element(screen.getByLabelText("Message", { exact: true })).toHaveValue("");
+    expect(submissions[0]?.get("requestId")).toBe(submissions[1]?.get("requestId"));
+
+    await userEvent.type(screen.getByLabelText("Message", { exact: true }), "Check login");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await expect.element(screen.getByLabelText("Message", { exact: true })).toHaveValue("");
+    expect(submissions[2]?.get("requestId")).not.toBe(submissions[0]?.get("requestId"));
   });
 
   it("follows the end as replies stream, and shows the guest's own message even after they scrolled up", async () => {

@@ -49,6 +49,10 @@ const buttonVariants = cva(
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-foreground",
         "ghost-destructive":
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-destructive",
+        plain:
+          "[--control-icon-color:currentColor] border-0 bg-transparent text-muted-foreground [:hover,[data-pressed]]:text-foreground",
+        "plain-destructive":
+          "[--control-icon-color:currentColor] border-0 bg-transparent text-destructive [:hover,[data-pressed]]:text-destructive/80",
         glass:
           "surface-glass [--control-icon-color:var(--contrast-muted-foreground)] rounded-full border-border/60 text-foreground shadow-sm before:rounded-full [:hover,[data-pressed]]:border-border",
         link: "border-transparent underline-offset-4 [:hover,[data-pressed]]:underline",

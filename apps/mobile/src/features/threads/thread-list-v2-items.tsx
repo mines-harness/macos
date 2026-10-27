@@ -13,6 +13,8 @@ import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import { threadEnvironment } from "../../state/threads";
+import { openGuestShareDialog } from "../../state/guest-sharing";
+import { useCanShareWithGuest } from "./useThreadGuestShare";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 import type { ThreadMoveDestination } from "./threadOrder";
@@ -677,6 +679,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleRename = useCallback(() => onRenameThread(thread), [onRenameThread, thread]);
   const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
+  const canShare = useCanShareWithGuest(thread.environmentId);
   const handleRegenerateTitle = useCallback(
     () => onRegenerateThreadTitle(thread),
     [onRegenerateThreadTitle, thread],
@@ -897,6 +900,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "copy-thread-id") {
         copyTextWithHaptic(thread.id, { target: "thread-id" });
       }
+      if (nativeEvent.event === "share-link" && canShare) {
+        openGuestShareDialog({ environmentId: thread.environmentId, threadId: thread.id });
+      }
       if (nativeEvent.event === "delete") handleDelete();
       if (nativeEvent.event === "snooze:custom") {
         setCustomSnoozeOpen(true);
@@ -916,6 +922,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [
       onNewThreadOnBranch,
       thread,
+      canShare,
       handleArchive,
       handleDelete,
       handleRegenerateTitle,
@@ -1364,7 +1371,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     );
 
   if (!canOperateThread)
-    return <View style={rowAppearance.swipeContainerStyle}>{rowContent(() => {})}</View>;
+    return (
+      <View style={rowAppearance.swipeContainerStyle}>
+        {canShare ? (
+          <Menu
+            actions={[{ id: "share-link", title: "Share link", image: "square.and.arrow.up" }]}
+            onPressAction={handleMenuAction}
+            shouldOpenOnLongPress
+          >
+            {rowContent(() => {})}
+          </Menu>
+        ) : (
+          rowContent(() => {})
+        )}
+      </View>
+    );
 
   return (
     <View collapsable={false}>
@@ -1402,6 +1423,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   ]
                 : []),
               { id: "copy-thread-id", title: "Copy mine ID", image: "doc.on.doc" },
+              ...(canShare
+                ? [{ id: "share-link", title: "Share link", image: "square.and.arrow.up" }]
+                : []),
               ...(snoozedRow
                 ? snoozedMenuActions
                 : !props.settlementSupported

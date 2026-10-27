@@ -21,7 +21,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -37,6 +36,7 @@ import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandOutputHub from "../orchestration-v2/CommandOutputHub.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as EffectOutbox from "../orchestration-v2/EffectOutbox.ts";
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
@@ -47,6 +47,7 @@ import * as ResourceCleanupService from "../orchestration-v2/ResourceCleanupServ
 import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as GuestPublicEndpoint from "./GuestPublicEndpoint.ts";
 import * as GuestShareService from "./GuestShareService.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
@@ -77,6 +78,25 @@ const layerConnect = Layer.mock(CloudManagedEndpointRuntime)({
     hostname: value,
     protocol: "http2",
   })),
+});
+const publicRoute = Ref.makeUnsafe<string | null>(null);
+const publicEndpoint = Effect.map(Ref.get(publicRoute), (host) =>
+  host === null
+    ? null
+    : {
+        host,
+        url: (credential: string) => `https://mines.test/guest?host=${host}#${credential}`,
+      },
+);
+const layerPublicEndpoint = Layer.mock(GuestPublicEndpoint.GuestPublicEndpoint)({
+  current: publicEndpoint,
+  ensure: publicEndpoint.pipe(
+    Effect.flatMap((endpoint) =>
+      endpoint === null
+        ? Effect.fail(new GuestPublicEndpoint.GuestPublicEndpointError({ stage: "connection" }))
+        : Effect.succeed(endpoint),
+    ),
+  ),
 });
 const layerProviders = Layer.mock(ProviderRegistry.ProviderRegistry)({
   getProviders: Effect.succeed([]),
@@ -110,9 +130,21 @@ const layerTest = GuestShareService.layer.pipe(
       Layer.provideMerge(layerOrchestration.pipe(Layer.provide(layerCleanup))),
     ),
   ),
+  Layer.provide(
+    Layer.unwrap(
+      Effect.map(Orchestrator.OrchestratorV2, (orchestrator) =>
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          dispatch: (command) => orchestrator.dispatch(command),
+          getThreadSnapshotWindow: (id, options) =>
+            orchestrator.getThreadSnapshotWindow(id, options),
+        }),
+      ),
+    ).pipe(Layer.provide(layerOrchestration.pipe(Layer.provide(layerCleanup)))),
+  ),
   Layer.provide(layerProviders),
   Layer.provideMerge(ServerSettings.layerTest({ guestSharingEnabled: true })),
   Layer.provide(layerConnect),
+  Layer.provide(layerPublicEndpoint),
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(layerConfig),
   Layer.provideMerge(NodeServices.layer),
@@ -122,6 +154,7 @@ const threadId = ThreadId.make("thread:guest-share-service");
 
 const shareThreadFor = Effect.fn(function* (threadId: ThreadId) {
   yield* Ref.set(hostname, "env.t3.test");
+  yield* Ref.set(publicRoute, null);
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   yield* orchestrator.dispatch({
     type: "thread.create",
@@ -137,13 +170,265 @@ const shareThreadFor = Effect.fn(function* (threadId: ThreadId) {
     createdBy: "user",
     creationSource: "web",
   });
-  const guestShares = yield* GuestShareService.GuestShareService;
-  const { url } = yield* guestShares.create({ threadId });
+  const raw = yield* GuestShareService.GuestShareService;
+  const guestShares = {
+    ...raw,
+    redeem: (request: Parameters<typeof raw.redeem>[0], ip = "203.0.113.1") =>
+      raw.redeem(request, ip),
+    check: (session: string, ip = "203.0.113.1") => raw.check(session, ip),
+    submit: (
+      session: string,
+      request: Parameters<typeof raw.submit>[1],
+      uploads: Parameters<typeof raw.submit>[2],
+      ip = "203.0.113.1",
+    ) => raw.submit(session, request, uploads, ip),
+    stream: (session: string, ip = "203.0.113.1") => raw.stream(session, ip),
+    render: (session: string, item: string, ip = "203.0.113.1") => raw.render(session, item, ip),
+    item: (session: string, item: string, ip = "203.0.113.1") => raw.item(session, item, ip),
+    commandOutput: (session: string, item: string, ip = "203.0.113.1") =>
+      raw.commandOutput(session, item, ip),
+    attachment: (session: string, item: string, ip = "203.0.113.1") =>
+      raw.attachment(session, item, ip),
+  };
+  const { url } = yield* guestShares.create({ threadId, permission: "confirm" });
   assert.isTrue(url.startsWith("https://env.t3.test/guest#"));
   const credential = url.slice(url.indexOf("#") + 1);
   return { orchestrator, guestShares, credential };
 });
 const shareThread = shareThreadFor(threadId);
+
+it.effect("uses the public endpoint without a tunnel while retaining existing managed links", () =>
+  Effect.gen(function* () {
+    const { guestShares, credential } = yield* shareThread;
+    const managedGuest = yield* guestShares.redeem({ credential, name: "Before" });
+    yield* Ref.set(publicRoute, "device-route");
+    yield* guestShares.check(managedGuest.token);
+    yield* Ref.set(hostname, null);
+    const { url, share } = yield* guestShares.create({ threadId });
+    assert.isTrue(url.startsWith("https://mines.test/guest?host=device-route#"));
+    assert.equal(share.host, "device-route");
+    const guest = yield* guestShares.redeem({ credential: url.split("#")[1]!, name: "Public" });
+    yield* guestShares.check(guest.token);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("creates viewer links for six hours by default", () =>
+  Effect.gen(function* () {
+    const { guestShares } = yield* shareThread;
+    const { share } = yield* guestShares.create({ threadId });
+    assert.equal(share.permission, "viewer");
+    assert.equal(share.maxGuests, 1);
+    assert.equal(Date.parse(share.expiresAt) - Date.parse(share.createdAt), 6 * 60 * 60 * 1000);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("keeps a guest identity across network changes and bans its latest request IP", () =>
+  Effect.gen(function* () {
+    const { orchestrator, guestShares, credential } = yield* shareThread;
+    const { token, shareId } = yield* guestShares.redeem(
+      { credential, name: "Sam" },
+      "203.0.113.1",
+    );
+    yield* guestShares.check(token, "203.0.113.2");
+    const moved = (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!;
+    assert.equal(moved.guests![0]!.ipAddress, "203.0.113.2");
+    assert.equal(moved.useCount, 1);
+    yield* guestShares.submit(token, { shareId, text: "A note" }, [], "203.0.113.2");
+    const guestId = moved.guests![0]!.id;
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.ban",
+      commandId: CommandId.make("ban-latest-ip"),
+      threadId,
+      guestId,
+    });
+    const banned = (yield* orchestrator.getThreadRecords(threadId, [])).thread;
+    assert.deepEqual(banned.guestBannedIps, ["203.0.113.2"]);
+    assert.equal(
+      (yield* guestShares.check(token, "203.0.113.1").pipe(Effect.flip)).reason,
+      "inactive",
+    );
+    const replacement = yield* guestShares.create({ threadId });
+    const nextCredential = replacement.url.split("#")[1]!;
+    assert.equal(
+      (yield* guestShares
+        .redeem({ credential: nextCredential, name: "Banned" }, "203.0.113.2")
+        .pipe(Effect.flip)).reason,
+      "inactive",
+    );
+    const joined = yield* guestShares.redeem(
+      { credential: nextCredential, name: "New" },
+      "203.0.113.1",
+    );
+    assert.equal(
+      (yield* guestShares.check(joined.token, "203.0.113.2").pipe(Effect.flip)).reason,
+      "inactive",
+    );
+    yield* guestShares.check(joined.token, "203.0.113.3");
+    const nextGuest = (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!
+      .guests![0]!;
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.kick",
+      commandId: CommandId.make("kick-moving-guest"),
+      threadId,
+      guestId: nextGuest.id,
+    });
+    assert.equal(
+      (yield* guestShares.check(joined.token, "203.0.113.4").pipe(Effect.flip)).reason,
+      "inactive",
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("does not let an older open output stream overwrite a guest's newer IP", () =>
+  Effect.gen(function* () {
+    const { orchestrator, guestShares, credential } = yield* shareThread;
+    const { token } = yield* guestShares.redeem({ credential, name: "Sam" }, "203.0.113.1");
+    const command = yield* writeCommand("item:network-change", { status: "running" });
+    const collecting = yield* Stream.runCollect(
+      yield* guestShares.commandOutput(token, command, "203.0.113.1"),
+    ).pipe(Effect.forkChild);
+    yield* guestShares.check(token, "203.0.113.2");
+    yield* TestClock.adjust("30 seconds");
+    assert.equal(
+      (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!.guests![0]!.ipAddress,
+      "203.0.113.2",
+    );
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.close",
+      commandId: CommandId.make("close-old-output"),
+      threadId,
+    });
+    yield* TestClock.adjust("30 seconds");
+    yield* Fiber.join(collecting);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "isolates guest sessions, keeps nickname attribution, and revokes only a kicked guest",
+  () =>
+    Effect.gen(function* () {
+      const { guestShares, orchestrator } = yield* shareThread;
+      const { url, share } = yield* guestShares.create({
+        threadId,
+        permission: "confirm",
+        maxGuests: 2,
+        durationHours: 2,
+      });
+      const credential = url.split("#")[1]!;
+      const sam = yield* guestShares.redeem({ credential, name: "Sam" }, "203.0.113.1");
+      const eve = yield* guestShares.redeem({ credential, name: "Eve" }, "203.0.113.2");
+      assert.notEqual(sam.token, eve.token);
+      yield* guestShares.submit(sam.token, { shareId: share.id, text: "Sam's note" }, []);
+      const before = (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!;
+      assert.equal(before.messages[0]?.guestName, "Sam");
+      const samId = before.guests!.find((guest) => guest.name === "Sam")!.id;
+      const events = yield* guestShares.stream(sam.token);
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.kick",
+        commandId: CommandId.make("kick-sam"),
+        threadId,
+        guestId: samId,
+      });
+      assert.equal((yield* guestShares.check(sam.token).pipe(Effect.flip)).reason, "inactive");
+      yield* guestShares.check(eve.token, "203.0.113.2");
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(guestShares.redeem({ credential, name: "Again" }))),
+      );
+      assert.equal((yield* Stream.runCollect(events)).at(-1)?.type, "ended");
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("keeps IP bans scoped to a chat across replacement links and allows unban", () =>
+  Effect.gen(function* () {
+    const { guestShares, orchestrator, credential } = yield* shareThread;
+    yield* guestShares.redeem({ credential, name: "Sam" });
+    const guestId = (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!
+      .guests![0]!.id;
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.ban",
+      commandId: CommandId.make("ban-sam"),
+      threadId,
+      guestId,
+    });
+    const replacement = yield* guestShares.create({ threadId });
+    const next = replacement.url.split("#")[1]!;
+    assert.equal(
+      (yield* guestShares.redeem({ credential: next, name: "Sam" }).pipe(Effect.flip)).reason,
+      "inactive",
+    );
+    const other = yield* shareThreadFor(ThreadId.make("thread:separate-chat"));
+    yield* other.guestShares.redeem({ credential: other.credential, name: "Sam" });
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.unban",
+      commandId: CommandId.make("unban-sam"),
+      threadId,
+      ipAddress: "203.0.113.1",
+    });
+    yield* guestShares.redeem({ credential: next, name: "Sam" });
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "rejects viewer messages and sends direct guest messages once through normal intake",
+  () =>
+    Effect.gen(function* () {
+      const { guestShares, orchestrator } = yield* shareThread;
+      const viewer = yield* guestShares.create({ threadId });
+      const watch = yield* guestShares.redeem({
+        credential: viewer.url.split("#")[1]!,
+        name: "Watch",
+      });
+      assert.equal(
+        (yield* guestShares
+          .submit(watch.token, { shareId: viewer.share.id, text: "No" }, [])
+          .pipe(Effect.flip)).reason,
+        "forbidden",
+      );
+      const direct = yield* guestShares.create({ threadId, permission: "send" });
+      const writer = yield* guestShares.redeem({
+        credential: direct.url.split("#")[1]!,
+        name: "Sam",
+      });
+      const request = { shareId: direct.share.id, text: "Fix the issue", requestId: "request-1" };
+      yield* guestShares.submit(writer.token, request, []);
+      yield* guestShares.submit(writer.token, request, []);
+      const records = yield* orchestrator.getThreadRecords(threadId, ["messages"]);
+      assert.equal(records.messages.length, 1);
+      assert.equal(records.messages[0]?.context?.guest?.name, "Sam");
+      assert.equal(records.thread.guestShare?.messages[0]?.status, "sent");
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("does not expose guest IPs in guest view, snapshots, or live thread events", () =>
+  Effect.gen(function* () {
+    const { guestShares, orchestrator, credential } = yield* shareThread;
+    const { token } = yield* guestShares.redeem({ credential, name: "Sam" });
+    const events = yield* guestShares.stream(token);
+    yield* guestShares.submit(
+      token,
+      {
+        shareId: (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!.id,
+        text: "A note",
+      },
+      [],
+    );
+    yield* orchestrator.dispatch({
+      type: "thread.pin",
+      commandId: CommandId.make("pin-private-stream"),
+      threadId,
+    });
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.close",
+      commandId: CommandId.make("close-private-stream"),
+      threadId,
+    });
+    const received = yield* Stream.runCollect(events);
+    const json = JSON.stringify(received);
+    assert.notInclude(json, "203.0.113.1");
+    assert.notInclude(json, "ipAddress");
+    assert.notInclude(json, "guestBannedIps");
+  }).pipe(Effect.provide(layerTest)),
+);
 
 it.effect("spends an invite once and ends the guest stream when the owner stops sharing", () =>
   Effect.gen(function* () {
@@ -242,7 +527,7 @@ it.effect("starts a stream with the runs and items already in the thread", () =>
 it.effect("redeems only a short invite whose signature and share id are both current", () =>
   Effect.gen(function* () {
     const { guestShares, credential: replaced } = yield* shareThread;
-    const { url } = yield* guestShares.create({ threadId });
+    const { url } = yield* guestShares.create({ threadId, permission: "confirm" });
     const credential = url.slice(url.indexOf("#") + 1);
     assert.match(credential, /^[\w-]{22}\.[\w-]{22}$/);
 
@@ -290,6 +575,7 @@ it.effect("closes an open guest stream when T3 Connect stops serving the link's 
     );
     assert.isTrue(Exit.isFailure(yield* Effect.exit(guestShares.stream(session))));
     yield* Ref.set(hostname, "env.t3.test");
+    yield* Ref.set(publicRoute, null);
     assert.isTrue(Exit.isSuccess(yield* Effect.exit(guestShares.stream(session))));
   }).pipe(Effect.provide(layerTest)),
 );
@@ -590,6 +876,59 @@ it.effect("refuses too many files, too many bytes, and images that are not what 
   }).pipe(Effect.scoped, Effect.provide(layerTest)),
 );
 
+it.effect("keeps only the accepted files when the same upload request races", () =>
+  Effect.gen(function* () {
+    const { guestShares, session, shareId } = yield* joinedGuest;
+    const uploads = yield* uploadsOf([png("a.png")]);
+    const request = { shareId, text: "Once", requestId: "same-upload" };
+    yield* Effect.all(
+      [
+        guestShares.submit(session, request, uploads),
+        guestShares.submit(session, request, uploads),
+      ],
+      { concurrency: 2 },
+    );
+    assert.equal((yield* waitingMessages).length, 1);
+    assert.equal((yield* storedFiles).length, 1);
+  }).pipe(Effect.scoped, Effect.provide(layerTest)),
+);
+
+it.effect("removes retry copies after the accepted message leaves the bounded share history", () =>
+  Effect.gen(function* () {
+    const { orchestrator, guestShares, session, shareId } = yield* joinedGuest;
+    const uploads = yield* uploadsOf([png("a.png")]);
+    const request = { shareId, text: "Once", requestId: "trimmed-upload" };
+    yield* guestShares.submit(session, request, uploads);
+    const original = (yield* waitingMessages)[0]!;
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("accept-upload"),
+      threadId,
+      messageId: MessageId.make("accepted-upload"),
+      guestMessageId: original.id,
+      text: "",
+      attachments: original.attachments!,
+      dispatchMode: { type: "defer_start" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    for (let index = 0; index < 21; index += 1) {
+      yield* guestShares.submit(session, { shareId, text: `note ${index}` }, []);
+      const note = (yield* waitingMessages).find((message) => message.status === "pending")!;
+      yield* orchestrator.dispatch({
+        type: "thread.guest-message.dismiss",
+        commandId: CommandId.make(`dismiss-replay-note-${index}`),
+        threadId,
+        guestMessageId: note.id,
+      });
+    }
+    assert.isFalse((yield* waitingMessages).some((message) => message.id === original.id));
+    yield* guestShares.submit(session, request, uploads);
+    assert.equal((yield* storedFiles).length, 1);
+    yield* guestShares.attachment(session, original.attachments![0]!.id);
+  }).pipe(Effect.scoped, Effect.provide(layerTest)),
+);
+
 it.effect("caps the bytes of files waiting in one share", () =>
   Effect.gen(function* () {
     const { guestShares, session, shareId } = yield* joinedGuest;
@@ -719,6 +1058,7 @@ it.effect("sends a guest's files as the guest's message and keeps them the guest
     if (sent?.type !== "user_message") return;
     assert.deepEqual(sent.context?.guest, {
       guestMessageId: message!.id,
+      guestId: message!.guestId,
       name: "Sam",
       text: "See this",
       shareId,
@@ -730,7 +1070,7 @@ it.effect("sends a guest's files as the guest's message and keeps them the guest
     // Still theirs after their share's message list has trimmed it away.
     for (let index = 0; index < 21; index += 1) {
       yield* guestShares.submit(session, { shareId, text: `note ${index}` }, []);
-      const [waiting] = (yield* waitingMessages).filter((next) => next.status === "pending");
+      const waiting = (yield* waitingMessages).find((next) => next.status === "pending");
       yield* orchestrator.dispatch({
         type: "thread.guest-message.dismiss",
         commandId: CommandId.make(`dismiss-note-${index}`),

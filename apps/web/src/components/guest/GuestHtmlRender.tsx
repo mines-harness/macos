@@ -13,6 +13,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useHtmlRenderTheme } from "~/hooks/useHtmlRenderTheme";
 import { observeResize } from "~/lib/observeResize";
+import { guestApiUrl } from "~/guestRouting";
 
 /**
  * A visual the agent published, as the guest sees it. The server sends it with a sandbox CSP and
@@ -36,7 +37,7 @@ export function GuestHtmlRender({
   // The theme rides in the fragment for the first paint; later changes are posted.
   const [src] = useState(
     () =>
-      `${GUEST_RENDER_ROUTE}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}&item=${encodeURIComponent(itemId)}${htmlRenderThemeFragment(theme)}`,
+      `${guestApiUrl(`${GUEST_RENDER_ROUTE}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}&item=${encodeURIComponent(itemId)}`)}${htmlRenderThemeFragment(theme)}`,
   );
   useLayoutEffect(() => {
     const box = boxRef.current;

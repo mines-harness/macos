@@ -8,6 +8,8 @@ import {
   signPeerSignal,
 } from "@t3tools/shared/minesPeerTrust";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -81,6 +83,60 @@ const description = {
   type: "offer" as const,
   sdp: `v=0\r\na=fingerprint:sha-256 ${Array(32).fill("AB").join(":")}\r\na=candidate:1 1 UDP 1 127.0.0.1 12345 typ host\r\n`,
 };
+
+it.effect("closes an in-flight connection when its device is revoked during directory lookup", () =>
+  Effect.gen(function* () {
+    const snapshotCaptured = yield* Deferred.make<void>();
+    const releaseSnapshot = yield* Deferred.make<void>();
+    const revokeStarted = yield* Deferred.make<void>();
+    let active = true;
+    const directory = Layer.mock(DeviceDirectory.DeviceDirectory, {
+      owner: () => Effect.succeedSome({ accountId: "account", publicKey: first.device.publicKey }),
+      register: () => Effect.void,
+      list: () =>
+        Effect.gen(function* () {
+          const snapshot = active ? [first.device] : [];
+          yield* Deferred.succeed(snapshotCaptured, undefined);
+          yield* Deferred.await(releaseSnapshot);
+          return snapshot;
+        }),
+      revoke: () =>
+        Effect.sync(() => {
+          active = false;
+        }),
+    });
+    yield* Effect.gen(function* () {
+      const signaling = yield* Signaling.Signaling;
+      const ticket = yield* signaling.deviceTicket(
+        signPeerDeviceProof(first, "ticket", "connect_revoke_nonce_001", 0),
+      );
+      const recipient = connection();
+      const connecting = yield* signaling
+        .connect(ticket, recipient)
+        .pipe(Effect.forkChild({ startImmediately: true }));
+      yield* Deferred.await(snapshotCaptured);
+      const revoking = yield* Effect.gen(function* () {
+        yield* Deferred.succeed(revokeStarted, undefined);
+        yield* signaling.revoke("account", first.device.deviceId);
+      }).pipe(Effect.forkChild({ startImmediately: true }));
+      yield* Deferred.await(revokeStarted);
+      yield* Deferred.succeed(releaseSnapshot, undefined);
+      yield* Fiber.join(connecting);
+      yield* Fiber.join(revoking);
+      expect(active).toBe(false);
+      expect(recipient.isClosed()).toBe(true);
+      expect((yield* signaling.devices("account")).devices).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        Signaling.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(NodeCrypto.layer, directory, Layer.mock(Contacts.Contacts, {})),
+          ),
+        ),
+      ),
+    );
+  }),
+);
 
 it.effect(
   "refreshes only an active device's self-signed name and platform when issuing a device ticket",

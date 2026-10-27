@@ -1,15 +1,27 @@
 import * as Schema from "effect/Schema";
-import { CommandId, MessageId, RunId, ThreadId } from "./baseSchemas.ts";
+import {
+  CommandId,
+  MessageId,
+  ProjectId,
+  RunId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { OrchestrationV2ThreadLaunchWorkspaceStrategy } from "./orchestrationV2.ts";
+import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 
 export const ProviderVoiceSdp = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(131_072),
 );
-export const ProviderVoiceCapabilitiesInput = Schema.Struct({
-  threadId: ThreadId,
-  modelSelection: Schema.optional(ModelSelection),
-});
+export const ProviderVoiceCapabilitiesInput = Schema.Union([
+  Schema.Struct({
+    threadId: ThreadId,
+    modelSelection: Schema.optional(ModelSelection),
+  }),
+  Schema.Struct({ modelSelection: ModelSelection }),
+]);
 export type ProviderVoiceCapabilitiesInput = typeof ProviderVoiceCapabilitiesInput.Type;
 export const ProviderVoiceCapabilities = Schema.Struct({
   live: Schema.Struct({ supported: Schema.Boolean, reason: Schema.optional(Schema.String) }),
@@ -21,6 +33,16 @@ export const ProviderVoiceStartInput = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   modelSelection: Schema.optional(ModelSelection),
+  bootstrap: Schema.optional(
+    Schema.Struct({
+      projectId: ProjectId,
+      reuseExistingThread: Schema.optional(Schema.Boolean),
+      title: TrimmedNonEmptyString,
+      runtimeMode: RuntimeMode,
+      interactionMode: ProviderInteractionMode,
+      workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
+    }),
+  ),
   sdp: ProviderVoiceSdp,
 });
 export type ProviderVoiceStartInput = typeof ProviderVoiceStartInput.Type;

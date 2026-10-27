@@ -245,7 +245,7 @@ export function ServerUpdateAction({
   threadContinuation = false,
   targetVersion,
   label = "Update",
-  variant = "outline",
+  variant,
   size = "xs",
   className,
   appearance = "button",
@@ -344,7 +344,7 @@ export function ServerUpdateAction({
           render={
             <Button
               size="icon-xs"
-              variant="ghost-muted"
+              variant={variant ?? "ghost-muted"}
               className={className}
               aria-label={`${actionLabel} for ${serverLabel}`}
               disabled={manualCommand === null && !canUpdate}
@@ -362,7 +362,7 @@ export function ServerUpdateAction({
   return (
     <Button
       size={size}
-      variant={variant}
+      variant={variant ?? "outline"}
       className={className}
       disabled={manualCommand === null && !canUpdate}
       onClick={onClick}
@@ -380,14 +380,15 @@ export function OutdatedServerUpdateAction({
   targetVersion,
   label = "Update",
   appearance = "button",
+  variant,
+  size = "xs",
+  className,
 }: {
   readonly environmentId: EnvironmentId;
   readonly serverLabel: string;
   readonly fromVersion: string | undefined;
   readonly targetVersion: string;
-  readonly label?: string;
-  readonly appearance?: "button" | "icon";
-}) {
+} & UpdateButtonProps) {
   const update = useAtomCommand(updateOutdatedServer, { reportFailure: false });
   const handleUpdate = async () => {
     if (pendingUpdateEnvironmentIds.has(environmentId)) return;
@@ -420,7 +421,8 @@ export function OutdatedServerUpdateAction({
           render={
             <Button
               size="icon-xs"
-              variant="ghost-muted"
+              variant={variant ?? "ghost-muted"}
+              className={className}
               aria-label={`${label} for ${serverLabel}`}
               onClick={() => void handleUpdate()}
             />
@@ -433,7 +435,12 @@ export function OutdatedServerUpdateAction({
     );
   }
   return (
-    <Button size="xs" variant="outline" onClick={() => void handleUpdate()}>
+    <Button
+      size={size}
+      variant={variant ?? "outline"}
+      className={className}
+      onClick={() => void handleUpdate()}
+    >
       {label}
     </Button>
   );

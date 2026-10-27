@@ -6,15 +6,21 @@ import { groupHostRoutes } from "../../state/groupHostRoutes";
 import { groupMembershipsAtom } from "../../state/groupMemberships";
 import { useEnvironmentQuery } from "../../state/query";
 import { participantKey, type ParticipantCandidate } from "../chat/draftParticipants";
+import { sectionParticipantThreads } from "../chat/draftParticipants";
+import { useMinesCatalog } from "../../catalog/useMinesCatalog";
 
 export function useParticipantCandidates({
   environmentId,
   enabled = true,
+  contextEntityId = null,
 }: {
   environmentId: EnvironmentId;
   enabled?: boolean;
-}): ReadonlyArray<ParticipantCandidate> {
+  contextEntityId?: string | null;
+}) {
   const threads = useQuietThreadShells();
+  const { snapshot } = useMinesCatalog();
+  const scoped = sectionParticipantThreads(snapshot, contextEntityId, threads);
   const { environments } = useEnvironments();
   const memberships = useAtomValue(groupMembershipsAtom);
   const hostRoutes = useEnvironmentQuery(
@@ -26,8 +32,8 @@ export function useParticipantCandidates({
       .filter((host) => host.connection.phase === "connected")
       .map((host) => host.environmentId),
   );
-  return enabled
-    ? threads.flatMap((thread) => {
+  const candidates: ReadonlyArray<ParticipantCandidate> = enabled
+    ? scoped.threads.flatMap((thread) => {
         if (thread.lineage.relationshipToParent === "subagent") return [];
         const candidate = {
           environmentId: thread.environmentId,
@@ -56,4 +62,5 @@ export function useParticipantCandidates({
         ];
       })
     : [];
+  return { candidates, sectionId: scoped.sectionId };
 }

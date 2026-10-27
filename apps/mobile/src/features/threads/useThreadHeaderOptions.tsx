@@ -23,6 +23,7 @@ export function useThreadHeaderOptions(props: {
   readonly usesNativeHeaderGlass: boolean;
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
   readonly onReturnToThread?: () => void;
+  readonly onShareLink?: () => void;
   readonly draft?: boolean;
 }) {
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
@@ -33,6 +34,21 @@ export function useThreadHeaderOptions(props: {
   const sidebarHeaderItem = useWorkspaceSidebarHeaderItem();
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(props.gitControls);
   const compactRightHeaderItems = useThreadGitRightHeaderItems(props.gitControls);
+  const shareHeaderItems = useMemo<NativeHeaderItems>(
+    () =>
+      props.onShareLink
+        ? [
+            withNativeGlassHeaderItem({
+              accessibilityLabel: "Share link",
+              icon: { name: "square.and.arrow.up", type: "sfSymbol" as const },
+              identifier: "thread-share-link",
+              onPress: props.onShareLink,
+              type: "button" as const,
+            }),
+          ]
+        : [],
+    [props.onShareLink],
+  );
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
       ...(!usesDuoHeader
@@ -95,8 +111,12 @@ export function useThreadHeaderOptions(props: {
         ? undefined
         : () => compactHomeHeaderItems,
     // The workspace navigator adds compose to the Duo detail column's bar.
-    unstable_headerRightItems: () =>
-      usesDuoHeader || layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems,
+    unstable_headerRightItems: () => [
+      ...shareHeaderItems,
+      ...(usesDuoHeader || layout.usesSplitView
+        ? threadCenterHeaderItems
+        : compactRightHeaderItems),
+    ],
     unstable_headerToolbarItems: () => [],
     unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
     contentStyle: undefined,
@@ -109,6 +129,7 @@ export function useThreadHeaderOptions(props: {
       splitLeftHeaderItems,
       threadCenterHeaderItems,
       compactRightHeaderItems,
+      shareHeaderItems,
       usesDuoHeader,
       environmentId,
       threadId,

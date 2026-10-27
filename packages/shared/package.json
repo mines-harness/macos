@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./guestProxy": {
+      "types": "./src/guestProxy.ts",
+      "import": "./src/guestProxy.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"

@@ -17,6 +17,8 @@ import { boundedSnapshotProjection } from "@t3tools/shared/orchestrationV2Bounde
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { guestApiUrl } from "../../guestRouting";
+
 export interface GuestStreamState {
   readonly view: GuestShareView | null;
   /** The thread as the owner's client holds it, built with the same reducer. */
@@ -182,7 +184,9 @@ export function inviteShareId(credential: string): string | null {
 
 /** Where the guest page loads a file of the shared thread or of a waiting message. */
 export const guestAttachmentUrl = (shareId: string, attachmentId: string) =>
-  `${GUEST_ATTACHMENT_ROUTE}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}&id=${encodeURIComponent(attachmentId)}`;
+  guestApiUrl(
+    `${GUEST_ATTACHMENT_ROUTE}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}&id=${encodeURIComponent(attachmentId)}`,
+  );
 
 /**
  * Why these files cannot go with one message, or null. The server checks the same limits; this

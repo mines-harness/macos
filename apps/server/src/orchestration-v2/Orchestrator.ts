@@ -470,7 +470,11 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.delete":
     case "thread.guest-share.open":
     case "thread.guest-share.redeem":
+    case "thread.guest-share.update-ip":
     case "thread.guest-share.close":
+    case "thread.guest-share.kick":
+    case "thread.guest-share.ban":
+    case "thread.guest-share.unban":
     case "thread.guest-message.submit":
     case "thread.guest-message.dismiss":
     case "thread.settle":
@@ -5058,7 +5062,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     if (
       command.liveVoice !== undefined &&
-      (command.dispatchMode.type !== "start_immediately" ||
+      ((command.dispatchMode.type !== "start_immediately" &&
+        command.dispatchMode.type !== "defer_start") ||
         command.text !== "" ||
         command.attachments.length > 0 ||
         projection.runs.some(
@@ -11878,7 +11883,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.guest-share.open":
       case "thread.guest-share.redeem":
+      case "thread.guest-share.update-ip":
       case "thread.guest-share.close":
+      case "thread.guest-share.kick":
+      case "thread.guest-share.ban":
+      case "thread.guest-share.unban":
       case "thread.guest-message.submit":
       case "thread.guest-message.dismiss":
         yield* dispatchGuestShare(command, events, effects);
@@ -12214,7 +12223,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.stop" ||
         command.type === "subagent.stop" ||
         // A second Stop sharing, or one after the share already ended, is not an error.
-        command.type === "thread.guest-share.close"
+        command.type === "thread.guest-share.close" ||
+        command.type === "thread.guest-share.kick" ||
+        command.type === "thread.guest-share.ban" ||
+        command.type === "thread.guest-share.unban" ||
+        command.type === "thread.guest-share.update-ip" ||
+        command.type === "thread.guest-message.submit"
           ? Effect.succeed(planned)
           : Effect.fail(
               new OrchestratorDispatchError({

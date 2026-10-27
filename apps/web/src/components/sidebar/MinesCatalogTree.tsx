@@ -8,13 +8,13 @@ import {
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { CloudCatalogDevices } from "../cloud/CloudCatalogDevices";
 import { CatalogLocalSync } from "../../catalog/CatalogLocalSync";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
   ArrowRightLeftIcon,
   ArrowUpIcon,
-  BotIcon,
+  ArchiveIcon,
   ChevronRightIcon,
   FolderInputIcon,
   FolderIcon,
@@ -38,10 +38,23 @@ import {
 } from "@t3tools/client-runtime/catalog";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import { EnvironmentId, ThreadId, type ProjectId, type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentId,
+  ThreadId,
+  type ProjectId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useThreadActions } from "../../hooks/useThreadActions";
+import { useClientSettings } from "../../hooks/useSettings";
+import { readLocalApi } from "../../localApi";
+import {
+  isAtomCommandInterrupted,
+  settlePromise,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { useEnvironmentQuery } from "../../state/query";
 import { groupList } from "../../state/groups";
 import { threadEnvironment } from "../../state/threads";
@@ -50,7 +63,14 @@ import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { refreshArchivedThreadsForEnvironment } from "../../lib/archivedThreadsState";
 import type { MinesCatalog } from "@t3tools/client-runtime/catalog";
 import { useMinesCatalog } from "../../catalog/useMinesCatalog";
-import { useProjects, useQuietThreadShells, useServerConfigs } from "../../state/entities";
+import {
+  useProjects,
+  useQuietThreadShells,
+  useServerConfigs,
+  useThreadShell,
+} from "../../state/entities";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
+import { useThreadFamily } from "../../state/threads";
 import {
   useConnectedEnvironmentIds,
   useEnvironments,
@@ -59,15 +79,7 @@ import {
 } from "../../state/environments";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import {
-  Dialog,
-  DialogPopup,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogPanel,
-  DialogFooter,
-} from "../ui/dialog";
+import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
 import {
   Menu,
   MenuPopup,
@@ -104,9 +116,44 @@ import {
   restoreCatalogSection,
 } from "./sectionArchive";
 
-const ThreadRelationshipsPanel = lazy(async () => ({
-  default: (await import("../chat/ThreadRelationshipsControl")).ThreadRelationshipsPanel,
-}));
+import { stackedThreadToast, toastManager } from "../ui/toast";
+
+function CatalogThreadFamily({ threadRef }: { threadRef: ScopedThreadRef }) {
+  useThreadFamily(threadRef.environmentId, threadRef.threadId);
+  return null;
+}
+
+function CatalogMineArchiveAction({
+  threadRef,
+  title,
+  menu = false,
+  onArchive,
+}: {
+  threadRef: ScopedThreadRef;
+  title: string;
+  menu?: boolean;
+  onArchive: () => void;
+}) {
+  const canOperate = useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope);
+  const thread = useThreadShell(threadRef);
+  const disabled = !canOperate || !thread || !threadRuntimeCanArchive(thread.runtime);
+  return menu ? (
+    <MenuItem disabled={disabled} onClick={onArchive}>
+      <ArchiveIcon />
+      Archive mine
+    </MenuItem>
+  ) : (
+    <Button
+      size="icon-xs"
+      variant="ghost-muted"
+      disabled={disabled}
+      aria-label={`Archive ${title}`}
+      onClick={onArchive}
+    >
+      <ArchiveIcon />
+    </Button>
+  );
+}
 
 function CatalogMineTransferItem({ threadRef }: { threadRef: ScopedThreadRef }) {
   const available = useAtomValue(canTransferMineAtom(threadRef.environmentId));
@@ -142,6 +189,8 @@ export function MinesCatalogTree({
   );
   const router = useRouter();
   const newThread = useNewThreadHandler();
+  const { archiveThread } = useThreadActions();
+  const confirmThreadArchive = useClientSettings((settings) => settings.confirmThreadArchive);
   const invitations = useContactInvitationCount();
   const contactsSnapshot = useContactGroupsSnapshot();
   const workgroups = contactsSnapshot?.groups ?? [];
@@ -174,11 +223,6 @@ export function MinesCatalogTree({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [editor, setEditor] = useState<{ id: string | null; title: string } | null>(null);
   const [contextEntityId, setContextEntityId] = useState<string | null>(null);
-  const [agentsFor, setAgentsFor] = useState<{
-    threadRef: ScopedThreadRef;
-    title: string;
-    accountId: string;
-  } | null>(null);
   const [visibleCounts, setVisibleCounts] = useState<Readonly<Record<string, number>>>({});
   const threadById = new Map(
     threads.map((thread) => [catalogHostId("thread", thread.environmentId, thread.id), thread]),
@@ -197,6 +241,31 @@ export function MinesCatalogTree({
       !hiddenProjects.has(entity.id) && (entity.kind === "section" || entity.kind === "project"),
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  const attemptArchiveThread = async (threadRef: ScopedThreadRef, title: string) => {
+    if (!readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)) return;
+    if (confirmThreadArchive) {
+      const confirmed = await settlePromise(async () =>
+        readLocalApi()?.dialogs.confirm(`Archive mine "${title}"?`),
+      );
+      if (confirmed._tag === "Failure" || !confirmed.value) return;
+    }
+    let didArchive = false;
+    const result = await archiveThread(threadRef, {
+      onArchived: () => {
+        didArchive = true;
+      },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: didArchive ? "Mine archived, but navigation failed" : "Failed to archive mine",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    }
+  };
 
   useEffect(() => {
     if (!catalog) return;
@@ -313,7 +382,7 @@ export function MinesCatalogTree({
         return next;
       });
   };
-  const visible = (entry: MinesCatalogEntry, pinned = false) => {
+  const visible = (entry: MinesCatalogEntry, pinned = false, nestedUnderMine = false) => {
     if (hiddenProjects.has(entry.entity.id) || legacyWorkgroupIds.has(entry.entity.id))
       return false;
     const workgroupKey = catalogWorkgroupKey(entry.entity.id);
@@ -329,6 +398,7 @@ export function MinesCatalogTree({
       pinned,
       mode,
       primaryEnvironmentId,
+      nestedUnderMine,
     });
   };
   const renderRows = (
@@ -337,8 +407,11 @@ export function MinesCatalogTree({
     path = "library",
     parentId: string | null = null,
     withinPins = false,
+    nestedUnderMine = false,
   ) => {
-    const visibleEntries = entries.filter((entry) => visible(entry, pinned || withinPins));
+    const visibleEntries = entries.filter((entry) =>
+      visible(entry, pinned || withinPins, nestedUnderMine),
+    );
     const listKey = pinned ? "pins" : (entries[0]?.parentId ?? "root");
     const count = visibleCounts[listKey] ?? 100;
     return (
@@ -348,7 +421,10 @@ export function MinesCatalogTree({
           const container = entity.kind === "section" || entity.kind === "project";
           const hasAgents =
             entity.kind === "thread" &&
-            (entry.children.some((child) => child.entity.kind === "thread") ||
+            (entry.children.some(
+              (child) =>
+                child.entity.kind === "thread" && visible(child, pinned || withinPins, true),
+            ) ||
               agentParentIds.has(entity.id));
           const key = `${path}/${encodeURIComponent(entity.id)}`;
           const open = entity.kind === "section" ? !collapsed.has(key) : expanded.has(key);
@@ -368,6 +444,13 @@ export function MinesCatalogTree({
                     ? "Update needed"
                     : "Offline";
           const thread = threadById.get(entity.id);
+          const threadRef =
+            entity.kind === "thread" && entity.hostRef
+              ? scopeThreadRef(
+                  entity.hostRef.environmentId as EnvironmentId,
+                  entity.hostRef.entityId as ThreadId,
+                )
+              : null;
           const active = thread && activeThreadKey === `${thread.environmentId}:${thread.id}`;
           const Icon =
             entity.kind === "section"
@@ -385,7 +468,7 @@ export function MinesCatalogTree({
               : entity.kind === "thread" || entity.kind === "group"
                 ? 72
                 : 40;
-          const rowInset = textInset - (container ? 36 : Icon ? 24 : 0);
+          const rowInset = textInset - (container ? 36 : Icon ? 24 : hasAgents ? 28 : 0);
           const activate = () => {
             if (container) {
               toggle(entry, key);
@@ -508,24 +591,6 @@ export function MinesCatalogTree({
                         Settings
                       </MenuItem>
                     ) : null}
-                    {hasAgents && entity.hostRef ? (
-                      <MenuItem
-                        onClick={() => {
-                          if (!entity.hostRef) return;
-                          setAgentsFor({
-                            threadRef: scopeThreadRef(
-                              entity.hostRef.environmentId as EnvironmentId,
-                              entity.hostRef.entityId as ThreadId,
-                            ),
-                            title: entity.title,
-                            accountId,
-                          });
-                        }}
-                      >
-                        <BotIcon />
-                        Agents…
-                      </MenuItem>
-                    ) : null}
                     {entity.kind === "thread" && entity.hostRef ? (
                       <CatalogMineTransferItem
                         threadRef={scopeThreadRef(
@@ -550,6 +615,17 @@ export function MinesCatalogTree({
                           <Trash2Icon />
                           Archive
                         </MenuItem>
+                      </>
+                    ) : null}
+                    {threadRef ? (
+                      <>
+                        <MenuSeparator />
+                        <CatalogMineArchiveAction
+                          threadRef={threadRef}
+                          title={entity.title}
+                          menu
+                          onArchive={() => void attemptArchiveThread(threadRef, entity.title)}
+                        />
                       </>
                     ) : null}
                   </>
@@ -577,6 +653,22 @@ export function MinesCatalogTree({
                   )}
                   style={{ paddingLeft: rowInset }}
                 >
+                  {hasAgents ? (
+                    <Button
+                      size="icon-xs"
+                      variant="ghost-muted"
+                      aria-label={`${open ? "Hide" : "Show"} subagents for ${entity.title}`}
+                      aria-expanded={open}
+                      onClick={() => toggle(entry, key)}
+                    >
+                      <ChevronRightIcon
+                        className={cn(
+                          "transition-transform motion-reduce:transition-none",
+                          open && "rotate-90",
+                        )}
+                      />
+                    </Button>
+                  ) : null}
                   <CatalogDraggableRow
                     rowId={key}
                     entityId={entity.id}
@@ -662,12 +754,27 @@ export function MinesCatalogTree({
                     >
                       <MoreHorizontalIcon />
                     </MenuTrigger>
+                    {threadRef ? (
+                      <CatalogMineArchiveAction
+                        threadRef={threadRef}
+                        title={entity.title}
+                        onArchive={() => void attemptArchiveThread(threadRef, entity.title)}
+                      />
+                    ) : null}
                   </div>
                 </CatalogDropArea>
               </CatalogRowMenu>
-              {container && open ? (
-                <ul>
-                  {renderRows(entry.children, false, key, entity.id, withinPins || pinned)}
+              {(container || hasAgents) && open ? (
+                <ul className={hasAgents ? "ml-4" : undefined}>
+                  {threadRef ? <CatalogThreadFamily threadRef={threadRef} /> : null}
+                  {renderRows(
+                    entry.children,
+                    false,
+                    key,
+                    entity.id,
+                    withinPins || pinned,
+                    entity.kind === "thread",
+                  )}
                   {container && entry.children.length === 0 ? (
                     <li>
                       <CatalogDropArea
@@ -981,38 +1088,6 @@ export function MinesCatalogTree({
               });
             }}
           />
-        ) : null}
-        {agentsFor?.accountId === accountId ? (
-          <Dialog
-            open
-            onOpenChange={(open) => {
-              if (!open) setAgentsFor(null);
-            }}
-          >
-            <DialogPopup className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Agents for {agentsFor.title}</DialogTitle>
-                <DialogDescription>
-                  Open an agent conversation or inspect its activity.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogPanel>
-                <Suspense
-                  fallback={
-                    <p role="status" className="text-sm text-muted-foreground">
-                      Loading agents…
-                    </p>
-                  }
-                >
-                  <ThreadRelationshipsPanel
-                    environmentId={agentsFor.threadRef.environmentId}
-                    threadId={agentsFor.threadRef.threadId}
-                    onNavigate={() => setAgentsFor(null)}
-                  />
-                </Suspense>
-              </DialogPanel>
-            </DialogPopup>
-          </Dialog>
         ) : null}
         {contextEntityId ? (
           <CatalogContextDialog

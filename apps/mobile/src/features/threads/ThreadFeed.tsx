@@ -18,7 +18,8 @@ import {
 import { ThreadContextDivider } from "./thread-context-divider";
 import { ThreadHandoffDivider, ThreadHandoffRow } from "./thread-handoff-row";
 import { GuestBubbleTint, GuestMessageName } from "./guestMessageStyle";
-import { ThreadGuestPendingMessage, useThreadGuestShare } from "./ThreadGuestShareBar";
+import { ThreadGuestPendingMessage } from "./ThreadGuestShareBar";
+import { useThreadGuestShare } from "./useThreadGuestShare";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import {

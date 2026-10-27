@@ -7,6 +7,7 @@ import {
   deriveThreadPendingBackgroundTasks,
   deriveWorkspaceMutationId,
   presentThreadShellFromProjection,
+  planComposerTurn,
 } from "./ChatView.logic";
 import { usePullRequestDraftThread } from "./chat/usePullRequestDraftThread";
 import { useComposerSelection } from "./chat/useComposerSelection";
@@ -62,6 +63,7 @@ import {
   type MessageId,
   type ModelSelection,
   type PreviewAnnotationPayload,
+  type ProviderVoiceStartInput,
   ProviderInstanceId,
   type ServerProvider,
   type ScopedThreadRef,
@@ -2206,6 +2208,77 @@ export default function ChatView(props: ChatViewProps) {
         currentGitBranch: gitStatusQuery.data?.refName ?? null,
       })
     : null;
+  const prepareLiveVoiceStart = async (input: {
+    runtimeMode: RuntimeMode;
+    interactionMode: ProviderInteractionMode;
+  }): Promise<Pick<ProviderVoiceStartInput, "bootstrap">> => {
+    if (
+      !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
+      !activeThread ||
+      !activeProject ||
+      activeEnvironmentUnavailable ||
+      isSendBusy ||
+      isRevertingCheckpoint ||
+      phase === "running"
+    ) {
+      throw new Error("This mine is not ready to start Live voice.");
+    }
+    const workspace = planComposerTurn({
+      messageText: "",
+      sendQueuesBehindSetup,
+      isServerThread,
+      activeMessageCount,
+      sendEnvMode,
+      worktreePath: activeThread.worktreePath,
+      activeThreadBranch,
+      resumeCompactionTokens: null,
+      keepFullHistory: false,
+      phase,
+      dispatchMode: "auto",
+    });
+    if (workspace.missingWorktreeBaseBranch) {
+      throw new Error("Select a base branch before starting Live voice in New worktree mode.");
+    }
+    if (isServerThread) {
+      const result = await persistThreadSettingsForNextTurn({
+        threadId: activeThread.id,
+        createdAt: new Date().toISOString(),
+        ...(localCheckoutBranchMismatch
+          ? { branch: localCheckoutBranchMismatch.currentBranch }
+          : {}),
+        ...input,
+      });
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    }
+    if (isLocalDraftThread || workspace.baseBranchForWorktree) {
+      return {
+        bootstrap: {
+          projectId: activeProject.id,
+          title: activeThread.title,
+          ...input,
+          ...(isServerThread ? { reuseExistingThread: true } : {}),
+          workspaceStrategy: workspace.baseBranchForWorktree
+            ? {
+                type: "worktree",
+                baseRef: workspace.baseBranchForWorktree,
+                ...(startFromOrigin ? { startFromOrigin: true } : {}),
+              }
+            : activeThread.worktreePath
+              ? {
+                  type: "existing_worktree",
+                  worktreePath: activeThread.worktreePath,
+                  ...(activeThreadBranch ? { branch: activeThreadBranch } : {}),
+                }
+              : {
+                  type: "root",
+                  ...(activeThreadBranch ? { branch: activeThreadBranch } : {}),
+                },
+        },
+      };
+    }
+    return {};
+  };
+  const prepareLiveVoiceStartStable = useStableCallback(prepareLiveVoiceStart);
   const publishComposerOverlayHeight = (height: number) => {
     const nextHeight = Math.ceil(height);
     if (nextHeight <= 0) return;
@@ -3648,6 +3721,7 @@ export default function ChatView(props: ChatViewProps) {
                               onPageScrollRelease={onComposerPageScrollReleaseStable}
                               onCompactContext={onComposerCompactContextStable}
                               onSend={onComposerSendStable}
+                              onPrepareLiveVoiceStart={prepareLiveVoiceStartStable}
                               onResume={onComposerResumeStable}
                               onInterrupt={onInterruptStable}
                               onImplementPlanInNewThread={onImplementPlanInNewThreadStable}

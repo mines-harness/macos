@@ -96,6 +96,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
+  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   // A guest link hands thread access to someone outside, like a pairing link.
   [WS_METHODS.guestShareCreate]: AuthAccessWriteScope,
 } as const;
@@ -108,6 +109,21 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  if (method === ORCHESTRATION_V2_WS_METHODS.dispatchCommand && input !== undefined) {
+    return typeof input === "object" &&
+      input !== null &&
+      "type" in input &&
+      (input.type === "thread.guest-share.close" ||
+        input.type === "thread.guest-share.kick" ||
+        input.type === "thread.guest-share.ban" ||
+        input.type === "thread.guest-share.unban" ||
+        input.type === "thread.guest-message.dismiss" ||
+        (input.type === "message.dispatch" &&
+          "guestMessageId" in input &&
+          input.guestMessageId !== undefined))
+      ? [AuthOrchestrationOperateScope]
+      : [];
+  }
   if (method === WS_METHODS.mineTransferPrepare || method === WS_METHODS.mineTransferReadChunk)
     return [AuthOrchestrationOperateScope, AuthFilesystemReadScope, AuthSourceControlWriteScope];
   if (

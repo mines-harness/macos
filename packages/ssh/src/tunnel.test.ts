@@ -186,7 +186,7 @@ cp "$FIXTURES/\${source##*/}" "$destination"
   };
 });
 
-const captureRemoteLaunchScript = Effect.gen(function* () {
+const captureRemoteScript = Effect.fn("ssh.test.captureRemoteScript")(function* (pairing = false) {
   let script = "";
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.gen(function* () {
@@ -203,18 +203,71 @@ const captureRemoteLaunchScript = Effect.gen(function* () {
         return makeSuccessfulProcess("");
       }
       script = yield* stdin.stream.pipe(Stream.decodeText, Stream.mkString);
-      return makeSuccessfulProcess('{"remotePort":3773,"serverKind":"managed"}\n');
+      return makeSuccessfulProcess(
+        '{"remotePort":3773,"serverKind":"managed","credential":"fixture-pairing"}\n',
+      );
     }),
   );
-  yield* SshTunnel.launchOrReuseRemoteServer(
-    { alias: "fixture", hostname: "fixture.invalid", username: null, port: null },
-    undefined,
-    ARCHIVE,
-  ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+  const target = { alias: "fixture", hostname: "fixture.invalid", username: null, port: null };
+  if (pairing) {
+    yield* SshTunnel.issueRemotePairingToken(target, undefined, ARCHIVE).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    );
+  } else {
+    yield* SshTunnel.launchOrReuseRemoteServer(target, undefined, ARCHIVE).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    );
+  }
   return script;
 });
 
 describe("ssh tunnel scripts", () => {
+  it.live("reuses an installed host when the desktop's requested archive is unavailable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const fixture = yield* makeArchiveRunnerFixture();
+      const host = yield* spawner.spawn(
+        ChildProcess.make("cat", [], { stdin: { stream: Stream.never, endOnDone: true } }),
+      );
+      const bin = path.join(fixture.home, ".mines/bin");
+      yield* fs.makeDirectory(bin, { recursive: true });
+      const installed = path.join(bin, "mines");
+      yield* fs.writeFileString(
+        installed,
+        `#!/bin/sh
+case "$1:$2" in
+  __ssh-helper:runtime-port) printf '${host.pid} 3773' ;;
+  __ssh-helper:wait-ready) exit 0 ;;
+  auth:pairing) printf '{"credential":"fixture-renewed-pairing"}\\n' ;;
+  *) printf 'The existing host must not be restarted or updated.\\n' >&2; exit 1 ;;
+esac
+`,
+      );
+      yield* fs.chmod(installed, 0o755);
+      yield* fs.remove(fixture.checksumsPath);
+      const script = yield* captureRemoteScript();
+      const external = yield* fixture.runScript(script, ["fixture"]);
+      assert.equal(external.exitCode, 0, external.stderr);
+      assert.equal(external.stdout, '{"remotePort":3773,"serverKind":"external"}\n');
+      const stateDir = path.join(fixture.home, ".mines/ssh-launch/fixture");
+      yield* fs.writeFileString(path.join(stateDir, "pid"), `${host.pid}\n`);
+      yield* fs.writeFileString(path.join(stateDir, "launcher"), `${host.pid}\n`);
+      yield* fs.writeFileString(path.join(stateDir, "managed"), "managed\n");
+      const managed = yield* fixture.runScript(script, ["fixture"]);
+      assert.equal(managed.exitCode, 0, managed.stderr);
+      assert.equal(managed.stdout, '{"remotePort":3773,"serverKind":"managed"}\n');
+      const pairing = yield* fixture.runScript(yield* captureRemoteScript(true), []);
+      assert.equal(pairing.exitCode, 0, pairing.stderr);
+      assert.equal(pairing.stdout, '{"credential":"fixture-renewed-pairing"}\n');
+      assert.equal(yield* host.isRunning, true);
+      assert.equal(yield* fs.readFileString(path.join(stateDir, "pid")), `${host.pid}\n`);
+      assert.equal(yield* fs.exists(fixture.fetchLog), false);
+      assert.equal(yield* fs.exists(fixture.runtimeDirectory), false);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
   it.live("starts an updateable launcher in the existing home with its pinned release", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -243,7 +296,7 @@ case "$1" in
 esac
 `,
       );
-      const result = yield* fixture.runScript(yield* captureRemoteLaunchScript, ["fixture"]);
+      const result = yield* fixture.runScript(yield* captureRemoteScript(), ["fixture"]);
       assert.equal(result.exitCode, 0, result.stderr);
       assert.equal(result.stdout, '{"remotePort":3773,"serverKind":"managed"}\n');
       assert.equal(
@@ -293,7 +346,7 @@ case "$1" in
 esac
 `,
       );
-      const result = yield* fixture.runScript(yield* captureRemoteLaunchScript, ["fixture"]);
+      const result = yield* fixture.runScript(yield* captureRemoteScript(), ["fixture"]);
       assert.equal(result.exitCode, 0, result.stderr);
       assert.equal(result.stdout, '{"remotePort":3773,"serverKind":"managed"}\n');
       assert.equal(yield* launcher.isRunning, true);
@@ -306,7 +359,7 @@ esac
           "runtime-owned) exit 1 ;; wait-ready) exit 0",
         ),
       );
-      const unconfirmed = yield* fixture.runScript(yield* captureRemoteLaunchScript, ["fixture"]);
+      const unconfirmed = yield* fixture.runScript(yield* captureRemoteScript(), ["fixture"]);
       assert.notEqual(unconfirmed.exitCode, 0);
       assert.include(unconfirmed.stderr, "existing host was left running");
       assert.equal(yield* launcher.isRunning, true);

@@ -18,6 +18,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Atom } from "effect/reactivity";
 
+import { guestApiUrl } from "../../guestRouting";
+
 import type { TurnItemSource } from "../chat/timelineRowContext";
 
 /** What an expanded guest row says when it cannot read the item. */
@@ -31,7 +33,9 @@ const decodeFrame = Schema.decodeUnknownOption(
 );
 
 const itemUrl = (route: string, shareId: string, itemId: string) =>
-  `${route}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}&item=${encodeURIComponent(itemId)}`;
+  guestApiUrl(
+    `${route}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}&item=${encodeURIComponent(itemId)}`,
+  );
 
 /** `item` is null when the thread no longer has the item, or the share ended. */
 async function fetchGuestItemDetail(
