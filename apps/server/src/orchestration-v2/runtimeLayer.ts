@@ -18,6 +18,7 @@ import * as SharedGroupService from "../groupChat/SharedGroupService.ts";
 import * as SharedGroupTransport from "../groupChat/SharedGroupTransport.ts";
 import * as GroupPeerStore from "../groupChat/GroupPeerStore.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
+import * as GuestPublicEndpoint from "../guest/GuestPublicEndpoint.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as AccountFailoverService from "./AccountFailoverService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -384,10 +385,6 @@ const layerMcpAppRequestsProvided = McpAppRequests.layer.pipe(
 );
 
 export const layer = Layer.mergeAll(
-  ProviderVoiceService.layer.pipe(
-    Layer.provide(layerThreadManagementProvided),
-    Layer.provide(LiveVoiceSessions.layer),
-  ),
   layerCommandOutputHubProvided,
   layerOrchestratorProvided,
   layerMcpAppRequestsProvided,
@@ -430,6 +427,10 @@ const layerGroupChatProvided = GroupChatService.layer.pipe(
 );
 
 export const layerProduction = Layer.mergeAll(
+  ProviderVoiceService.layer.pipe(
+    Layer.provide(Layer.merge(layerThreadManagementProvided, layerThreadLaunchProvided)),
+    Layer.provide(LiveVoiceSessions.layer),
+  ),
   MineTransferService.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -483,7 +484,16 @@ export const layerProduction = Layer.mergeAll(
   layerScheduledTaskProvided,
   layerSecretRequestsProvided,
   GuestShareService.layer.pipe(
-    Layer.provide(Layer.merge(layerOrchestratorProvided, layerCommandOutputHubProvided)),
+    Layer.provide(
+      Layer.mergeAll(
+        layerOrchestratorProvided,
+        layerCommandOutputHubProvided,
+        layerThreadManagementProvided,
+        GuestPublicEndpoint.layer.pipe(
+          Layer.provide(Layer.merge(PeerRuntime.layerTrust, PeerRuntime.layerSignaling)),
+        ),
+      ),
+    ),
   ),
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(

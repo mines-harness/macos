@@ -46,6 +46,7 @@ import {
   resetCreditsSummary,
   useResetCredit,
 } from "./UsageLimits";
+import { CodexResetStatus } from "./CodexResetStatus";
 
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
@@ -591,6 +592,7 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           />
         );
       })}
+      {pool.driver === "codex" ? <CodexResetStatus /> : null}
     </section>
   );
 }

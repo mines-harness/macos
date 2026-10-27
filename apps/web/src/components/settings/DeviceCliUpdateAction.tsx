@@ -39,6 +39,8 @@ export function DeviceCliUpdateAction({
         fromVersion={undefined}
         targetVersion={targetVersion}
         label="Update CLI"
+        appearance="icon"
+        variant="plain"
       />
     );
   }
@@ -70,7 +72,8 @@ export function DeviceCliUpdateAction({
       threadContinuation={supportsServerUpdateThreadContinuation(config)}
       targetVersion={targetVersion}
       label="Update CLI"
-      size="xs"
+      appearance="icon"
+      variant="plain"
     />
   );
 }

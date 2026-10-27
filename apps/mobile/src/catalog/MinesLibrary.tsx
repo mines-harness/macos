@@ -7,7 +7,7 @@ import {
 import { buildLibraryRows } from "./MinesLibrary.logic";
 import { CloudCatalogDevices } from "./CloudCatalogDevices";
 import { MobileCloudModal } from "./MobileCloudModal";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { FlatList, Pressable, View } from "react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import {
@@ -17,12 +17,22 @@ import {
   type MinesCatalogEntry,
 } from "@t3tools/client-runtime/catalog";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import { EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentId,
+  ThreadId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { GroupListResult } from "@t3tools/contracts/groupChat";
 import { AppText as Text } from "../components/ui/AppText";
 import { Menu } from "../components/ui/Menu";
 import * as Dialog from "../components/ui/Dialog";
-import { useProjects, useNavigationThreadShells, useServerConfigs } from "../state/entities";
+import { useProjects, useThreadShell, useServerConfigs } from "../state/entities";
+import { environmentThreadShells, useThreadFamily } from "../state/threads";
+import { useEnvironmentScope } from "../state/session";
+import { useThreadListActions } from "../features/home/useThreadListActions";
+import { threadCanArchive } from "../features/home/threadArchive";
 import { useWorkspaceState } from "../state/workspace";
 import { useMinesCatalog } from "./useMinesCatalog";
 import { useSelectWorkspaceDetail } from "../features/workspace/useSelectWorkspaceDetail";
@@ -36,6 +46,79 @@ import { groupMemberKey, groupMembershipLabels } from "./groupParticipants";
 const symbols = { section: "▦", project: "▱", group: "◎", device: "▣" };
 type GroupListSnapshot = typeof GroupListResult.Type;
 
+function LibraryThreadFamily({ threadRef }: { threadRef: ScopedThreadRef }) {
+  useThreadFamily(threadRef.environmentId, threadRef.threadId);
+  return null;
+}
+
+function LibraryRowActions({
+  threadRef,
+  title,
+  actions,
+  onPressAction,
+  onArchive,
+}: {
+  threadRef: ScopedThreadRef | null;
+  title: string;
+  actions: MenuAction[];
+  onPressAction: NonNullable<ComponentProps<typeof Menu>["onPressAction"]>;
+  onArchive: (thread: EnvironmentThreadShell) => Promise<boolean>;
+}) {
+  const thread = useThreadShell(threadRef);
+  const allowed = useEnvironmentScope(
+    threadRef?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
+  );
+  const disabled = !allowed || !thread || !threadCanArchive(thread.runtime);
+  const archive = () => {
+    if (!disabled && thread) void onArchive(thread);
+  };
+  return (
+    <>
+      <Menu
+        actions={
+          threadRef
+            ? [
+                ...actions,
+                {
+                  id: "archive",
+                  title: "Archive mine",
+                  image: "archivebox",
+                  attributes: { disabled },
+                },
+              ]
+            : actions
+        }
+        onPressAction={(event) => {
+          if (event.nativeEvent.event === "archive") archive();
+          else onPressAction(event);
+        }}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Arrange ${title}`}
+          className="p-3"
+        >
+          <Text>•••</Text>
+        </Pressable>
+      </Menu>
+      {threadRef ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Archive ${title}`}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={archive}
+          className="min-h-12 min-w-12 items-center justify-center"
+          style={{ opacity: disabled ? 0.4 : 1 }}
+        >
+          <SymbolView name="archivebox" size={18} tintColorClassName="accent-foreground-muted" />
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
 export function MinesLibrary({
   onNewChat,
   onSettings,
@@ -45,7 +128,8 @@ export function MinesLibrary({
 }) {
   const { catalog, snapshot, error, accountId } = useMinesCatalog();
   const projects = useProjects();
-  const threads = useNavigationThreadShells();
+  const threads = useAtomValue(environmentThreadShells.quietThreadShellsAtom);
+  const { archiveThread } = useThreadListActions();
   const configs = useServerConfigs();
   const { environments } = useWorkspaceState();
   const ownedEnvironmentIds = useAtomValue(minesAccountEnvironmentIdsAtom);
@@ -133,7 +217,12 @@ export function MinesLibrary({
         for (const group of data.groups)
           if (group.visibility === "shared")
             archived.add(catalogHostId("group", environmentId, group.id));
-    return buildLibraryRows(snapshot, collapsed, expanded, archived);
+    const subagentIds = new Set(
+      threads
+        .filter((thread) => thread.lineage.relationshipToParent === "subagent")
+        .map((thread) => catalogHostId("thread", thread.environmentId, thread.id)),
+    );
+    return buildLibraryRows(snapshot, collapsed, expanded, archived, subagentIds);
   }, [snapshot, collapsed, expanded, threads, groupLists, accountId]);
   const run = (action: () => void) => {
     try {
@@ -198,6 +287,20 @@ export function MinesLibrary({
           {error}
         </Text>
       ) : null}
+      {rows.map((row) =>
+        "entry" in row &&
+        row.open &&
+        row.entry.entity.kind === "thread" &&
+        row.entry.entity.hostRef ? (
+          <LibraryThreadFamily
+            key={row.key}
+            threadRef={{
+              environmentId: EnvironmentId.make(row.entry.entity.hostRef.environmentId),
+              threadId: ThreadId.make(row.entry.entity.hostRef.entityId),
+            }}
+          />
+        ) : null,
+      )}
       <FlatList
         data={rows}
         keyExtractor={(row) => ("heading" in row ? row.heading : row.key)}
@@ -211,6 +314,13 @@ export function MinesLibrary({
             );
           const { entry, pinned, index, siblings, open } = row;
           const entity = entry.entity;
+          const threadRef =
+            entity.kind === "thread" && entity.hostRef
+              ? {
+                  environmentId: EnvironmentId.make(entity.hostRef.environmentId),
+                  threadId: ThreadId.make(entity.hostRef.entityId),
+                }
+              : null;
           const key = row.key;
           const container = entity.kind === "section" || entity.kind === "project";
           const isPinned = pinnedIds.has(entity.id);
@@ -260,8 +370,7 @@ export function MinesLibrary({
               : []),
           ];
           const toggleOpen = () => {
-            const update =
-              entity.kind === "section" || entity.kind === "thread" ? setCollapsed : setExpanded;
+            const update = entity.kind === "section" ? setCollapsed : setExpanded;
             update((current) => {
               const next = new Set(current);
               if (next.has(key)) next.delete(key);
@@ -298,10 +407,10 @@ export function MinesLibrary({
             >
               {entity.kind === "thread" ? (
                 <View className="w-8">
-                  {row.hasChildren ? (
+                  {row.hasChildren || threadRef ? (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${open ? "Collapse" : "Expand"} ${entity.title}`}
+                      accessibilityLabel={`${open ? "Hide" : "Show"} subagents for ${entity.title}`}
                       accessibilityState={{ expanded: open }}
                       onPress={toggleOpen}
                       className="min-h-12 items-center justify-center"
@@ -369,7 +478,10 @@ export function MinesLibrary({
                 </View>
                 {!online ? <Text className="text-xs text-muted-foreground">Offline</Text> : null}
               </Pressable>
-              <Menu
+              <LibraryRowActions
+                threadRef={threadRef}
+                title={entity.title}
+                onArchive={archiveThread}
                 actions={actions}
                 onPressAction={({ nativeEvent }) => {
                   if (!catalog) return;
@@ -392,15 +504,7 @@ export function MinesLibrary({
                     else if (action === "context") setContextEntityId(entity.id);
                   });
                 }}
-              >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Arrange ${entity.title}`}
-                  className="p-3"
-                >
-                  <Text>•••</Text>
-                </Pressable>
-              </Menu>
+              />
             </View>
           );
         }}

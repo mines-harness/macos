@@ -39,7 +39,7 @@ import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
-import { GuestShareIndicator } from "./GuestShareControls";
+import { GuestShareButton, GuestShareParticipants } from "./GuestShareControls";
 import { canTransferMineAtom } from "./mineTransferAvailability";
 import { openMineTransferDialog } from "./mineTransferDialogState";
 import { Button } from "../ui/button";
@@ -414,16 +414,24 @@ export const ChatHeader = memo(function ChatHeader({
             )}
           </div>
           {isServerThread ? (
-            <MineParticipantsControl
-              key={`${activeThreadEnvironmentId}:${activeThreadId}`}
-              environmentId={activeThreadEnvironmentId}
-              threadId={activeThreadId}
-              title={activeThreadTitle}
-            />
+            <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+              <MineParticipantsControl
+                key={`${activeThreadEnvironmentId}:${activeThreadId}`}
+                environmentId={activeThreadEnvironmentId}
+                threadId={activeThreadId}
+                title={activeThreadTitle}
+              />
+              <GuestShareParticipants
+                key={`guests:${activeThreadEnvironmentId}:${activeThreadId}`}
+                threadRef={activeThreadRef}
+              />
+            </div>
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
-      {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
+      {isServerThread && canShareWithGuest ? (
+        <GuestShareButton threadRef={activeThreadRef} />
+      ) : null}
       {isServerThread && canTransferMine ? (
         <Tooltip>
           <TooltipTrigger

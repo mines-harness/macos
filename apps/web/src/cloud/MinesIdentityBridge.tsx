@@ -16,7 +16,7 @@ import {
   readPreparedConnection,
   useEnvironmentsWithScope,
 } from "../state/session";
-import { bindCatalogIdentity } from "../state/catalogIdentity";
+import { bindCatalogIdentity, peerDeviceAccountIdAtom } from "../state/catalogIdentity";
 import { peerConfigure } from "../state/peers";
 import { toastManager } from "../components/ui/toast";
 import { isLocalMinesAccountHost } from "./minesAccountHosts";
@@ -41,6 +41,10 @@ export function MinesIdentityBridge({ children }: { readonly children: ReactNode
   const transition = useRef(Promise.resolve());
   const previousAccount = useRef<string | null | undefined>(undefined);
   const previousHosts = useRef<ReadonlyArray<EnvironmentId>>([]);
+  useLayoutEffect(() => {
+    appAtomRegistry.set(peerDeviceAccountIdAtom, accountId);
+    return () => appAtomRegistry.set(peerDeviceAccountIdAtom, null);
+  }, [accountId]);
   useLayoutEffect(() => {
     let active = true;
     appAtomRegistry.set(minesAccountEnvironmentIdsAtom, new Set());

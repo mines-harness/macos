@@ -31,6 +31,7 @@ export interface DeviceListRow {
     | "unavailable"
     | "needs-approval";
   readonly presence?: "online" | "offline" | "unknown";
+  readonly error?: string;
 }
 
 function isGenericDeviceName(name: string) {
@@ -65,7 +66,7 @@ function environmentStatus(environment: DeviceEnvironment): DeviceListRow["statu
       return "connected";
     case "connecting":
     case "reconnecting":
-      return "connecting";
+      return environment.connection.error ? "unavailable" : "connecting";
     case "error":
     case "unsupported":
       return "unavailable";
@@ -118,6 +119,7 @@ export function buildDeviceList(input: {
         environment.entry.target._tag === "PrimaryConnectionTarget" ||
         peerIds.some((deviceId) => localIds.has(deviceId)),
       status: environmentStatus(environment),
+      ...(environment.connection.error ? { error: environment.connection.error } : {}),
     };
   });
   for (const device of devices.values()) {

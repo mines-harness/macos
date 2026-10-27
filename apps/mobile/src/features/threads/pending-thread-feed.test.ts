@@ -3,12 +3,18 @@ import {
   CommandId,
   ComposerContextId,
   EnvironmentId,
+  GuestMessageId,
+  GuestShareId,
   MessageId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
-import { appendPendingThreadMessages, isCompactionCommandFeedEntry } from "./pending-thread-feed";
+import {
+  appendGuestPendingMessages,
+  appendPendingThreadMessages,
+  isCompactionCommandFeedEntry,
+} from "./pending-thread-feed";
 
 const pending = (id: string): QueuedThreadMessage => ({
   environmentId: EnvironmentId.make("env"),
@@ -18,6 +24,55 @@ const pending = (id: string): QueuedThreadMessage => ({
   text: id,
   attachments: [],
   createdAt: "2026-09-06T10:00:00.000Z",
+});
+
+describe("waiting guest messages", () => {
+  const share = {
+    id: GuestShareId.make("share"),
+    host: "guest.example.test",
+    createdAt: "2026-10-26T10:00:00.000Z",
+    expiresAt: "2026-10-26T16:00:00.000Z",
+    guestName: "Legacy guest",
+  };
+
+  it("keeps each guest's nickname on their own waiting messages", () => {
+    const messages = [
+      {
+        id: GuestMessageId.make("alice-message"),
+        text: "From Alice",
+        status: "pending" as const,
+        submittedAt: "2026-10-26T11:00:00.000Z",
+        guestName: "Alice",
+      },
+      {
+        id: GuestMessageId.make("bob-message"),
+        text: "From Bob",
+        status: "pending" as const,
+        submittedAt: "2026-10-26T11:01:00.000Z",
+        guestName: "Bob",
+      },
+    ];
+    const rows = appendGuestPendingMessages([], { ...share, messages });
+    expect(rows.map((row) => row.type === "guest-pending" && row.guestName)).toEqual([
+      "Alice",
+      "Bob",
+    ]);
+  });
+
+  it("keeps legacy attribution and leaves resolved messages out of moderation", () => {
+    const message = {
+      id: GuestMessageId.make("legacy-message"),
+      text: "Legacy message",
+      status: "pending" as const,
+      submittedAt: "2026-10-26T11:00:00.000Z",
+    };
+    const rows = appendGuestPendingMessages([], {
+      ...share,
+      messages: [message, { ...message, id: GuestMessageId.make("sent"), status: "sent" }],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ guestName: "Legacy guest", message });
+  });
 });
 
 describe("pending timeline messages", () => {

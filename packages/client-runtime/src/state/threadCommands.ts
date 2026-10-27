@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 import {
   WS_METHODS,
+  ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
   type OrchestrationV2ShellSnapshot,
 } from "@t3tools/contracts";
@@ -50,6 +51,9 @@ import {
   type StopThreadSessionInput,
   type UnarchiveThreadInput,
   type CloseGuestShareInput,
+  type KickGuestInput,
+  type BanGuestInput,
+  type UnbanGuestInput,
   type ResolveGuestMessageInput,
   type UnlinkThreadPullRequestInput,
   type UnpinThreadInput,
@@ -60,6 +64,9 @@ import {
   type VisitThreadInput,
   archiveThread,
   closeGuestShare,
+  kickGuest,
+  banGuest,
+  unbanGuest,
   resolveGuestMessage,
   cancelQueuedRun,
   createThread,
@@ -100,6 +107,9 @@ import {
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ThreadHistoryController from "./threadHistoryController.ts";
+import { createCommandPermissions } from "./commandPermissions.ts";
+// oxlint-disable-next-line mines/no-rpc-permission-bypass -- Guest wrappers adapt optional command metadata at this shared command boundary.
+import { RpcPermissionGuard } from "../rpc/client.ts";
 
 export type LoadEarlierThreadHistoryInput = {
   readonly threadId: ThreadId;
@@ -111,6 +121,10 @@ export type {
   CancelQueuedRunInput,
   CreateThreadInput,
   DeleteThreadInput,
+  CloseGuestShareInput,
+  KickGuestInput,
+  BanGuestInput,
+  UnbanGuestInput,
   EditQueuedRunInput,
   InterruptThreadTurnInput,
   MarkThreadUnreadInput,
@@ -210,6 +224,44 @@ export function createThreadEnvironmentAtoms<R, E>(
     );
   });
 
+  const guestSharePermissions = createCommandPermissions(
+    runtime,
+    ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+  );
+  const createGuestShareCommand = <Input extends CloseGuestShareInput>(
+    type:
+      | "thread.guest-share.close"
+      | "thread.guest-share.kick"
+      | "thread.guest-share.ban"
+      | "thread.guest-share.unban"
+      | undefined,
+    label: string,
+    execute: (input: Input) => ReturnType<typeof closeGuestShare>,
+  ) => ({
+    ...createEnvironmentCommand(runtime, {
+      label,
+      execute: (input: Input, registry, environmentId) =>
+        guestSharePermissions
+          .authorize(registry, environmentId, type === undefined ? undefined : { ...input, type })
+          .pipe(
+            Effect.andThen(() => execute(input)),
+            Effect.provideService(RpcPermissionGuard, {
+              authorize: (id, method, payload) =>
+                createCommandPermissions(runtime, method).authorize(registry, id, payload),
+            }),
+          ),
+      scheduler,
+      concurrency,
+    }),
+    requiredScopes: () =>
+      guestSharePermissions.requiredScopes(type === undefined ? undefined : { type }),
+    permissionAtom: (environmentId: EnvironmentId | null) =>
+      guestSharePermissions.permissionAtom(
+        environmentId,
+        type === undefined ? undefined : { type },
+      ),
+  });
+
   const commands = {
     create: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:create",
@@ -223,18 +275,31 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
-    closeGuestShare: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:close-guest-share",
-      execute: (input: CloseGuestShareInput) => closeGuestShare(input),
-      scheduler,
-      concurrency,
-    }),
-    resolveGuestMessage: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:resolve-guest-message",
-      execute: (input: ResolveGuestMessageInput) => resolveGuestMessage(input),
-      scheduler,
-      concurrency,
-    }),
+    closeGuestShare: createGuestShareCommand(
+      "thread.guest-share.close",
+      "environment-data:commands:thread:close-guest-share",
+      (input: CloseGuestShareInput) => closeGuestShare(input),
+    ),
+    kickGuest: createGuestShareCommand(
+      "thread.guest-share.kick",
+      "environment-data:commands:thread:kick-guest",
+      (input: KickGuestInput) => kickGuest(input),
+    ),
+    banGuest: createGuestShareCommand(
+      "thread.guest-share.ban",
+      "environment-data:commands:thread:ban-guest",
+      (input: BanGuestInput) => banGuest(input),
+    ),
+    unbanGuest: createGuestShareCommand(
+      "thread.guest-share.unban",
+      "environment-data:commands:thread:unban-guest",
+      (input: UnbanGuestInput) => unbanGuest(input),
+    ),
+    resolveGuestMessage: createGuestShareCommand(
+      undefined,
+      "environment-data:commands:thread:resolve-guest-message",
+      (input: ResolveGuestMessageInput) => resolveGuestMessage(input),
+    ),
     archive: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:archive",
       execute: (input: ArchiveThreadInput) => archiveThread(input),

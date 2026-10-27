@@ -1625,10 +1625,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                     key={`chatgpt-limit:${props.selectedThread.latestRun?.runId}`}
                     thread={props.selectedThread}
                   />
-                  <ThreadGuestShareBar
-                    threadRef={props.selectedThreadDetailRef}
-                    canOperateThread={props.canOperateThread}
-                  />
+                  <ThreadGuestShareBar threadRef={props.selectedThreadDetailRef} />
                   {props.feedbackSubmissions.map((submission) => (
                     <ComposerFeedback
                       key={submission.id}

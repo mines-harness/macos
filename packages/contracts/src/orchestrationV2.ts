@@ -18,6 +18,7 @@ import {
   EventId,
   GuestMessageId,
   GuestShareId,
+  GuestSessionId,
   IsoDateTime,
   MessageId,
   NodeId,
@@ -42,7 +43,12 @@ import {
   TurnItemId,
 } from "./baseSchemas.ts";
 import { ChatAttachment, ChatFileAttachment } from "./chatAttachment.ts";
-import { ThreadGuestShare } from "./guestShare.ts";
+import {
+  GUEST_BANNED_IP_LIMIT,
+  GuestShareMaxGuests,
+  GuestSharePermission,
+  ThreadGuestShare,
+} from "./guestShare.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -444,6 +450,9 @@ export const OrchestrationV2AppThread = Schema.Struct({
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
+  guestBannedIps: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(GUEST_BANNED_IP_LIMIT)),
+  ),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2800,6 +2809,24 @@ export const OrchestrationV2Command = Schema.Union([
     guestMessageId: GuestMessageId,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.guest-share.kick"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    guestId: GuestSessionId,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.guest-share.ban"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    guestId: GuestSessionId,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.guest-share.unban"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    ipAddress: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.unarchive"),
     commandId: CommandId,
     threadId: ThreadId,
@@ -3233,6 +3260,8 @@ const OrchestrationV2InternalCommand = Schema.Union([
     shareId: GuestShareId,
     host: TrimmedNonEmptyString,
     expiresAt: IsoDateTime,
+    permission: Schema.optional(GuestSharePermission),
+    maxGuests: Schema.optional(GuestShareMaxGuests),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.guest-share.redeem"),
@@ -3240,6 +3269,16 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     shareId: GuestShareId,
     guestName: TrimmedNonEmptyString,
+    guestId: Schema.optional(GuestSessionId),
+    ipAddress: Schema.optional(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.guest-share.update-ip"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    shareId: GuestShareId,
+    guestId: GuestSessionId,
+    ipAddress: TrimmedNonEmptyString,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.guest-message.submit"),
@@ -3248,6 +3287,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     shareId: GuestShareId,
     guestMessageId: GuestMessageId,
     text: Schema.String,
+    guestId: Schema.optional(GuestSessionId),
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
   }),
   Schema.Struct({

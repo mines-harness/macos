@@ -14,6 +14,7 @@ import { ParticipantPicker, type ParticipantCandidate } from "../chat/Participan
 import { participantGroupMembers, participantKey } from "../chat/draftParticipants";
 import { Button } from "../ui/button";
 import { useParticipantCandidates } from "./useParticipantCandidates";
+import { catalogHostId } from "@t3tools/client-runtime/catalog";
 
 export function MineParticipantsControl({
   environmentId,
@@ -46,6 +47,7 @@ export function MineParticipantsControl({
         key={`${membership.environmentId}:${membership.groupId}`}
         environmentId={membership.environmentId}
         snapshot={group.data}
+        contextEntityId={catalogHostId("project", thread.environmentId, thread.projectId)}
       />
     ) : (
       <span className="text-xs text-muted-foreground">
@@ -57,27 +59,43 @@ export function MineParticipantsControl({
       key={participantKey(mine)}
       environmentId={environmentId}
       mine={mine}
+      contextEntityId={catalogHostId("project", thread.environmentId, thread.projectId)}
     />
   );
 }
 
 export function GroupParticipantsControl({
   environmentId,
+  contextEntityId,
   ...context
 }: {
   environmentId: EnvironmentId;
+  contextEntityId?: string | null;
 } & (
   | { readonly snapshot: GroupSnapshot; readonly mine?: never }
   | { readonly mine: ParticipantCandidate; readonly snapshot?: never }
 )) {
   const snapshot = context.snapshot;
   const mine = context.mine;
+  const sourceThread = useQuietThreadShell(
+    mine ? scopeThreadRef(mine.environmentId, mine.threadId) : null,
+  );
   const create = useOrchestrationCommand(groupCreate, { reportFailure: false });
   const add = useOrchestrationCommand(groupAddMembers, { reportFailure: false });
   const createAllowed = useAtomValue(groupCreate.permissionAtom(environmentId));
   const addAllowed = useAtomValue(groupAddMembers.permissionAtom(environmentId));
   const allowed = snapshot ? addAllowed && snapshot.group.archivedAt === null : createAllowed;
-  const candidates = useParticipantCandidates({ environmentId, enabled: allowed });
+  const { candidates, sectionId } = useParticipantCandidates({
+    environmentId,
+    enabled: allowed,
+    contextEntityId:
+      contextEntityId ??
+      (snapshot
+        ? catalogHostId("group", environmentId, snapshot.group.id)
+        : sourceThread
+          ? catalogHostId("project", sourceThread.environmentId, sourceThread.projectId)
+          : null),
+  });
   const currentKeys = new Set(
     snapshot
       ? snapshot.members.map((member) =>
@@ -101,7 +119,11 @@ export function GroupParticipantsControl({
   const availableKeys = new Set(
     threads.filter((candidate) => !candidate.disabledReason).map(participantKey),
   );
-  const [selected, setSelected] = useState<ReadonlyArray<ParticipantCandidate>>([]);
+  const [selectedMembers, setSelected] = useState<ReadonlyArray<ParticipantCandidate>>([]);
+  const candidateKeys = new Set(candidates.map(participantKey));
+  const selected = sectionId
+    ? selectedMembers.filter((candidate) => candidateKeys.has(participantKey(candidate)))
+    : selectedMembers;
   const [requestId, setRequestId] = useState(randomUUID);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

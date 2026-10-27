@@ -26,6 +26,23 @@ const baseState: ThreadActionMenuState = {
 };
 
 describe("buildThreadActionMenuItems", () => {
+  it.each([false, true])(
+    "requires the guest-link grant regardless of operate permission (%s)",
+    (canOperate) => {
+      expect(
+        buildThreadActionMenuItems({ ...baseState, canOperate, canShareWithGuest: false }).some(
+          (item) => item.id === "share-guest",
+        ),
+      ).toBe(false);
+      const share = buildThreadActionMenuItems({
+        ...baseState,
+        canOperate,
+        canShareWithGuest: true,
+      }).find((item) => item.id === "share-guest");
+      expect(share).toBeDefined();
+      expect(share?.disabled).not.toBe(true);
+    },
+  );
   it("offers transfer only on a supporting connection and requires operate permission", () => {
     expect(buildThreadActionMenuItems(baseState).some((item) => item.id === "transfer-mine")).toBe(
       false,

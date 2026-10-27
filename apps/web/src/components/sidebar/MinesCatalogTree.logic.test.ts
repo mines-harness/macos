@@ -32,3 +32,32 @@ it("retains the archive filter for explicitly pinned agents", () => {
     }),
   ).toBe(false);
 });
+
+it("shows native and imported subagents directly under their parent mine", () => {
+  for (const imported of [false, true]) {
+    const entity = imported
+      ? { ...mine, importSource: { executionProjectId: "execution", kind: "subagent" as const } }
+      : mine;
+    expect(
+      isCatalogLibraryEntryVisible({
+        entity,
+        thread: imported
+          ? undefined
+          : { archivedAt: null, lineage: { relationshipToParent: "subagent" } },
+        pinned: false,
+        nestedUnderMine: true,
+      }),
+    ).toBe(true);
+    expect(
+      isCatalogLibraryEntryVisible({
+        entity,
+        thread: {
+          archivedAt: "2026-10-27T00:00:00Z",
+          lineage: { relationshipToParent: "subagent" },
+        },
+        pinned: false,
+        nestedUnderMine: true,
+      }),
+    ).toBe(false);
+  }
+});

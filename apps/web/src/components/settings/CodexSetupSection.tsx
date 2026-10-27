@@ -39,6 +39,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { ChatGptConnectionButton } from "./ChatGptConnectionButton";
 import { ChatGptUsageButton } from "./ChatGptUsageButton";
+import { CodexResetStatus } from "../usage/CodexResetStatus";
 import { ChatGptAccountPicker } from "./ChatGptAccountPicker";
 import { Input } from "../ui/input";
 import { OpenAI } from "../Icons";
@@ -983,8 +984,11 @@ function ManagedCodexSetup({
         }
       />
       {authenticated ? (
-        <div className="flex justify-end px-3 py-1 sm:px-4">
-          <ChatGptUsageButton />
+        <div className="flex flex-col gap-1 px-3 py-1 sm:px-4">
+          <div className="flex justify-end">
+            <ChatGptUsageButton />
+          </div>
+          <CodexResetStatus />
         </div>
       ) : null}
       {logoutWarning ? (

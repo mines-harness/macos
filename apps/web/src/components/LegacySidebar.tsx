@@ -2175,12 +2175,19 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             ? [{ id: "transfer-mine", label: "Transfer mine…" }]
             : []),
           ...(appAtomRegistry.get(canShareWithGuestAtom(thread.environmentId))
-            ? [{ id: "share-guest", label: "Share with guest" }]
+            ? [{ id: "share-guest", label: "Share link" }]
             : []),
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Mine ID" },
           { id: "project-settings", label: "Project settings" },
+          {
+            id: "archive",
+            label: "Archive mine",
+            icon: "archive",
+            disabled: !canOperateThread || !threadRuntimeCanArchive(thread.runtime),
+            separatorBefore: true,
+          },
           {
             id: "delete",
             label: "Delete",
@@ -2256,6 +2263,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       }
       if (clicked === "copy-thread-id") {
         copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+        return;
+      }
+      if (clicked === "archive") {
+        if (!checkTaskPermission(threadRef.environmentId)) return;
+        if (appSettingsConfirmThreadArchive) {
+          const confirmed = await api.dialogs.confirm(`Archive mine "${thread.title}"?`);
+          if (!confirmed) return;
+        }
+        await attemptArchiveThread(threadRef);
         return;
       }
       if (clicked !== "delete") return;

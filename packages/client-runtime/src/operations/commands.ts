@@ -27,6 +27,7 @@ import {
   type ThreadEnvMode,
   type UploadChatAttachment,
   type GuestMessageId,
+  type GuestSessionId,
 } from "@t3tools/contracts";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -34,7 +35,7 @@ import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 
-import { getInitialServerConfig, request } from "../rpc/client.ts";
+import { getInitialServerConfig, request, requestGuarded } from "../rpc/client.ts";
 
 interface CommandMetadata {
   readonly commandId?: CommandId;
@@ -270,7 +271,7 @@ const allocateCommandId = Effect.fn("EnvironmentCommands.allocateCommandId")(fun
 });
 
 const dispatch = (command: OrchestrationV2Command) =>
-  request(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, command);
+  requestGuarded(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, command);
 
 const getProjection = (threadId: ThreadId) =>
   request(ORCHESTRATION_V2_WS_METHODS.getThreadProjection, { threadId });
@@ -439,6 +440,47 @@ export const closeGuestShare = Effect.fn("EnvironmentCommands.closeGuestShare")(
   input: CloseGuestShareInput,
 ) {
   return yield* simpleThreadCommand("thread.guest-share.close", input);
+});
+
+export interface KickGuestInput extends ThreadCommandInput {
+  readonly guestId: GuestSessionId;
+}
+
+export type BanGuestInput = KickGuestInput;
+
+export interface UnbanGuestInput extends ThreadCommandInput {
+  readonly ipAddress: string;
+}
+
+export const kickGuest = Effect.fn("EnvironmentCommands.kickGuest")(function* (
+  input: KickGuestInput,
+) {
+  return yield* dispatch({
+    type: "thread.guest-share.kick",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    guestId: input.guestId,
+  });
+});
+
+export const banGuest = Effect.fn("EnvironmentCommands.banGuest")(function* (input: BanGuestInput) {
+  return yield* dispatch({
+    type: "thread.guest-share.ban",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    guestId: input.guestId,
+  });
+});
+
+export const unbanGuest = Effect.fn("EnvironmentCommands.unbanGuest")(function* (
+  input: UnbanGuestInput,
+) {
+  return yield* dispatch({
+    type: "thread.guest-share.unban",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    ipAddress: input.ipAddress,
+  });
 });
 
 export interface ResolveGuestMessageInput extends ThreadCommandInput {

@@ -7,6 +7,10 @@
   ],
   "type": "module",
   "exports": {
+    "./guestProxy": {
+      "types": "./src/guestProxy.ts",
+      "import": "./src/guestProxy.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"

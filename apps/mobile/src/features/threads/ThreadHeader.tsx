@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { useCallback, useMemo } from "react";
 import { AppBar } from "../../components/ui/AppBar";
 import { ScreenHeaderButton } from "../../components/ui/ScreenHeaderButton";
 import type { AppBarAction } from "../../components/ui/AppBar.types";
@@ -7,6 +8,8 @@ import type { ThreadInspectorMode } from "./thread-inspector-content-stack";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 import { useWorkspaceBackNavigation } from "../workspace/useAndroidWorkspaceNavigation";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import { openGuestShareDialog } from "../../state/guest-sharing";
+import { useCanShareWithGuest } from "./useThreadGuestShare";
 
 export function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -17,15 +20,28 @@ export function ThreadHeader(
     readonly onToggleInspector: () => void;
     readonly onOpenGitInspector: () => void;
     readonly onOpenFilesInspector: () => void;
+    readonly shareThreadRef?: ScopedThreadRef | null;
   },
 ) {
   const goBack = useWorkspaceBackNavigation("threads");
   const { layout, panes, toggleAuxiliaryPane, composerKeyboardActive } =
     useAdaptiveWorkspaceLayout();
   const { onOpenTerminal, onMergeBack } = props.gitControls;
-  const native = useThreadHeaderOptions(props);
+  const canShare = useCanShareWithGuest(props.shareThreadRef?.environmentId ?? null);
+  const openShareLinkDialog = useCallback(() => {
+    if (props.shareThreadRef) openGuestShareDialog(props.shareThreadRef);
+  }, [props.shareThreadRef]);
+  const openShareLink = canShare && props.shareThreadRef ? openShareLinkDialog : undefined;
+  const native = useThreadHeaderOptions({ ...props, onShareLink: openShareLink });
   const androidHeaderActions = useMemo<ReadonlyArray<AppBarAction>>(() => {
     const actions: AppBarAction[] = [];
+    if (openShareLink) {
+      actions.push({
+        accessibilityLabel: "Share link",
+        icon: "square.and.arrow.up",
+        onPress: openShareLink,
+      });
+    }
     if (props.onReturnToThread) {
       actions.push({
         accessibilityLabel: "Return to mine",
@@ -73,6 +89,7 @@ export function ThreadHeader(
     }
     return actions;
   }, [
+    openShareLink,
     props.inspectorMode,
     panes.auxiliaryPaneVisible,
     props.onOpenFilesInspector,

@@ -39,7 +39,8 @@ import { useNowMinute } from "~/hooks/useNowMinute";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { observeResize } from "~/lib/observeResize";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
+import { guestApiUrl } from "~/guestRouting";
 import { deriveActiveWorkStartedAt, derivePhase } from "~/session-logic";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
 import { ComposerControl, ComposerControlIcon } from "../chat/ComposerControl";
@@ -56,6 +57,7 @@ import { useTimelineFollow } from "../chat/useTimelineFollow";
 import { GuestHtmlRender } from "./GuestHtmlRender";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   applyGuestStreamEvent,
   formatGuestExpiry,
@@ -65,10 +67,10 @@ import {
   initialGuestStreamState,
   inviteShareId,
   type GuestStreamState,
-  parseGuestStreamEvent,
   unplacedGuestMessages,
 } from "./guestStream.logic";
 import { guestTurnItemSource } from "./guestTurnItemSource";
+import { connectGuestStream } from "./guestConnection";
 
 interface GuestEntry {
   /** Unspent invite from the URL hash, if this load came from a link. */
@@ -117,13 +119,15 @@ function takeGuestEntry(): GuestEntry {
       credential !== ""
         ? inviteShareId(credential)
         : new URLSearchParams(window.location.search).get(GUEST_SHARE_PARAM);
+    const search = new URLSearchParams();
+    const host = new URLSearchParams(window.location.search).get("host");
+    if (host !== null) search.set("host", host);
+    if (shareId !== null) search.set(GUEST_SHARE_PARAM, shareId);
     // The share stays in the URL, so a reload or bookmark finds this browser's session for it.
     window.history.replaceState(
       window.history.state,
       "",
-      shareId === null
-        ? window.location.pathname
-        : `${window.location.pathname}?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
+      `${window.location.pathname}${search.size === 0 ? "" : `?${search}`}`,
     );
     capturedEntry = { credential: credential === "" ? null : credential, shareId };
   }
@@ -139,7 +143,7 @@ async function postGuest(
 ): Promise<string | null> {
   try {
     const response = await fetch(
-      `${GUEST_ROUTE_PREFIX}/${path}`,
+      guestApiUrl(`${GUEST_ROUTE_PREFIX}/${path}`),
       body instanceof FormData
         ? { method: "POST", body }
         : {
@@ -178,19 +182,29 @@ export function GuestPage() {
   useEffect(() => {
     if (shareId === null) return;
     let live = true;
-    void fetch(`${GUEST_ROUTE_PREFIX}/session?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`)
-      .then(
-        (response): GuestAccess =>
-          response.ok ? "session" : credential !== null ? "name" : "none",
-        // Offline: an invite still needs the name form; without one, the stream reports what
-        // it finds once the network is back.
-        (): GuestAccess => (credential !== null ? "name" : "session"),
-      )
-      .then((next) => {
-        if (live) setAccess(next);
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const check = async () => {
+      try {
+        const response = await fetch(
+          guestApiUrl(
+            `${GUEST_ROUTE_PREFIX}/session?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
+          ),
+          { signal: controller.signal },
+        );
+        if (!live) return;
+        if (response.ok || response.status === 403) {
+          setAccess(response.ok ? "session" : credential !== null ? "name" : "none");
+          return;
+        }
+      } catch {}
+      if (live) timer = setTimeout(() => void check(), 2_000);
+    };
+    void check();
     return () => {
       live = false;
+      controller.abort();
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [credential, shareId]);
   // Pasting another guest link into this tab changes only the hash, which does not reload the
@@ -221,7 +235,7 @@ export function GuestPage() {
       ) : (
         <Notice
           title="This link has ended or is not valid"
-          detail="Ask the owner for a new link. Each link works in one browser."
+          detail="Ask the owner for a new link."
         />
       )}
     </div>
@@ -234,49 +248,54 @@ function GuestSession({ shareId }: { readonly shareId: string }) {
     awaitingRowIds: readAwaitingRowIds(),
   }));
   useEffect(() => writeAwaitingRowIds(stream.awaitingRowIds), [stream.awaitingRowIds]);
-  // EventSource closes for good only on a non-200 response, which the guest routes send for a
-  // missing, invalid, or ended session. Network drops reconnect on their own.
   const [rejected, setRejected] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
 
   useEffect(() => {
     if (stream.view) document.title = stream.view.title;
   }, [stream.view]);
 
-  useEffect(() => {
-    const source = new EventSource(
-      `${GUEST_ROUTE_PREFIX}/stream?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
-    );
-    source.addEventListener("message", (message) => {
-      const event = parseGuestStreamEvent(message.data);
-      if (event === null) return;
-      dispatch(event);
-      if (event.type === "ended") source.close();
-    });
-    source.addEventListener("error", () => {
-      if (source.readyState === EventSource.CLOSED) setRejected(true);
-    });
-    return () => source.close();
-  }, [shareId]);
+  useEffect(
+    () =>
+      connectGuestStream({
+        streamUrl: guestApiUrl(
+          `${GUEST_ROUTE_PREFIX}/stream?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
+        ),
+        sessionUrl: guestApiUrl(
+          `${GUEST_ROUTE_PREFIX}/session?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
+        ),
+        onEvent: dispatch,
+        onRejected: () => setRejected(true),
+        onReconnecting: setReconnecting,
+      }),
+    [shareId],
+  );
 
   if (stream.ended || (rejected && stream.view !== null)) {
-    return <Notice title="This link has ended" detail="The owner stopped sharing this mine." />;
+    return (
+      <Notice title="This link has ended" detail="Your access to this conversation has ended." />
+    );
   }
   if (stream.view !== null) {
     if (stream.projection === null) return <Notice title="Connecting..." />;
     return (
-      <GuestThread
-        view={stream.view}
-        projection={stream.projection}
-        awaitingRowIds={stream.awaitingRowIds}
-      />
+      <>
+        {reconnecting ? (
+          <p role="status" className="px-4 py-2 text-center text-xs text-muted-foreground">
+            Reconnecting to the conversation…
+          </p>
+        ) : null}
+        <GuestThread
+          view={stream.view}
+          projection={stream.projection}
+          awaitingRowIds={stream.awaitingRowIds}
+        />
+      </>
     );
   }
   if (!rejected) return <Notice title="Connecting..." />;
   return (
-    <Notice
-      title="This link has ended or is not valid"
-      detail="Ask the owner for a new link. Each link works in one browser."
-    />
+    <Notice title="This link has ended or is not valid" detail="Ask the owner for a new link." />
   );
 }
 
@@ -313,7 +332,7 @@ function NameForm({
     <form className="m-auto flex w-full max-w-xs flex-col gap-3 p-6" onSubmit={submit}>
       <h1 className="text-base font-medium">Join a shared mine</h1>
       <label className="flex flex-col gap-1.5 text-sm" htmlFor="guest-name">
-        Your name
+        Nickname
         <Input
           id="guest-name"
           autoFocus
@@ -332,7 +351,7 @@ function NameForm({
         Join
       </Button>
       <p className="text-xs text-muted-foreground">
-        The owner sees your name and approves each message before the agent gets it.
+        Your nickname is visible to everyone in this conversation.
       </p>
     </form>
   );
@@ -351,7 +370,7 @@ const ignore = () => {};
  * revert, diffs, files, other threads, shell) is left out, so its control does not render.
  */
 function GuestThread({
-  view: { shareId, title, expiresAt, messages, model },
+  view: { shareId, title, expiresAt, messages, model, permission, guestId, guests },
   projection,
   awaitingRowIds,
 }: {
@@ -440,6 +459,16 @@ function GuestThread({
     <>
       <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
+        {guests && guests.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={<span className="max-w-40 truncate text-xs text-muted-foreground" />}
+            >
+              {guests.map((guest) => guest.name).join(", ")}
+            </TooltipTrigger>
+            <TooltipPopup>{guests.map((guest) => guest.name).join(", ")}</TooltipPopup>
+          </Tooltip>
+        ) : null}
         <ExpiryLabel expiresAt={expiresAt} />
       </header>
       <div className="relative min-h-0 flex-1">
@@ -483,7 +512,7 @@ function GuestThread({
               <ol ref={footerRef} className="chat-content-lane flex flex-col gap-4 pb-4">
                 {unplaced.map((message) => (
                   <li key={message.id}>
-                    <UnplacedGuestMessage shareId={shareId} message={message} />
+                    <UnplacedGuestMessage shareId={shareId} message={message} guestId={guestId} />
                   </li>
                 ))}
               </ol>
@@ -495,7 +524,13 @@ function GuestThread({
         ) : null}
       </div>
       <div className={cn(LANE, "shrink-0 pb-4")}>
-        <GuestComposer shareId={shareId} model={model} />
+        {permission === "viewer" ? (
+          <p className="py-3 text-center text-sm text-muted-foreground">
+            Viewer access · You can follow this conversation.
+          </p>
+        ) : (
+          <GuestComposer shareId={shareId} model={model} permission={permission ?? "confirm"} />
+        )}
       </div>
     </>
   );
@@ -524,16 +559,24 @@ const openExpandedImage = (preview: ExpandedImagePreview) => {
 function UnplacedGuestMessage({
   shareId,
   message,
+  guestId,
 }: {
   readonly shareId: GuestShareView["shareId"];
   readonly message: ThreadGuestMessage;
+  readonly guestId: string | undefined;
 }) {
   // A dismissed message's files are deleted, so only their names remain.
   const served = message.status !== "dismissed";
   const url = (attachment: { readonly id: string }) => guestAttachmentUrl(shareId, attachment.id);
   return (
     <div className="flex flex-col items-end gap-1">
-      <GuestMessageName name="You" />
+      <GuestMessageName
+        name={
+          message.guestId === undefined || message.guestId === guestId
+            ? "You"
+            : (message.guestName ?? "Guest")
+        }
+      />
       <div
         className={cn(
           BUBBLE,
@@ -602,9 +645,11 @@ function StagedImage({ file }: { readonly file: File }) {
 function GuestComposer({
   shareId,
   model,
+  permission,
 }: {
   readonly shareId: GuestShareView["shareId"];
   readonly model: GuestThreadModel;
+  readonly permission: "confirm" | "send";
 }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<ReadonlyArray<StagedFile>>([]);
@@ -612,6 +657,11 @@ function GuestComposer({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nextFileKey = useRef(0);
+  const submissionRef = useRef<{
+    readonly text: string;
+    readonly files: ReadonlyArray<StagedFile>;
+    readonly requestId: string;
+  } | null>(null);
   const { resolvedTheme } = useTheme();
   const addFiles = (added: ReadonlyArray<File>) => {
     if (added.length === 0) return;
@@ -628,9 +678,18 @@ function GuestComposer({
     if ((trimmed === "" && files.length === 0) || sending) return;
     setSending(true);
     const sentFiles = files;
+    const previous = submissionRef.current;
+    const requestId =
+      previous?.text === trimmed &&
+      previous.files.length === sentFiles.length &&
+      previous.files.every((file, index) => file === sentFiles[index])
+        ? previous.requestId
+        : randomUUID();
+    submissionRef.current = { text: trimmed, files: sentFiles, requestId };
     const form = new FormData();
     form.append("shareId", shareId);
     form.append("text", trimmed);
+    form.append("requestId", requestId);
     for (const staged of sentFiles) form.append("file", staged.file, staged.file.name);
     const failure = await postGuest(
       `messages?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
@@ -640,6 +699,7 @@ function GuestComposer({
     setError(failure);
     // Keep anything typed or attached while the request was in flight.
     if (failure === null) {
+      submissionRef.current = null;
       setText((current) => (current.trim() === trimmed ? "" : current));
       setFiles((current) => current.filter((staged) => !sentFiles.includes(staged)));
     }
@@ -746,7 +806,9 @@ function GuestComposer({
           </p>
         ) : (
           <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            The owner approves each message
+            {permission === "send"
+              ? "Messages go straight to the agent"
+              : "The owner approves each message"}
           </p>
         )}
         <button

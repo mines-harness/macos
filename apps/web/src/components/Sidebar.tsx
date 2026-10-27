@@ -2969,7 +2969,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               </ul>
               <MinesCatalogTree
                 onActivateThread={navigateToThread}
-                activeThreadKey={routeRowThreadKey}
+                activeThreadKey={routeThreadKey}
               />
             </>
           ) : null}

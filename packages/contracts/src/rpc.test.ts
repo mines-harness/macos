@@ -7,6 +7,17 @@ import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 import { GroupListResult } from "./groupChat.ts";
 
 describe("WebSocket RPC contracts", () => {
+  it("checks voice capabilities before a draft has a saved thread", () => {
+    const capabilities = WsRpcGroup.requests.get(WS_METHODS.voiceGetCapabilities);
+    if (capabilities === undefined) throw new Error("voice capabilities is not registered");
+    const decode = Schema.decodeUnknownExit(capabilities.payloadSchema);
+    const modelSelection = { instanceId: "codex-personal", model: "gpt-6.1-sol" };
+
+    expect(Exit.isSuccess(decode({ modelSelection }))).toBe(true);
+    expect(Exit.isSuccess(decode({ threadId: "thread-1" }))).toBe(true);
+    expect(Exit.isFailure(decode({}))).toBe(true);
+  });
+
   it("keeps group lists from older hosts readable without membership refs", () => {
     expect(Schema.decodeSync(GroupListResult)({ groups: [] })).toEqual({
       groups: [],

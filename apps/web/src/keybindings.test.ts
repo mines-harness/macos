@@ -223,6 +223,19 @@ describe("settle thread shortcut", () => {
 });
 
 describe("thread undo shortcut", () => {
+  it.each([
+    ["MacIntel", { metaKey: true }],
+    ["Win32", { ctrlKey: true }],
+    ["Linux x86_64", { ctrlKey: true }],
+  ])("undoes a mine action with the platform shortcut on %s", (platform, modifiers) => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: "z", ...modifiers }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+      }),
+      "thread.undo",
+    );
+  });
+
   it("leaves native undo alone inside text fields and terminals", () => {
     assert.isNull(
       resolveShortcutCommand(event({ key: "z", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {

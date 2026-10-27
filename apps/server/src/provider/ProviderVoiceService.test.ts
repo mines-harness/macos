@@ -19,6 +19,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import { v2PullRequestThread } from "../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as Registry from "./ProviderInstanceRegistry.ts";
@@ -40,10 +41,14 @@ const makeHarness = Effect.fn("ProviderVoiceTest.makeHarness")(function* (
     version?: string | null;
     mismatch?: boolean;
     reject?: "typed" | "defect";
+    launchReject?: boolean;
+    status?: "idle" | "running";
   } = {},
 ) {
-  let status: "idle" | "running" = "idle";
+  let status: "idle" | "running" = options.status ?? "idle";
   const commands: OrchestrationV2ServerCommand[] = [];
+  const threadReads: ThreadId[] = [];
+  const launches: ThreadLaunch.ThreadLaunchInput[] = [];
   const offers: { sessionId: string; threadId: ThreadId }[] = [];
   const runs: OrchestrationV2Run[] = [];
   const hub = yield* Live.make;
@@ -126,12 +131,41 @@ const makeHarness = Effect.fn("ProviderVoiceTest.makeHarness")(function* (
     Effect.provide(
       Layer.mergeAll(
         Layer.mock(Threads.ThreadManagementService)({
-          getThreadShell: () => Effect.sync(shell),
+          getThreadShell: (id) =>
+            Effect.sync(() => {
+              threadReads.push(id);
+              return shell();
+            }),
           getThreadRecords,
           dispatch,
         }),
         Layer.mock(Registry.ProviderInstanceRegistry)({
           getInstance: () => Effect.succeed(instance),
+        }),
+        Layer.mock(ThreadLaunch.ThreadLaunchService)({
+          launch: (launchInput) =>
+            Effect.gen(function* () {
+              launches.push(launchInput);
+              if (options.launchReject)
+                return yield* new ThreadLaunch.ThreadLaunchError({
+                  operation: "create-thread",
+                  commandId: launchInput.commandId,
+                  projectId: launchInput.projectId,
+                  cause: "rejected",
+                });
+              const run = {
+                id: RunId.make("draft-voice-run"),
+                threadId: launchInput.threadId,
+                userMessageId: launchInput.initialMessage?.messageId,
+                liveVoice: launchInput.initialMessage?.liveVoice,
+              } as OrchestrationV2Run;
+              runs.push(run);
+              return {
+                threadId: launchInput.threadId,
+                projection: { runs },
+                resumed: false,
+              } as unknown as ThreadLaunch.ThreadLaunchResult;
+            }),
         }),
         Layer.succeed(Live.LiveVoiceSessions, captureHub),
         Layer.succeed(
@@ -148,8 +182,99 @@ const makeHarness = Effect.fn("ProviderVoiceTest.makeHarness")(function* (
       ),
     ),
   );
-  return { voice, hub, commands, offers, runs, snapshot };
+  return { voice, hub, commands, offers, runs, snapshot, threadReads, launches };
 });
+
+it.effect("checks draft voice support without reading or creating a thread", () =>
+  Effect.gen(function* () {
+    const { voice, commands, offers, threadReads } = yield* makeHarness();
+    const capabilities = yield* voice.getCapabilities({ modelSelection: selection });
+    assert.strictEqual(capabilities.live.supported, true);
+    assert.strictEqual(capabilities.dictation.supported, false);
+    assert.deepStrictEqual(threadReads, []);
+    assert.deepStrictEqual(commands, []);
+    assert.deepStrictEqual(offers, []);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("launches a draft voice mine through workspace preparation without a text prompt", () =>
+  Effect.gen(function* () {
+    const { voice, commands, launches, threadReads, offers } = yield* makeHarness();
+    const modelSelection = {
+      ...selection,
+      options: [{ id: "reasoning_effort", value: "high" }],
+    };
+    const bootstrap = {
+      projectId: ProjectId.make("voice-project"),
+      title: "New mine",
+      runtimeMode: "approval-required" as const,
+      interactionMode: "plan" as const,
+      workspaceStrategy: { type: "worktree" as const, baseRef: "main", startFromOrigin: true },
+    };
+    const result = yield* voice.start({ ...input, modelSelection, bootstrap });
+    assert.strictEqual(result.runId, "draft-voice-run");
+    assert.deepStrictEqual(threadReads, []);
+    assert.deepStrictEqual(commands, []);
+    assert.deepStrictEqual(launches, [
+      {
+        ...bootstrap,
+        commandId: input.commandId,
+        threadId,
+        modelSelection,
+        initialMessage: {
+          messageId: input.messageId,
+          text: "",
+          attachments: [],
+          liveVoice: { sessionId: offers[0]!.sessionId },
+        },
+        createdBy: "user",
+        creationSource: "web",
+      },
+    ]);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("removes the SDP offer when draft voice launch fails", () =>
+  Effect.gen(function* () {
+    const { voice, offers, hub } = yield* makeHarness({ launchReject: true });
+    const result = yield* voice
+      .start({
+        ...input,
+        bootstrap: {
+          projectId: ProjectId.make("voice-project"),
+          title: "New mine",
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          workspaceStrategy: { type: "root" },
+        },
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(result.reason, "dispatch");
+    assert.strictEqual((yield* hub.takeOffer(offers[0]!).pipe(Effect.flip)).reason, "not-found");
+  }).pipe(Effect.scoped),
+);
+
+it.effect("rejects a busy saved mine before changing its workspace for voice", () =>
+  Effect.gen(function* () {
+    const { voice, offers, launches } = yield* makeHarness({ status: "running" });
+    const result = yield* voice
+      .start({
+        ...input,
+        bootstrap: {
+          projectId: ProjectId.make("voice-project"),
+          reuseExistingThread: true,
+          title: "New mine",
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          workspaceStrategy: { type: "worktree", baseRef: "main" },
+        },
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(result.reason, "busy");
+    assert.deepStrictEqual(launches, []);
+    assert.deepStrictEqual(offers, []);
+  }).pipe(Effect.scoped),
+);
 
 it.effect.each(["apiKey", "amazonBedrock", "unknown"])(
   "rejects %s accounts even for a Codex model",
@@ -160,6 +285,12 @@ it.effect.each(["apiKey", "amazonBedrock", "unknown"])(
         (yield* harness.voice.getCapabilities({ threadId })).live.supported,
         false,
       );
+      harness.threadReads.length = 0;
+      assert.strictEqual(
+        (yield* harness.voice.getCapabilities({ modelSelection: selection })).live.supported,
+        false,
+      );
+      assert.deepStrictEqual(harness.threadReads, []);
       assert.strictEqual(
         (yield* harness.voice.start(input).pipe(Effect.flip)).reason,
         "unsupported",

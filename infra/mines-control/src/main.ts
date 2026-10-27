@@ -26,6 +26,7 @@ import { handleContactsRequest, isContactsPath } from "./ContactsRoutes.ts";
 import { handleContactsAvatarRequest, isContactsAvatarPath } from "./ContactsAvatarRoutes.ts";
 import { accountAssets } from "./accountPage.ts";
 import { makeSocketHeartbeat } from "./SocketHeartbeat.ts";
+import { makeGuestProxy, parseGuestProxyConfig } from "./GuestProxy.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -37,6 +38,12 @@ const decodeSignal = Schema.decodeUnknownSync(PeerSignal);
 
 const origins = parseAllowedOrigins(required("MINES_ALLOWED_ORIGINS"));
 const authURL = required("MINES_AUTH_URL");
+const guestProxy = makeGuestProxy(
+  parseGuestProxyConfig(
+    process.env.MINES_GUEST_PUBLIC_URL,
+    process.env.MINES_GUEST_TRUSTED_PROXIES,
+  ),
+);
 const smtpPort = Number(process.env.MINES_SMTP_PORT ?? 25);
 if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65_535)
   throw new Error("Invalid MINES_SMTP_PORT.");
@@ -100,7 +107,14 @@ async function accountId(request: NodeHttp.IncomingMessage): Promise<string> {
 }
 
 function allowedOrigin(request: NodeHttp.IncomingMessage): boolean {
-  return request.headers.origin === undefined || origins.includes(request.headers.origin);
+  const path = request.url?.split("?", 1)[0] ?? "/";
+  return (
+    request.headers.origin === undefined ||
+    origins.includes(request.headers.origin) ||
+    (guestProxy.publicUrl !== null &&
+      request.headers.origin === guestProxy.publicUrl &&
+      (path === "/v1/guest-config" || path === "/v1/guest-host" || path.startsWith("/api/guest/")))
+  );
 }
 
 async function readRequestBody(
@@ -144,6 +158,7 @@ const handle = async (request: NodeHttp.IncomingMessage, response: NodeHttp.Serv
     response.end();
     return;
   }
+  if (await guestProxy.handle(request, response)) return;
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname === "/healthz" && request.method === "GET") {
     json(response, 200, { ok: true });
@@ -321,12 +336,107 @@ const sockets = new WebSocketServer({
   perMessageDeflate: false,
 });
 const heartbeat = makeSocketHeartbeat();
+const guestSockets = new WebSocketServer({
+  noServer: true,
+  maxPayload: 96 * 1024,
+  perMessageDeflate: false,
+});
+let guestQueuedBytes = 0;
 const heartbeatFiber = runtime.runFork(
-  Effect.sync(() => heartbeat.pulse()).pipe(Effect.repeat(Schedule.spaced("30 seconds"))),
+  Effect.sync(() => {
+    heartbeat.pulse();
+    guestProxy.pulse();
+  }).pipe(Effect.repeat(Schedule.spaced("30 seconds"))),
 );
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url ?? "/", "http://localhost");
   const ticket = url.searchParams.get("ticket");
+  if (
+    url.pathname === "/v1/guest-host" &&
+    guestProxy.publicUrl &&
+    allowedOrigin(request) &&
+    ticket &&
+    ticket.length <= 128
+  ) {
+    guestSockets.handleUpgrade(request, socket, head, (websocket) => {
+      let revoked = false;
+      let disconnectGuest = () => {};
+      websocket.on("error", () => {
+        disconnectGuest();
+        websocket.terminate();
+      });
+      websocket.once("close", heartbeat.track(websocket));
+      websocket.on("pong", () => heartbeat.pong(websocket));
+      void runtime
+        .runPromise(
+          Effect.flatMap(Signaling.Signaling, (service) =>
+            service.connect(ticket, {
+              send: () => {},
+              close: () => {
+                revoked = true;
+                disconnectGuest();
+                websocket.close(1008);
+              },
+            }),
+          ),
+        )
+        .then((connection) => {
+          if (revoked || websocket.readyState !== websocket.OPEN) {
+            connection.disconnect();
+            return;
+          }
+          const host = guestProxy.connect(connection.device.deviceId, {
+            send: (frame) => {
+              const message = JSON.stringify(frame);
+              const size = Buffer.byteLength(message);
+              if (
+                websocket.readyState !== websocket.OPEN ||
+                websocket.bufferedAmount + size > 16 * 1024 * 1024 ||
+                guestQueuedBytes + size > 32 * 1024 * 1024
+              ) {
+                websocket.close(1008);
+                throw new Error("Guest proxy queue full.");
+              }
+              guestQueuedBytes += size;
+              try {
+                websocket.send(message, (error) => {
+                  guestQueuedBytes -= size;
+                  if (error) {
+                    disconnectGuest();
+                    websocket.terminate();
+                  }
+                });
+              } catch (error) {
+                guestQueuedBytes -= size;
+                throw error;
+              }
+            },
+            close: () => websocket.close(1008),
+          });
+          disconnectGuest = host.disconnect;
+          websocket.once("close", () => {
+            host.disconnect();
+            connection.disconnect();
+          });
+          websocket.on("message", (data, binary) => {
+            if (binary) {
+              disconnectGuest();
+              websocket.close(1008);
+              return;
+            }
+            try {
+              host.receive(JSON.parse(data.toString()));
+            } catch {
+              disconnectGuest();
+              websocket.close(1008);
+            }
+          });
+          websocket.send(JSON.stringify({ ready: true }));
+        })
+        .catch(() => websocket.close(1008));
+    });
+    return;
+  }
   if (!allowedOrigin(request) || url.pathname !== "/v1/signals" || !ticket || ticket.length > 128) {
     socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     return;
@@ -380,6 +490,7 @@ server.listen(port, process.env.HOST ?? "127.0.0.1");
 const shutdown = () => {
   void Effect.runPromise(Fiber.interrupt(heartbeatFiber));
   for (const socket of sockets.clients) socket.terminate();
+  for (const socket of guestSockets.clients) socket.terminate();
   server.close(() => {
     void runtime.dispose();
   });

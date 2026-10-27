@@ -1,7 +1,11 @@
 import {
+  ChatAttachment,
+  GUEST_BANNED_IP_LIMIT,
   GUEST_PENDING_ATTACHMENT_BYTES_LIMIT,
   GUEST_PENDING_MESSAGE_LIMIT,
   GUEST_RESOLVED_MESSAGE_LIMIT,
+  guestShareGuests,
+  guestSharePermission,
   type GuestMessageAttribution,
   type GuestMessageId,
   type OrchestrationMessageContext,
@@ -12,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 export type GuestShareCommand = Extract<
   OrchestrationV2ServerCommand,
@@ -19,7 +24,11 @@ export type GuestShareCommand = Extract<
     readonly type:
       | "thread.guest-share.open"
       | "thread.guest-share.redeem"
+      | "thread.guest-share.update-ip"
       | "thread.guest-share.close"
+      | "thread.guest-share.kick"
+      | "thread.guest-share.ban"
+      | "thread.guest-share.unban"
       | "thread.guest-message.submit"
       | "thread.guest-message.dismiss";
   }
@@ -29,12 +38,19 @@ export type GuestShareCommand = Extract<
 export const GUEST_FAILURE = {
   inactive: "This guest link is no longer active.",
   used: "This guest link was already used.",
+  banned: "You cannot join this mine.",
+  viewer: "This guest link only allows viewing.",
   busy: "Wait for the owner to answer your earlier messages.",
   filesBusy: "Wait for the owner to answer your earlier messages before you attach more files.",
 } as const;
 
 const isExpired = (share: ThreadGuestShare, now: DateTime.Utc) =>
   DateTime.toEpochMillis(now) >= Date.parse(share.expiresAt);
+
+const attachmentsEqual = Schema.toEquivalence(Schema.Array(ChatAttachment));
+
+const guestShareUseCount = (share: ThreadGuestShare) =>
+  share.useCount ?? (share.guestName !== null ? 1 : guestShareGuests(share).length);
 
 const pendingAttachments = (share: ThreadGuestShare | null) =>
   share?.messages.flatMap((message) =>
@@ -98,7 +114,7 @@ const resolveMessage = (
 
 /**
  * Applies a guest share command to the thread. The orchestrator runs commands one at a time, so
- * checking state here is what makes a link redeem once and a message send once.
+ * checking state here enforces lifetime redemption capacity and sends each message once.
  */
 export function decideGuestShareCommand(input: {
   readonly thread: OrchestrationV2AppThread;
@@ -120,16 +136,102 @@ export function decideGuestShareCommand(input: {
         expiresAt: command.expiresAt,
         guestName: null,
         messages: [],
+        ...(command.permission === undefined ? {} : { permission: command.permission }),
+        ...(command.maxGuests === undefined ? {} : { maxGuests: command.maxGuests }),
+        ...(command.permission === undefined && command.maxGuests === undefined
+          ? {}
+          : { guests: [], useCount: 0 }),
       });
     }
     case "thread.guest-share.close":
       return share === null ? Result.succeed(thread) : withShare(null);
+    case "thread.guest-share.unban": {
+      const guestBannedIps = (thread.guestBannedIps ?? []).filter((ip) => ip !== command.ipAddress);
+      return guestBannedIps.length === (thread.guestBannedIps?.length ?? 0)
+        ? Result.succeed(thread)
+        : Result.succeed({ ...thread, guestBannedIps, updatedAt: now });
+    }
+    case "thread.guest-share.kick":
+    case "thread.guest-share.ban": {
+      if (share === null) return Result.fail("This mine has no guest link.");
+      const guests = guestShareGuests(share);
+      const guest = guests.find((candidate) => candidate.id === command.guestId);
+      if (guest === undefined) return Result.succeed(thread);
+      if (command.type === "thread.guest-share.kick") {
+        return withShare({
+          ...share,
+          useCount: guestShareUseCount(share),
+          guests: guests.filter((candidate) => candidate.id !== guest.id),
+        });
+      }
+      if (guest.ipAddress === undefined) return Result.fail("This guest has no IP address to ban.");
+      const banned = thread.guestBannedIps ?? [];
+      if (!banned.includes(guest.ipAddress) && banned.length >= GUEST_BANNED_IP_LIMIT) {
+        return Result.fail("This mine has reached its guest IP ban limit.");
+      }
+      return Result.succeed({
+        ...thread,
+        guestBannedIps: banned.includes(guest.ipAddress) ? banned : [...banned, guest.ipAddress],
+        guestShare: {
+          ...share,
+          useCount: guestShareUseCount(share),
+          guests: guests.filter((candidate) => candidate.ipAddress !== guest.ipAddress),
+        },
+        updatedAt: now,
+      });
+    }
     case "thread.guest-share.redeem": {
       if (share === null || share.id !== command.shareId || isExpired(share, now)) {
         return Result.fail(GUEST_FAILURE.inactive);
       }
-      if (share.guestName !== null) return Result.fail(GUEST_FAILURE.used);
-      return withShare({ ...share, guestName: command.guestName });
+      const guests = guestShareGuests(share);
+      const useCount = guestShareUseCount(share);
+      if (useCount >= (share.maxGuests ?? 1)) return Result.fail(GUEST_FAILURE.used);
+      if (command.guestId === undefined) {
+        return share.guests !== undefined || command.ipAddress !== undefined
+          ? Result.fail(GUEST_FAILURE.inactive)
+          : withShare({ ...share, guestName: command.guestName, useCount: useCount + 1 });
+      }
+      if (command.ipAddress === undefined || guests.some((guest) => guest.id === command.guestId)) {
+        return Result.fail(GUEST_FAILURE.inactive);
+      }
+      if (thread.guestBannedIps?.includes(command.ipAddress))
+        return Result.fail(GUEST_FAILURE.banned);
+      return withShare({
+        ...share,
+        guestName: share.guestName ?? command.guestName,
+        useCount: useCount + 1,
+        guests: [
+          ...guests,
+          {
+            id: command.guestId,
+            name: command.guestName,
+            joinedAt: DateTime.formatIso(now),
+            ipAddress: command.ipAddress,
+          },
+        ],
+      });
+    }
+    case "thread.guest-share.update-ip": {
+      if (share === null || share.id !== command.shareId || isExpired(share, now)) {
+        return Result.fail(GUEST_FAILURE.inactive);
+      }
+      const guests = guestShareGuests(share);
+      const guest = guests.find((candidate) => candidate.id === command.guestId);
+      if (guest === undefined) return Result.fail(GUEST_FAILURE.inactive);
+      if (thread.guestBannedIps?.includes(command.ipAddress)) {
+        return Result.fail(GUEST_FAILURE.banned);
+      }
+      return guest.ipAddress === command.ipAddress
+        ? Result.succeed(thread)
+        : withShare({
+            ...share,
+            guests: guests.map((candidate) =>
+              candidate.id === guest.id
+                ? { ...candidate, ipAddress: command.ipAddress }
+                : candidate,
+            ),
+          });
     }
     case "thread.guest-message.submit": {
       if (
@@ -140,13 +242,30 @@ export function decideGuestShareCommand(input: {
       ) {
         return Result.fail(GUEST_FAILURE.inactive);
       }
+      const guest = guestShareGuests(share).find((candidate) => candidate.id === command.guestId);
+      if (
+        (command.guestId !== undefined && guest === undefined) ||
+        (command.guestId === undefined && share.guests !== undefined) ||
+        (guest?.ipAddress !== undefined && thread.guestBannedIps?.includes(guest.ipAddress))
+      )
+        return Result.fail(GUEST_FAILURE.inactive);
+      const permission = guestSharePermission(share);
+      if (permission === "viewer") return Result.fail(GUEST_FAILURE.viewer);
+      const attachments = command.attachments ?? [];
+      const existing = share.messages.find((message) => message.id === command.guestMessageId);
+      if (existing !== undefined) {
+        return existing.text === command.text &&
+          existing.guestId === command.guestId &&
+          attachmentsEqual(existing.attachments ?? [], attachments)
+          ? Result.succeed(thread)
+          : Result.fail("This guest message retry does not match the original message.");
+      }
       if (
         share.messages.filter((message) => message.status === "pending").length >=
         GUEST_PENDING_MESSAGE_LIMIT
       ) {
         return Result.fail(GUEST_FAILURE.busy);
       }
-      const attachments = command.attachments ?? [];
       const pendingBytes = [...pendingAttachments(share), ...attachments].reduce(
         (total, attachment) => total + attachment.sizeBytes,
         0,
@@ -163,6 +282,8 @@ export function decideGuestShareCommand(input: {
             text: command.text,
             status: "pending",
             submittedAt: DateTime.formatIso(now),
+            ...(guest === undefined ? {} : { guestId: guest.id, guestName: guest.name }),
+            ...(permission === "send" ? { direct: true } : {}),
             ...(attachments.length === 0 ? {} : { attachments }),
           },
         ]),
@@ -210,12 +331,29 @@ export function decideGuestMessageSend(input: {
   const share = input.thread.guestShare ?? null;
   if (share === null) return Result.fail("This mine has no guest link.");
   const message = share.messages.find((candidate) => candidate.id === input.guestMessageId);
-  const name = share.guestName ?? "Guest";
+  if (message?.direct === true) {
+    const author = guestShareGuests(share).find((guest) => guest.id === message.guestId);
+    if (
+      author === undefined ||
+      guestSharePermission(share) !== "send" ||
+      isExpired(share, input.now) ||
+      (author.ipAddress !== undefined && input.thread.guestBannedIps?.includes(author.ipAddress))
+    )
+      return Result.fail(GUEST_FAILURE.inactive);
+  }
+  const name = message?.guestName ?? share.guestName ?? "Guest";
   const guestText = message?.text ?? "";
   return Result.map(resolveMessage(share, input.guestMessageId, "sent"), (next) => ({
     thread: { ...input.thread, guestShare: next, updatedAt: input.now },
-    text: `Message from guest ${name}, sent by the owner:\n\n${guestText}`,
-    guest: { guestMessageId: input.guestMessageId, name, text: guestText, shareId: share.id },
+    text: `Message from guest ${name}${message?.direct === true ? "" : ", sent by the owner"}:\n\n${guestText}`,
+    guest: {
+      guestMessageId: input.guestMessageId,
+      name,
+      text: guestText,
+      shareId: share.id,
+      ...(message?.guestId === undefined ? {} : { guestId: message.guestId }),
+      ...(message?.direct === true ? { direct: true } : {}),
+    },
   }));
 }
 

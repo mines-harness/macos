@@ -89,6 +89,7 @@ import { UsageProviderChart } from "./UsageProviderChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
 import { UsageInsights } from "./UsageInsights";
+import { CodexResetStatus } from "./CodexResetStatus";
 import { useAppActivity } from "../../usageActivity";
 import {
   costTypeSegments,
@@ -773,9 +774,12 @@ function UsageOverview({
           </div>
 
           {showChatGptSharing ? (
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>ChatGPT shared usage</span>
-              <ChatGptUsageButton size="xs" />
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>ChatGPT shared usage</span>
+                <ChatGptUsageButton size="xs" />
+              </div>
+              <CodexResetStatus />
             </div>
           ) : null}
 

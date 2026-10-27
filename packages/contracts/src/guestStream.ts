@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 
-import { GuestShareId, IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { ThreadGuestMessage } from "./guestShare.ts";
+import { GuestSessionId, GuestShareId, IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { GuestSharePermission, GUEST_SHARE_MAX_GUESTS, ThreadGuestMessage } from "./guestShare.ts";
 import { OrchestrationV2ThreadStreamItem } from "./orchestrationV2.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
 
@@ -23,6 +23,17 @@ export const GuestShareView = Schema.Struct({
   shareId: GuestShareId,
   title: Schema.String,
   guestName: TrimmedNonEmptyString,
+  permission: Schema.optional(GuestSharePermission),
+  guestId: Schema.optional(GuestSessionId),
+  guests: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        id: GuestSessionId,
+        name: TrimmedNonEmptyString,
+        joinedAt: IsoDateTime,
+      }),
+    ).check(Schema.isMaxLength(GUEST_SHARE_MAX_GUESTS)),
+  ),
   expiresAt: IsoDateTime,
   messages: Schema.Array(ThreadGuestMessage),
   model: GuestThreadModel,

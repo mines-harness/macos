@@ -1,5 +1,47 @@
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { catalogHostId } from "@t3tools/client-runtime/catalog";
+import type { MinesCatalogEntry, MinesCatalogSnapshot } from "@t3tools/contracts/minesCatalog";
+
+export function sectionParticipantThreads<
+  T extends {
+    readonly environmentId: string;
+    readonly id: string;
+    readonly projectId: string | null;
+  },
+>(snapshot: MinesCatalogSnapshot, contextEntityId: string | null, threads: ReadonlyArray<T>) {
+  const sections = new Map<string, string | null>();
+  const visit = (entries: readonly MinesCatalogEntry[], sectionId: string | null) => {
+    for (const entry of entries) {
+      if (sections.has(entry.entity.id)) continue;
+      const owner = entry.entity.kind === "section" ? entry.entity.id : sectionId;
+      sections.set(entry.entity.id, owner);
+      visit(entry.children, owner);
+    }
+  };
+  visit(snapshot.roots, null);
+  const sectionId = contextEntityId ? (sections.get(contextEntityId) ?? null) : null;
+  return {
+    sectionId,
+    threads:
+      sectionId === null
+        ? threads
+        : threads.filter((thread) => {
+            const mineId = catalogHostId("thread", thread.environmentId, thread.id);
+            const projectId =
+              thread.projectId === null
+                ? null
+                : catalogHostId("project", thread.environmentId, thread.projectId);
+            return (
+              (sections.has(mineId)
+                ? sections.get(mineId)
+                : projectId
+                  ? sections.get(projectId)
+                  : null) === sectionId
+            );
+          }),
+  };
+}
 
 export const ParticipantCandidate = Schema.Struct({
   environmentId: EnvironmentId,

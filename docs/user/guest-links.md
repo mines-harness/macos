@@ -1,56 +1,61 @@
 # Guest links
 
-Guest links are unavailable in the default mines configuration. They require a
-separately operated compatible managed endpoint; the direct peer device service
-does not provide public guest URLs.
+A guest link lets someone join one conversation in their browser with only a nickname.
+They see the recent conversation and live replies without creating an account. The host
+machine must stay awake and online.
 
-When that optional service is configured, a guest link lets a teammate follow one
-mine in their browser and ask the agent questions, with no account. They see your messages and the agent's replies as they stream. Each message they send waits
-until you send or dismiss it.
+Public links use your distributor's guest endpoint, such as **mines.gemstud.io**. That
+endpoint must support guest sharing, and the host must be signed in to its device service.
+A compatible managed tunnel can also serve guest links.
 
 <a id="share-a-thread"></a>
 
 ## Share a mine
 
-Your mines distributor must first configure its own relay, authentication, and
-managed endpoint. This is separate from signing in to a mines account or approving
-a peer device. With that endpoint active, turn on **Settings → Beta → Guest links**
-for the machine running the mine. The machine must stay awake and online while
-the guest uses it.
-While the setting is off, every guest link on that machine stops working; links that have not
-expired work again when you turn it back on.
+Enable **Settings → Beta → Guest links** on the machine hosting the conversation. Choose
+**Share link** in the conversation header, its menu, or the command palette.
 
-1. Right-click the mine in the sidebar and choose **Share with guest**. It is also in the mine
-   menu and the command palette.
-2. Copy the link and send it to one person. It works in one browser and expires after 24 hours.
-   Opening it again in that browser takes them back to the mine.
-3. When they send a message, it appears at the end of the mine and the sidebar shows **Request**.
-   Choose **Send** to run it as a normal turn, or **Dismiss**. Files they attached show with the
-   message, and **Send** includes them.
+Set the number of people, duration, and permissions, then create and copy the link.
+The defaults are **1 person**, **6 hours**, and **Viewer**. The people limit counts successful
+joins over the lifetime of the link. Returning in the same browser does not use another place.
 
-Choose **Stop sharing** to end the link at once. Archiving the mine, creating a new link, or
-disabling its managed endpoint also ends it. You can send or dismiss guest messages from the mobile app.
+- **Viewer:** follow the conversation without writing messages.
+- **Write with confirmation:** propose messages for the owner to send or dismiss.
+- **Write and send:** send messages directly to the agent.
 
-## What the guest sees
+Guests enter a nickname when they join. Their nickname appears in the guest list and beside
+their messages. Messages awaiting confirmation appear at the end of the conversation;
+choose **Send** or **Dismiss**. The same controls are available on mobile.
 
-The guest sees the mine's recent history and everything after, in the same timeline you see, as
-it streams: messages and their files, the agent's replies and reasoning, plans, questions, and its
-work, with command output when they expand a command. Their composer shows the mine's model, but
-they cannot change it. They do not see diffs, and they cannot act on the mine: no forking,
-reverting, opening files on your machine, or answering the agent for you.
+Creating another link ends the previous one. **Stop sharing** ends it immediately. Expiry,
+archiving the mine, or disabling Guest links also stops access. Turning Guest links back on
+restores links that have not otherwise ended.
 
-Anything the agent read or printed can show, such as a value from a file. Share only mines you
+## Remove a guest
+
+Open the guest list to manage participants. The red **×** kicks a guest and revokes that
+browser's access. The red **hammer** removes everyone using that guest's IP address and blocks
+that address from rejoining this conversation. Kicking or banning does not restore a used place.
+
+IP bans apply only to this conversation and remain when its link is replaced. Remove a ban
+from the same guest controls to allow that address again. People sharing a public IP address
+are affected together.
+
+## What guests can see
+
+Guests see messages and files, the agent's replies and reasoning, plans, questions, and work,
+including expanded command output. They cannot change the model, inspect diffs, open other
+conversations, browse the host's files, or answer the agent's permission requests.
+
+Anything the agent read or printed can appear in the conversation. Share conversations you
 are comfortable showing.
 
 ## Guest attachments
 
-Guests can attach images and other files to a message: use the paperclip, paste, or drop them on
-the message box. A message holds up to 4 files and 10 MB in total. Images must be PNG, JPEG, GIF, or
-WebP. While messages wait for you, their files can total 20 MB; the guest can attach more once you
-send or dismiss some.
+Guests with writing permission can attach files using the paperclip, paste, or drop.
+A message can contain up to 4 files and 10 MB in total. Images must be PNG, JPEG, GIF, or WebP.
+Files awaiting confirmation can total 20 MB per link.
 
-Dismissing a message, ending the link, or archiving the mine deletes the files of messages that
-still wait. A sent message keeps its files, like any message in the mine.
-
-The guest's text and files run with the mine's current permission mode once you send them. Check
-them before you choose **Send**, as you would any pasted content.
+Dismissing a message or ending its link deletes files still awaiting confirmation. Files in
+sent messages remain in the conversation. Approved and directly sent messages run with the
+mine's current agent permission mode.

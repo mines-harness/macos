@@ -4,18 +4,17 @@ import { ChatAttachment } from "./chatAttachment.ts";
 import {
   GuestMessageId,
   GuestShareId,
+  GuestSessionId,
   IsoDateTime,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
 
-/**
- * A guest share lets one unauthenticated browser watch a thread over T3 Connect and propose
- * messages the owner must send or dismiss. The thread projection holds this public state; the
- * credentials are derived from the share id with a server key and never stored.
- */
 export const GUEST_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_GUEST_SHARE_TTL_MS = 6 * 60 * 60 * 1000;
+export const GUEST_SHARE_MAX_GUESTS = 100;
+export const GUEST_BANNED_IP_LIMIT = 1_000;
 export const GUEST_MESSAGE_MAX_LENGTH = 4_000;
 export const GUEST_NAME_MAX_LENGTH = 40;
 export const GUEST_PENDING_MESSAGE_LIMIT = 3;
@@ -30,11 +29,29 @@ export const GUEST_PENDING_ATTACHMENT_BYTES_LIMIT = 20 * 1024 * 1024;
 export const ThreadGuestMessageStatus = Schema.Literals(["pending", "sent", "dismissed"]);
 export type ThreadGuestMessageStatus = typeof ThreadGuestMessageStatus.Type;
 
+export const GuestSharePermission = Schema.Literals(["viewer", "confirm", "send"]);
+export type GuestSharePermission = typeof GuestSharePermission.Type;
+
+export const GuestShareMaxGuests = Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: GUEST_SHARE_MAX_GUESTS }),
+);
+
+export const ThreadGuestSession = Schema.Struct({
+  id: GuestSessionId,
+  name: TrimmedNonEmptyString,
+  joinedAt: IsoDateTime,
+  ipAddress: Schema.optional(TrimmedNonEmptyString),
+});
+export type ThreadGuestSession = typeof ThreadGuestSession.Type;
+
 export const ThreadGuestMessage = Schema.Struct({
   id: GuestMessageId,
   text: Schema.String,
   status: ThreadGuestMessageStatus,
   submittedAt: IsoDateTime,
+  guestId: Schema.optional(GuestSessionId),
+  guestName: Schema.optional(TrimmedNonEmptyString),
+  direct: Schema.optional(Schema.Boolean),
   /** The thread's attachments, deleted if the message is dismissed. Absent on older messages. */
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
 });
@@ -42,20 +59,43 @@ export type ThreadGuestMessage = typeof ThreadGuestMessage.Type;
 
 export const ThreadGuestShare = Schema.Struct({
   id: GuestShareId,
-  /** The T3 Connect tunnel hostname the link points at. Guest routes require it to still serve. */
+  /** The active public endpoint identity, or a legacy tunnel hostname. */
   host: TrimmedNonEmptyString,
   createdAt: IsoDateTime,
   expiresAt: IsoDateTime,
-  /** Set once, when the guest redeems the link. */
+  /** The first guest's name, retained for older clients. */
   guestName: Schema.NullOr(TrimmedNonEmptyString),
+  permission: Schema.optional(GuestSharePermission),
+  maxGuests: Schema.optional(GuestShareMaxGuests),
+  useCount: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: GUEST_SHARE_MAX_GUESTS })),
+  ),
+  guests: Schema.optional(
+    Schema.Array(ThreadGuestSession).check(Schema.isMaxLength(GUEST_SHARE_MAX_GUESTS)),
+  ),
   messages: Schema.Array(ThreadGuestMessage),
 });
 export type ThreadGuestShare = typeof ThreadGuestShare.Type;
 
+export const guestSharePermission = (
+  share: ThreadGuestShare | null | undefined,
+): GuestSharePermission => share?.permission ?? "confirm";
+
+export const guestShareGuests = (
+  share: ThreadGuestShare | null | undefined,
+): ReadonlyArray<ThreadGuestSession> => share?.guests ?? [];
+
 export const pendingGuestMessageCount = (share: ThreadGuestShare | null | undefined): number =>
   share?.messages.filter((message) => message.status === "pending").length ?? 0;
 
-export const GuestShareCreateInput = Schema.Struct({ threadId: ThreadId });
+export const GuestShareCreateInput = Schema.Struct({
+  threadId: ThreadId,
+  permission: Schema.optional(GuestSharePermission),
+  maxGuests: Schema.optional(GuestShareMaxGuests),
+  durationHours: Schema.optional(
+    Schema.Number.check(Schema.isBetween({ minimum: 0.25, maximum: 168 })),
+  ),
+});
 export type GuestShareCreateInput = typeof GuestShareCreateInput.Type;
 
 export const GuestShareCreateResult = Schema.Struct({
@@ -66,10 +106,11 @@ export type GuestShareCreateResult = typeof GuestShareCreateResult.Type;
 
 const GUEST_SHARE_CREATE_MESSAGES = {
   disabled: "Guest links are off. Turn them on in Settings > Beta.",
-  connect_unavailable: "Guest links need a running T3 Connect tunnel.",
+  connect_unavailable: "Public guest sharing is not available. Check this device’s connection.",
   thread_unavailable: "This mine cannot be shared.",
   read_failed: "Failed to read the shared mine.",
   changed: "The guest link changed while it was being created.",
+  invalid_options: "Choose a valid guest permission, guest limit, and link duration.",
 } as const;
 
 export class GuestShareCreateError extends Schema.TaggedError<GuestShareCreateError>()(
@@ -81,6 +122,7 @@ export class GuestShareCreateError extends Schema.TaggedError<GuestShareCreateEr
       "thread_unavailable",
       "read_failed",
       "changed",
+      "invalid_options",
     ]),
   },
 ) {
@@ -113,6 +155,7 @@ export const GuestSubmitRequest = Schema.Struct({
       of reaching the new one. */
   shareId: GuestShareId,
   text: TrimmedString.check(Schema.isMaxLength(GUEST_MESSAGE_MAX_LENGTH)),
+  requestId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
 });
 export type GuestSubmitRequest = typeof GuestSubmitRequest.Type;
 

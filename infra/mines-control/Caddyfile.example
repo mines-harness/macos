@@ -1,5 +1,24 @@
 {$MINES_CONTROL_DOMAIN} {
   reverse_proxy 127.0.0.1:8788 {
     header_up X-Real-IP {remote_host}
+    flush_interval -1
   }
 }
+
+# Optional guest website. Uncomment only with MINES_GUEST_PUBLIC_URL configured
+# on control, and a built apps/web directory at this path. Do not enable logs
+# containing query strings, cookies, or WebSocket device tickets.
+# mines.gemstud.io {
+#   @guest_api path /v1/guest-config /api/guest/*
+#   handle @guest_api {
+#     reverse_proxy 127.0.0.1:8788 {
+#       header_up X-Real-IP {remote_host}
+#       flush_interval -1
+#     }
+#   }
+#   handle {
+#     root * /srv/mines/web
+#     try_files {path} /index.html
+#     file_server
+#   }
+# }

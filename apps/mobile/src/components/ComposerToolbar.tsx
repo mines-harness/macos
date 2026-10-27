@@ -33,6 +33,7 @@ export function ComposerInlineControl(props: {
   readonly renderIcon?: (size: number) => ReactNode;
   readonly label: string;
   readonly detail?: string;
+  readonly detailPrefix?: ReactNode;
   readonly suffix?: ReactNode;
   /** Show only the icon and chevron; the label still names the control for accessibility. */
   readonly iconOnly?: boolean;
@@ -47,6 +48,7 @@ export function ComposerInlineControl(props: {
   // Keep the picker anchored to its parent while the editor changes height.
   const animatesLabel = props.iconOnly !== undefined;
   const iconSize = props.size === "large" ? 20 : smallIconSize;
+  const hasDetail = Boolean(props.detail || props.detailPrefix);
   return (
     <Animated.View
       style={{
@@ -94,19 +96,24 @@ export function ComposerInlineControl(props: {
                   ? "text-base font-mines-medium"
                   : "text-sm font-mines-medium",
                 props.emphasized || props.selected ? "text-foreground" : "text-foreground-muted",
-                props.detail && "text-right leading-none",
+                hasDetail && "text-right leading-none",
               )}
               numberOfLines={1}
             >
               {props.label}
             </Text>
-            {props.detail ? (
-              <Text
-                className="text-right text-2xs leading-none text-foreground-muted"
-                numberOfLines={1}
-              >
-                {props.detail}
-              </Text>
+            {hasDetail ? (
+              <View className="min-w-0 flex-row items-center justify-end gap-0.5">
+                {props.detailPrefix}
+                {props.detail ? (
+                  <Text
+                    className="min-w-0 shrink text-right text-2xs leading-none text-foreground-muted"
+                    numberOfLines={1}
+                  >
+                    {props.detail}
+                  </Text>
+                ) : null}
+              </View>
             ) : null}
           </Animated.View>
         )}

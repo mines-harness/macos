@@ -47,6 +47,9 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
+import * as ProviderInstances from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderVoice from "../provider/ProviderVoiceService.ts";
+import * as LiveVoice from "../provider/LiveVoiceSessions.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -63,6 +66,7 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitleRegeneration from "./ThreadTitleRegenerationService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 
 const projectId = ProjectId.make("project:launch-test");
 const otherProjectId = ProjectId.make("project:launch-other");
@@ -304,6 +308,120 @@ function launchInput(input: {
     creationSource: "web" as const,
   };
 }
+
+it.effect(
+  "prepares a live voice launch without sending a text prompt or generating a branch name",
+  () =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const liveVoice = { sessionId: "live-voice-session" };
+        const launched = yield* launches.launch({
+          ...launchInput({
+            command: "command:voice",
+            thread: "thread:voice",
+            workspace: { type: "worktree", baseRef: "main" },
+          }),
+          initialMessage: {
+            messageId: MessageId.make("message:voice"),
+            text: "",
+            attachments: [],
+            liveVoice,
+          },
+        });
+        yield* Deferred.await(setupEntered);
+        assert.deepStrictEqual(launched.projection.runs[0]?.liveVoice, liveVoice);
+        assert.equal(launched.projection.runs[0]?.status, "preparing");
+        assert.equal(launched.projection.messages[0]?.text, "");
+        assert.equal(harness.createWorktree.mock.calls.length, 1);
+        assert.equal(harness.generateBranchName.mock.calls.length, 0);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect("stops draft voice before pending workspace preparation can start its provider", () =>
+  Effect.gen(function* () {
+    const setupEntered = yield* Deferred.make<void>();
+    const allowSetup = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      runSetup: () =>
+        Deferred.succeed(setupEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(allowSetup)),
+          Effect.as({ status: "no-script" as const }),
+        ),
+    });
+    const voiceDependencies = Layer.mergeAll(
+      harness.layer,
+      NodeCrypto.layer,
+      LiveVoice.layer,
+      Layer.mock(ProviderInstances.ProviderInstanceRegistry)({
+        getInstance: () =>
+          Effect.succeed({
+            driverKind: "codex",
+            enabled: true,
+            snapshot: {
+              getSnapshot: Effect.succeed({
+                auth: { status: "authenticated", type: "chatgpt" },
+                version: "0.164.0",
+                status: "ready",
+              }),
+            },
+          } as unknown as ProviderInstance),
+      }),
+    );
+    const layerVoice = ProviderVoice.layer.pipe(Layer.provide(voiceDependencies));
+    yield* Effect.gen(function* () {
+      const voice = yield* ProviderVoice.ProviderVoiceService;
+      const live = yield* LiveVoice.LiveVoiceSessions;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const commandId = CommandId.make("command:voice-stop-during-setup");
+      const threadId = ThreadId.make("thread:voice-stop-during-setup");
+      const { runId } = yield* voice.start({
+        commandId,
+        threadId,
+        messageId: MessageId.make("message:voice-stop-during-setup"),
+        modelSelection,
+        sdp: "private-offer",
+        bootstrap: {
+          projectId,
+          title: "New mine",
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          workspaceStrategy: { type: "worktree", baseRef: "main" },
+        },
+      });
+      yield* Deferred.await(setupEntered);
+      const preparing = yield* threads.getThreadProjection(threadId);
+      const run = preparing.runs.find((candidate) => candidate.id === runId)!;
+      assert.equal(run.status, "preparing");
+      assert.isDefined(run.liveVoice);
+
+      yield* voice.stop({ threadId, runId });
+      const target = { threadId, sessionId: run.liveVoice!.sessionId };
+      assert.equal((yield* live.takeOffer(target).pipe(Effect.flip)).reason, "not-found");
+      assert.deepEqual(yield* Stream.runCollect(voice.subscribe({ threadId, runId })), [
+        { type: "closed" },
+      ]);
+
+      yield* Deferred.succeed(allowSetup, undefined);
+      yield* tracker.stream(threadId).pipe(
+        Stream.filter((snapshot) => snapshot !== null && snapshot.phase !== "running"),
+        Stream.runHead,
+      );
+      const stopped = yield* threads.getThreadProjection(threadId);
+      assert.equal(stopped.runs.find((candidate) => candidate.id === runId)?.status, "interrupted");
+      assert.deepEqual(stopped.providerTurns, []);
+      assert.isEmpty(yield* outbox.listByCommandId(CommandId.make(`${commandId}:release`)));
+    }).pipe(Effect.provide(Layer.mergeAll(voiceDependencies, layerVoice)));
+  }),
+);
 
 it.effect.each(
   (["new", "existing"] as const).flatMap((target) =>

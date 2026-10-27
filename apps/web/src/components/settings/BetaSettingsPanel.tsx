@@ -1,10 +1,5 @@
-import { useMinesAuth } from "../../cloud/MinesAuthProvider";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
-import { Link } from "@tanstack/react-router";
 
-import { hasCloudPublicConfig } from "~/cloud/publicConfig";
-import { useMinesAuthPrompt } from "../clerk/useMinesAuthPrompt";
-import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import {
@@ -49,27 +44,9 @@ export function BetaSettingsPanel() {
             />
           }
         />
-        {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
+        <GuestLinksRow />
       </SettingsSection>
     </SettingsPageContainer>
-  );
-}
-
-/** Signed out of T3 Connect, the row offers to sign in instead of its switch. */
-function GuestLinksRowWithSignIn() {
-  const { isSignedIn } = useMinesAuth();
-  const { openAuthPrompt } = useMinesAuthPrompt();
-  if (isSignedIn !== false) return <GuestLinksRow />;
-  return (
-    <SettingsRow
-      {...searchableSetting("guest-links")}
-      description="Share a mine with a guest who watches it live in their browser and sends messages you approve. Sign in to T3 Connect to use guest links."
-      control={
-        <Button size="sm" variant="outline" onClick={openAuthPrompt}>
-          Sign in
-        </Button>
-      }
-    />
   );
 }
 
@@ -81,16 +58,7 @@ function GuestLinksRow() {
       serverScoped
       {...searchableSetting("guest-links")}
       settingKeys={["guestSharingEnabled"]}
-      description={
-        <>
-          Share a mine with a guest who watches it live in their browser and sends messages you
-          approve. Needs T3 Connect: sign in and link this machine in{" "}
-          <Link to="/settings/connections" className="underline underline-offset-2">
-            Devices
-          </Link>
-          . While it is off, every guest link stops working.
-        </>
-      }
+      description="Guests join by nickname. Each link has a people limit, expiry, and viewing, owner-approved writing, or direct sending permissions. Turning this off stops guest access."
       control={
         <ScopedSwitch
           settingKeys={["guestSharingEnabled"]}

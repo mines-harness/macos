@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   GuestMessageId,
+  GuestSessionId,
   GuestShareId,
   MessageId,
   ProjectId,
@@ -13,6 +14,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
+import * as TestClock from "effect/testing/TestClock";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -22,6 +25,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
+import { decideGuestShareCommand } from "./GuestShareDecider.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
 const adapter = {
@@ -46,6 +50,76 @@ const layerTest = Layer.mergeAll(
 const threadId = ThreadId.make("thread:guest-share");
 const shareId = GuestShareId.make("share:one");
 const guestMessageId = GuestMessageId.make("guest-message:one");
+const guestId = GuestSessionId.make("guest:one");
+const otherGuestId = GuestSessionId.make("guest:two");
+
+const openConfigured = (
+  orchestrator: Orchestrator.OrchestratorV2["Service"],
+  permission: "viewer" | "confirm" | "send",
+  maxGuests = 2,
+  id = "configured",
+) =>
+  Effect.gen(function* () {
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.open",
+      commandId: CommandId.make(`open-${id}`),
+      threadId,
+      shareId,
+      host: "env.t3.test",
+      expiresAt: DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 6 })),
+      permission,
+      maxGuests,
+    });
+  });
+
+const redeemIdentity = (
+  orchestrator: Orchestrator.OrchestratorV2["Service"],
+  id: string,
+  identity = guestId,
+  ipAddress = "192.0.2.1",
+  guestName = "Sam",
+) =>
+  orchestrator.dispatch({
+    type: "thread.guest-share.redeem",
+    commandId: CommandId.make(id),
+    threadId,
+    shareId,
+    guestId: identity,
+    ipAddress,
+    guestName,
+  });
+
+const submitIdentity = (
+  orchestrator: Orchestrator.OrchestratorV2["Service"],
+  id: string,
+  text = "Hello",
+  identity = guestId,
+) =>
+  orchestrator.dispatch({
+    type: "thread.guest-message.submit",
+    commandId: CommandId.make(id),
+    threadId,
+    shareId,
+    guestMessageId,
+    guestId: identity,
+    text,
+  });
+
+const updateGuestIp = (
+  orchestrator: Orchestrator.OrchestratorV2["Service"],
+  id: string,
+  ipAddress: string,
+  identity = guestId,
+  activeShareId = shareId,
+) =>
+  orchestrator.dispatch({
+    type: "thread.guest-share.update-ip",
+    commandId: CommandId.make(id),
+    threadId,
+    shareId: activeShareId,
+    guestId: identity,
+    ipAddress,
+  });
 
 const setup = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -87,6 +161,348 @@ const sendGuestMessage = (orchestrator: Orchestrator.OrchestratorV2["Service"], 
     createdBy: "user",
     creationSource: "web",
   });
+
+it.effect("keeps a guest identity and lifetime usage when its network IP changes", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "confirm");
+    yield* redeemIdentity(orchestrator, "redeem-first");
+    yield* redeemIdentity(orchestrator, "redeem-second", otherGuestId);
+    const before = (yield* projections.getThreadProjection(threadId)).thread.guestShare;
+    const unchanged = yield* updateGuestIp(orchestrator, "same-ip", "192.0.2.1");
+    assert.lengthOf(unchanged.storedEvents, 0);
+    yield* updateGuestIp(orchestrator, "new-network", "198.51.100.1");
+    const after = (yield* projections.getThreadProjection(threadId)).thread.guestShare;
+    assert.equal(after?.useCount, before?.useCount);
+    assert.deepEqual(
+      after?.guests,
+      before?.guests?.map((guest) =>
+        guest.id === guestId ? { ...guest, ipAddress: "198.51.100.1" } : guest,
+      ),
+    );
+    yield* submitIdentity(orchestrator, "submit-new-network");
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.ban",
+      commandId: CommandId.make("ban-current-ip"),
+      threadId,
+      guestId,
+    });
+    const banned = (yield* projections.getThreadProjection(threadId)).thread;
+    assert.deepEqual(banned.guestBannedIps, ["198.51.100.1"]);
+    assert.deepEqual(
+      banned.guestShare?.guests?.map((guest) => guest.id),
+      [otherGuestId],
+    );
+    assert.equal(banned.guestShare?.useCount, 2);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "rejects IP updates for banned addresses, missing guests, stale links, and expired links",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* setup;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      yield* openConfigured(orchestrator, "confirm");
+      yield* redeemIdentity(orchestrator, "redeem-first");
+      yield* redeemIdentity(orchestrator, "redeem-second", otherGuestId, "198.51.100.1");
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.ban",
+        commandId: CommandId.make("ban-other"),
+        threadId,
+        guestId: otherGuestId,
+      });
+      for (const update of [
+        updateGuestIp(orchestrator, "banned-ip", "198.51.100.1"),
+        updateGuestIp(
+          orchestrator,
+          "missing-guest",
+          "192.0.2.2",
+          GuestSessionId.make("guest:missing"),
+        ),
+        updateGuestIp(
+          orchestrator,
+          "stale-link",
+          "192.0.2.2",
+          guestId,
+          GuestShareId.make("share:old"),
+        ),
+      ])
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(update)));
+      assert.equal(
+        (yield* projections.getThreadProjection(threadId)).thread.guestShare?.guests?.[0]
+          ?.ipAddress,
+        "192.0.2.1",
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.kick",
+        commandId: CommandId.make("kick-first"),
+        threadId,
+        guestId,
+      });
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(updateGuestIp(orchestrator, "kicked-ip", "192.0.2.2"))),
+      );
+      yield* openConfigured(orchestrator, "confirm", 2, "expired-ip");
+      yield* redeemIdentity(orchestrator, "redeem-again");
+      yield* TestClock.adjust("6 hours");
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(updateGuestIp(orchestrator, "expired-ip", "192.0.2.1"))),
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.close",
+        commandId: CommandId.make("close-ip"),
+        threadId,
+      });
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(updateGuestIp(orchestrator, "closed-ip", "192.0.2.1"))),
+      );
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("limits lifetime redemptions without refunding kicked guests", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "confirm", 2);
+    yield* redeemIdentity(orchestrator, "redeem-sam");
+    assert.isTrue(Exit.isFailure(yield* Effect.exit(redeemIdentity(orchestrator, "duplicate-id"))));
+    yield* redeemIdentity(orchestrator, "redeem-lee", otherGuestId, "192.0.2.2", "Lee");
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.kick",
+      commandId: CommandId.make("kick"),
+      threadId,
+      guestId,
+    });
+    assert.isTrue(
+      Exit.isFailure(
+        yield* Effect.exit(
+          redeemIdentity(orchestrator, "over-capacity", GuestSessionId.make("guest:three")),
+        ),
+      ),
+    );
+    const { thread } = yield* projections.getThreadProjection(threadId);
+    assert.equal(thread.guestShare?.useCount, 2);
+    assert.deepEqual(
+      thread.guestShare?.guests?.map((guest) => guest.id),
+      [otherGuestId],
+    );
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(submitIdentity(orchestrator, "kicked-submit"))),
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("serializes competing redemptions at the lifetime limit", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "confirm", 1);
+    const redemptions = yield* Effect.all(
+      [
+        Effect.exit(redeemIdentity(orchestrator, "redeem-first")),
+        Effect.exit(redeemIdentity(orchestrator, "redeem-second", otherGuestId)),
+      ],
+      { concurrency: "unbounded" },
+    );
+    assert.equal(redemptions.filter(Exit.isSuccess).length, 1);
+    const share = (yield* projections.getThreadProjection(threadId)).thread.guestShare;
+    assert.equal(share?.useCount, 1);
+    assert.lengthOf(share?.guests ?? [], 1);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("retains legacy redemption counts during moderation and refuses overflowing bans", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "confirm");
+    yield* redeemIdentity(orchestrator, "redeem-first");
+    yield* redeemIdentity(orchestrator, "redeem-second", otherGuestId);
+    const thread = (yield* projections.getThreadProjection(threadId)).thread;
+    if (thread.guestShare === null || thread.guestShare === undefined) {
+      return assert.fail("Expected the configured guest share.");
+    }
+    const now = yield* DateTime.now;
+    const { useCount: _useCount, ...legacyShare } = thread.guestShare;
+    const kicked = decideGuestShareCommand({
+      thread: { ...thread, guestShare: { ...legacyShare, guestName: null } },
+      now,
+      command: {
+        type: "thread.guest-share.kick",
+        commandId: CommandId.make("kick-legacy"),
+        threadId,
+        guestId,
+      },
+    });
+    assert.isTrue(Result.isSuccess(kicked));
+    if (Result.isSuccess(kicked)) assert.equal(kicked.success.guestShare?.useCount, 2);
+    const full = decideGuestShareCommand({
+      thread: {
+        ...thread,
+        guestBannedIps: Array.from({ length: 1_000 }, (_, i) => `198.51.100.${i}`),
+      },
+      now,
+      command: {
+        type: "thread.guest-share.ban",
+        commandId: CommandId.make("ban-full"),
+        threadId,
+        guestId,
+      },
+    });
+    assert.isTrue(Result.isFailure(full));
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("persists IP bans across close and replacement and removes matching sessions", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "confirm", 4);
+    yield* redeemIdentity(orchestrator, "redeem-sam");
+    yield* redeemIdentity(orchestrator, "redeem-lee", otherGuestId);
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.ban",
+      commandId: CommandId.make("ban"),
+      threadId,
+      guestId,
+    });
+    const banned = (yield* projections.getThreadProjection(threadId)).thread;
+    assert.deepEqual(banned.guestBannedIps, ["192.0.2.1"]);
+    assert.deepEqual(banned.guestShare?.guests, []);
+    assert.equal(banned.guestShare?.useCount, 2);
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.close",
+      commandId: CommandId.make("close"),
+      threadId,
+    });
+    yield* openConfigured(orchestrator, "confirm", 4, "replacement");
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(redeemIdentity(orchestrator, "banned-redeem"))),
+    );
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.unban",
+      commandId: CommandId.make("unban"),
+      threadId,
+      ipAddress: "192.0.2.1",
+    });
+    yield* redeemIdentity(orchestrator, "unbanned-redeem");
+    assert.deepEqual((yield* projections.getThreadProjection(threadId)).thread.guestBannedIps, []);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("rejects viewer submissions and snapshots each confirming author's name", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "viewer");
+    yield* redeemIdentity(orchestrator, "redeem-viewer");
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(submitIdentity(orchestrator, "viewer-submit"))),
+    );
+    yield* openConfigured(orchestrator, "confirm", 2, "confirm");
+    yield* redeemIdentity(orchestrator, "redeem-first");
+    yield* redeemIdentity(orchestrator, "redeem-second", otherGuestId, "192.0.2.2", "Lee");
+    yield* submitIdentity(orchestrator, "submit-lee", "Why?", otherGuestId);
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.kick",
+      commandId: CommandId.make("kick-lee"),
+      threadId,
+      guestId: otherGuestId,
+    });
+    yield* sendGuestMessage(orchestrator, "send-lee");
+    const projection = yield* projections.getThreadProjection(threadId);
+    const submitted = projection.thread.guestShare?.messages[0];
+    assert.equal(submitted?.guestId, otherGuestId);
+    assert.equal(submitted?.guestName, "Lee");
+    assert.equal(
+      projection.messages[0]?.text,
+      "Message from guest Lee, sent by the owner:\n\nWhy?",
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("deduplicates identical submissions and rejects conflicting retry payloads", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "confirm");
+    yield* redeemIdentity(orchestrator, "redeem");
+    yield* submitIdentity(orchestrator, "submit-first");
+    yield* submitIdentity(orchestrator, "submit-retry");
+    assert.isTrue(
+      Exit.isFailure(
+        yield* Effect.exit(submitIdentity(orchestrator, "submit-conflict", "Different")),
+      ),
+    );
+    assert.lengthOf(
+      (yield* projections.getThreadProjection(threadId)).thread.guestShare?.messages ?? [],
+      1,
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("sends direct messages once and rejects sends after their author is kicked", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "send");
+    yield* redeemIdentity(orchestrator, "redeem");
+    yield* submitIdentity(orchestrator, "submit");
+    assert.isTrue(
+      (yield* projections.getThreadProjection(threadId)).thread.guestShare?.messages[0]?.direct,
+    );
+    yield* sendGuestMessage(orchestrator, "send-direct");
+    yield* submitIdentity(orchestrator, "submit-after-send");
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(sendGuestMessage(orchestrator, "send-direct-again"))),
+    );
+    const projection = yield* projections.getThreadProjection(threadId);
+    assert.lengthOf(projection.messages, 1);
+    assert.equal(projection.messages[0]?.text, "Message from guest Sam:\n\nHello");
+    yield* openConfigured(orchestrator, "send", 2, "kicked");
+    yield* redeemIdentity(orchestrator, "redeem-kicked");
+    yield* submitIdentity(orchestrator, "submit-kicked");
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.kick",
+      commandId: CommandId.make("kick-direct"),
+      threadId,
+      guestId,
+    });
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(sendGuestMessage(orchestrator, "send-kicked"))),
+    );
+    assert.lengthOf((yield* projections.getThreadProjection(threadId)).messages, 1);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("rejects a direct send when its link expires or its author is banned", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* setup;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    yield* openConfigured(orchestrator, "send");
+    yield* redeemIdentity(orchestrator, "redeem");
+    yield* submitIdentity(orchestrator, "submit");
+    yield* TestClock.adjust("6 hours");
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(sendGuestMessage(orchestrator, "send-expired"))),
+    );
+    yield* openConfigured(orchestrator, "send", 2, "ban-race");
+    yield* redeemIdentity(orchestrator, "redeem-ban");
+    yield* submitIdentity(orchestrator, "submit-ban");
+    yield* orchestrator.dispatch({
+      type: "thread.guest-share.ban",
+      commandId: CommandId.make("ban-direct"),
+      threadId,
+      guestId,
+    });
+    assert.isTrue(
+      Exit.isFailure(yield* Effect.exit(sendGuestMessage(orchestrator, "send-banned"))),
+    );
+    assert.lengthOf((yield* projections.getThreadProjection(threadId)).messages, 0);
+  }).pipe(Effect.provide(layerTest)),
+);
 
 it.effect("redeems a guest link once and sends each guest message once, with its turn", () =>
   Effect.gen(function* () {

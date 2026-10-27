@@ -20,6 +20,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions } from
 import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/ui/AppText";
+import { ThreadGuestShareDialogHost } from "./features/threads/ThreadGuestShareModal";
 import { androidWorkspaceDestinationAnimation } from "./lib/android-workspace-navigation";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { WorkspaceConnectionStatusProvider } from "./features/home/WorkspaceConnectionTitle";
@@ -546,6 +547,7 @@ function RootStackLayout(props: {
     >
       <HardwareKeyboardCommandProvider pathname={pathname}>
         <ThreadOutboxDrainWorker />
+        <ThreadGuestShareDialogHost />
         <ShowcaseCaptureCoordinator pathname={pathname} />
         <SettingsEnvironmentFilterProvider open={settingsOpen}>
           <ExistingThreadSettingsRouteProvider>

@@ -15,13 +15,19 @@ import {
   AuthSourceControlWriteScope,
   AuthFilesystemReadScope,
   AuthFilesystemWriteScope,
+  CommandId,
+  GuestMessageId,
+  GuestSessionId,
+  ORCHESTRATION_V2_WS_METHODS,
   ThreadId,
   EnvironmentId,
   ScheduledTaskId,
   WS_METHODS,
   type AuthSessionState,
+  type OrchestrationV2Command,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -29,6 +35,13 @@ import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { EnvironmentRegistry } from "../connection/registry.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
 import { createEnvironmentRpcCommand } from "./runtime.ts";
+import { createThreadEnvironmentAtoms } from "./threadCommands.ts";
+import { MinesCatalog } from "../catalog/index.ts";
+import {
+  registerCatalogExecutionHost,
+  registerCatalogExecutionSource,
+} from "../catalog/execution.ts";
+import type { PreparedConnection } from "../connection/model.ts";
 
 vi.mock("./session.ts", () => ({
   createEnvironmentSessionAtoms: () => ({ sessionStateAtom: sessions }),
@@ -63,6 +76,130 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect.each([
+    { name: "closeGuestShare", type: "thread.guest-share.close" },
+    { name: "kickGuest", type: "thread.guest-share.kick" },
+    { name: "banGuest", type: "thread.guest-share.ban" },
+    { name: "unbanGuest", type: "thread.guest-share.unban" },
+    { name: "resolveGuestMessage", type: "thread.guest-message.dismiss" },
+    { name: "resolveGuestMessage", type: "message.dispatch" },
+  ] as const)("guards guest command $name ($type) at its destination", (action) =>
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      const calls: OrchestrationV2Command[] = [];
+      const catalog = new MinesCatalog({ createId: () => "project" });
+      yield* Effect.addFinalizer(() => Effect.sync(() => catalog.destroy()));
+      const unregisterSource = registerCatalogExecutionSource(
+        registry,
+        "local-device",
+        catalog,
+        async () => {},
+      );
+      const unregisterHost = registerCatalogExecutionHost(registry, env, async () => {});
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          unregisterSource();
+          unregisterHost();
+        }),
+      );
+      const prepared = yield* SubscriptionRef.make(Option.some({} as PreparedConnection));
+      const session = yield* SubscriptionRef.make(
+        Option.some({
+          client: {
+            [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
+              Effect.sync(() => {
+                calls.push(command);
+                return { sequence: calls.length };
+              }),
+          },
+        } as unknown as RpcSession),
+      );
+      const guestRuntime = Atom.runtime(
+        Layer.mergeAll(
+          Layer.succeed(EnvironmentRegistry, {
+            run: (environmentId, effect) =>
+              Effect.provideService(effect, EnvironmentSupervisor, {
+                target: { environmentId },
+                session,
+                prepared,
+              } as EnvironmentSupervisor["Service"]),
+          } as EnvironmentRegistry["Service"]),
+          Layer.succeed(
+            Crypto.Crypto,
+            Crypto.make({
+              randomBytes: (size) => new Uint8Array(size),
+              digest: (_algorithm, data) => Effect.succeed(data),
+            }),
+          ),
+        ),
+      );
+      const commands = createThreadEnvironmentAtoms(guestRuntime, () => Atom.make(null));
+      const command = commands[action.name];
+      const input = {
+        commandId: CommandId.make("guest-command"),
+        threadId: ThreadId.make("thread"),
+        guestId: GuestSessionId.make("guest"),
+        guestMessageId: GuestMessageId.make("guest-message"),
+        ipAddress: "192.0.2.1",
+        decision: action.type === "message.dispatch" ? ("send" as const) : ("dismiss" as const),
+      };
+      registry.set(
+        sessions(env),
+        AsyncResult.success({
+          ...grant(false),
+          scopes: [AuthOrchestrationReadScope],
+          permissions: [AuthOrchestrationReadScope],
+        }),
+      );
+      registry.set(sessions(other), AsyncResult.success(grant(true)));
+      expect(command.requiredScopes()).toEqual([AuthOrchestrationOperateScope]);
+      expect(registry.get(command.permissionAtom(env))).toBe(false);
+      expect(registry.get(command.permissionAtom(null))).toBe(false);
+      const denied = yield* Effect.promise(() =>
+        command.run(registry, { environmentId: env, input }),
+      );
+      expect(denied._tag).toBe("Failure");
+      if (denied._tag === "Failure")
+        expect(Cause.squash(denied.cause)).toMatchObject({
+          _tag: "EnvironmentAuthorizationError",
+          requiredPermission: AuthOrchestrationOperateScope,
+        });
+      expect(calls).toEqual([]);
+
+      registry.set(sessions(env), AsyncResult.success(grant(true)));
+      registry.set(sessions(other), AsyncResult.success(grant(false)));
+      expect(registry.get(command.permissionAtom(env))).toBe(true);
+      expect(registry.get(command.permissionAtom(other))).toBe(false);
+      expect(
+        (yield* Effect.promise(() => command.run(registry, { environmentId: other, input })))._tag,
+      ).toBe("Failure");
+      expect(calls).toEqual([]);
+      expect(
+        (yield* Effect.promise(() => command.run(registry, { environmentId: env, input })))._tag,
+      ).toBe("Success");
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        type: action.type,
+        commandId: input.commandId,
+        threadId: input.threadId,
+        ...(action.name === "kickGuest" || action.name === "banGuest"
+          ? { guestId: input.guestId }
+          : action.name === "unbanGuest"
+            ? { ipAddress: input.ipAddress }
+            : action.name === "resolveGuestMessage"
+              ? { guestMessageId: input.guestMessageId }
+              : {}),
+      });
+
+      registry.set(sessions(env), AsyncResult.success(grant(false)));
+      expect(registry.get(command.permissionAtom(env))).toBe(false);
+      expect(
+        (yield* Effect.promise(() => command.run(registry, { environmentId: env, input })))._tag,
+      ).toBe("Failure");
+      expect(calls).toHaveLength(1);
+    }),
+  );
+
   it.effect.each([
     WS_METHODS.voiceStart,
     WS_METHODS.voiceSubscribe,

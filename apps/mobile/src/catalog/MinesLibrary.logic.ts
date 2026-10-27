@@ -17,24 +17,39 @@ export function buildLibraryRows(
   collapsed: ReadonlySet<string>,
   expanded: ReadonlySet<string>,
   hidden: ReadonlySet<string>,
+  subagentIds: ReadonlySet<string> = new Set(),
 ): LibraryRow[] {
   const result: LibraryRow[] = [];
+  const visible = (entry: MinesCatalogEntry, pinned: boolean, nestedUnderMine: boolean) =>
+    !hidden.has(entry.entity.id) &&
+    (entry.entity.kind !== "thread" ||
+      pinned ||
+      nestedUnderMine ||
+      (entry.entity.importSource?.kind !== "subagent" && !subagentIds.has(entry.entity.id)));
   const append = (
     entries: readonly MinesCatalogEntry[],
     depth: number,
     pinned: boolean,
     path: string,
+    nestedUnderMine = false,
   ) => {
-    const visible = entries.filter((entry) => !hidden.has(entry.entity.id));
-    visible.forEach((entry, index) => {
+    const visibleEntries = entries.filter((entry) => visible(entry, pinned, nestedUnderMine));
+    visibleEntries.forEach((entry, index) => {
       const key = `${path}/${encodeURIComponent(entry.entity.id)}`;
-      const open =
-        entry.entity.kind === "section" || entry.entity.kind === "thread"
-          ? !collapsed.has(key)
-          : expanded.has(key);
-      const hasChildren = entry.children.some((child) => !hidden.has(child.entity.id));
-      result.push({ key, entry, depth, pinned, siblings: visible, index, open, hasChildren });
-      if (open) append(entry.children, depth + 1, false, key);
+      const open = entry.entity.kind === "section" ? !collapsed.has(key) : expanded.has(key);
+      const underMine = entry.entity.kind === "thread";
+      const hasChildren = entry.children.some((child) => visible(child, false, underMine));
+      result.push({
+        key,
+        entry,
+        depth,
+        pinned,
+        siblings: visibleEntries,
+        index,
+        open,
+        hasChildren,
+      });
+      if (open) append(entry.children, depth + 1, false, key, underMine);
     });
   };
   result.push({ heading: "Pinned" });

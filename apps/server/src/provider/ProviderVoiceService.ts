@@ -7,6 +7,8 @@ import {
   type ProviderVoiceStartResult,
   type ProviderVoiceSessionInput,
   type ProviderVoiceEvent,
+  type OrchestrationV2Run,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -18,6 +20,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Registry from "./ProviderInstanceRegistry.ts";
 import * as Live from "./LiveVoiceSessions.ts";
 
@@ -60,6 +63,7 @@ export class ProviderVoiceService extends Context.Service<
 
 export const make = Effect.gen(function* () {
   const threads = yield* Threads.ThreadManagementService;
+  const launches = yield* ThreadLaunch.ThreadLaunchService;
   const registry = yield* Registry.ProviderInstanceRegistry;
   const hub = yield* Live.LiveVoiceSessions;
   const crypto = yield* Crypto.Crypto;
@@ -69,9 +73,9 @@ export const make = Effect.gen(function* () {
     string,
     { readonly fingerprint: string; readonly result: ProviderVoiceStartResult }
   >();
-  const readThread = Effect.fn("ProviderVoiceService.readThread")(function* (
-    input: ProviderVoiceCapabilitiesInput,
-  ) {
+  const readThread = Effect.fn("ProviderVoiceService.readThread")(function* (input: {
+    readonly threadId: ThreadId;
+  }) {
     const thread = yield* threads
       .getThreadShell(input.threadId)
       .pipe(Effect.mapError(() => new ProviderVoiceError({ reason: "not-found" })));
@@ -82,8 +86,9 @@ export const make = Effect.gen(function* () {
   const getCapabilities = Effect.fn("ProviderVoiceService.getCapabilities")(function* (
     input: ProviderVoiceCapabilitiesInput,
   ) {
-    const thread = yield* readThread(input);
-    const selection = input.modelSelection ?? thread.modelSelection;
+    const thread = "threadId" in input ? yield* readThread(input) : undefined;
+    const selection = input.modelSelection ?? thread?.modelSelection;
+    if (!selection) return yield* new ProviderVoiceError({ reason: "invalid" });
     const instance = yield* registry.getInstance(selection.instanceId);
     if (!instance || instance.driverKind !== "codex" || !instance.enabled)
       return {
@@ -141,8 +146,12 @@ export const make = Effect.gen(function* () {
   const start = Effect.fn("ProviderVoiceService.start")((input: ProviderVoiceStartInput) =>
     startLock.withPermit(
       Effect.gen(function* () {
-        const thread = yield* readThread(input);
-        const selection = input.modelSelection ?? thread.modelSelection;
+        const thread =
+          !input.bootstrap || input.bootstrap.reuseExistingThread
+            ? yield* readThread(input)
+            : undefined;
+        const selection = input.modelSelection ?? thread?.modelSelection;
+        if (!selection) return yield* new ProviderVoiceError({ reason: "invalid" });
         const instance = yield* registry.getInstance(selection.instanceId);
         const auth = instance ? (yield* instance.snapshot.getSnapshot).auth : undefined;
         const identity = yield* encodeStartIdentity({
@@ -166,9 +175,11 @@ export const make = Effect.gen(function* () {
             return yield* new ProviderVoiceError({ reason: "invalid" });
           return previous.result;
         }
-        if (!(yield* getCapabilities(input)).live.supported)
+        if (
+          !(yield* getCapabilities(thread ? input : { modelSelection: selection })).live.supported
+        )
           return yield* new ProviderVoiceError({ reason: "unsupported" });
-        if (activeStatuses.has(thread.status))
+        if (thread && activeStatuses.has(thread.status))
           return yield* new ProviderVoiceError({ reason: "busy" });
         const sessionId = yield* crypto
           .randomUUIDv4()
@@ -178,32 +189,64 @@ export const make = Effect.gen(function* () {
           hub.offer({ ...target, sdp: input.sdp }),
           () =>
             Effect.gen(function* () {
-              const dispatched = yield* threads
-                .dispatch({
-                  type: "message.dispatch",
-                  commandId: input.commandId,
-                  threadId: input.threadId,
-                  messageId: input.messageId,
-                  modelSelection: selection,
-                  text: "",
-                  attachments: [],
-                  dispatchMode: { type: "start_immediately" },
-                  liveVoice: { sessionId },
-                  createdBy: "user",
-                  creationSource: "web",
-                })
-                .pipe(Effect.mapError(() => new ProviderVoiceError({ reason: "dispatch" })));
-              const created = dispatched.storedEvents.find(
-                (stored) => stored.event.type === "run.created",
-              );
+              const liveVoice = { sessionId };
+              let created: OrchestrationV2Run | undefined;
+              if (input.bootstrap) {
+                const launched = yield* launches
+                  .launch({
+                    projectId: input.bootstrap.projectId,
+                    title: input.bootstrap.title,
+                    runtimeMode: input.bootstrap.runtimeMode,
+                    interactionMode: input.bootstrap.interactionMode,
+                    workspaceStrategy: input.bootstrap.workspaceStrategy,
+                    ...(input.bootstrap.reuseExistingThread === undefined
+                      ? {}
+                      : { reuseExistingThread: input.bootstrap.reuseExistingThread }),
+                    commandId: input.commandId,
+                    threadId: input.threadId,
+                    modelSelection: selection,
+                    initialMessage: {
+                      messageId: input.messageId,
+                      text: "",
+                      attachments: [],
+                      liveVoice,
+                    },
+                    createdBy: "user",
+                    creationSource: "web",
+                  })
+                  .pipe(Effect.mapError(() => new ProviderVoiceError({ reason: "dispatch" })));
+                created = launched.projection.runs.find(
+                  (candidate) => candidate.userMessageId === input.messageId,
+                );
+              } else {
+                const dispatched = yield* threads
+                  .dispatch({
+                    type: "message.dispatch",
+                    commandId: input.commandId,
+                    threadId: input.threadId,
+                    messageId: input.messageId,
+                    modelSelection: selection,
+                    text: "",
+                    attachments: [],
+                    dispatchMode: { type: "start_immediately" },
+                    liveVoice,
+                    createdBy: "user",
+                    creationSource: "web",
+                  })
+                  .pipe(Effect.mapError(() => new ProviderVoiceError({ reason: "dispatch" })));
+                const event = dispatched.storedEvents.find(
+                  (stored) => stored.event.type === "run.created",
+                )?.event;
+                if (event?.type === "run.created") created = event.payload;
+              }
               if (
-                created?.event.type !== "run.created" ||
-                created.event.payload.threadId !== input.threadId ||
-                created.event.payload.userMessageId !== input.messageId ||
-                created.event.payload.liveVoice?.sessionId !== sessionId
+                !created ||
+                created.threadId !== input.threadId ||
+                created.userMessageId !== input.messageId ||
+                created.liveVoice?.sessionId !== sessionId
               )
                 return yield* new ProviderVoiceError({ reason: "dispatch" });
-              const result = { runId: created.event.payload.id };
+              const result = { runId: created.id };
               starts.set(input.commandId, { fingerprint, result });
               if (starts.size > 64) starts.delete(starts.keys().next().value!);
               return result;

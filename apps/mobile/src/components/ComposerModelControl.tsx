@@ -11,7 +11,9 @@ import {
 import { View } from "react-native";
 import type { ModelOption } from "../lib/modelOptions";
 import { resolveProviderOptionDescriptors } from "../lib/providerOptions";
+import { MOBILE_TYPOGRAPHY } from "../lib/typography";
 import { SymbolView } from "./ui/AppSymbol";
+import { useAndroidControlSizing } from "./ui/useAndroidControlSizing";
 import { ComposerInlineControl } from "./ComposerToolbar";
 import { ProviderIcon, ProviderInstanceIcon } from "./ProviderIcon";
 
@@ -27,6 +29,7 @@ export function ComposerModelControl(props: {
   readonly iconOnly?: boolean;
   readonly onPress: () => void;
 }) {
+  const { scale } = useAndroidControlSizing();
   const descriptors = resolveProviderOptionDescriptors({
     capabilities: props.modelOption?.capabilities,
     selections: props.selection?.options,
@@ -67,6 +70,8 @@ export function ComposerModelControl(props: {
         ? "Fast"
         : undefined;
   const speedIconCount = speedLabel === "Ultrafast" ? 2 : speedLabel === "Fast" ? 1 : 0;
+  const speedIconSize = Math.round(MOBILE_TYPOGRAPHY.caption.fontSize * scale);
+  const speedIconOffset = Math.round(speedIconSize / 3);
   return (
     <ComposerInlineControl
       accessibilityLabel={[
@@ -100,31 +105,32 @@ export function ComposerModelControl(props: {
         )
       }
       label={label}
-      detail={reasoningLabel}
+      detail={reasoningLabel || (speedIconCount > 0 ? speedLabel : undefined)}
       iconOnly={props.iconOnly}
-      suffix={
+      detailPrefix={
         speedIconCount > 0 ? (
           <View
             style={{
-              width: (props.size === "large" ? 15 : 12) + (speedIconCount === 2 ? 5 : 0),
-              height: 18,
+              width: speedIconSize + (speedIconCount === 2 ? speedIconOffset : 0),
+              height: speedIconSize,
             }}
             accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
           >
             <SymbolView
               name={{ ios: "bolt.fill", android: "bolt" }}
-              size={props.size === "large" ? 15 : 12}
+              size={speedIconSize}
               tintColorClassName="accent-icon-muted"
               type="monochrome"
-              style={{ position: "absolute", left: 0, top: speedIconCount === 2 ? 3 : 1 }}
+              style={{ position: "absolute", left: 0, top: 0 }}
             />
             {speedIconCount === 2 ? (
               <SymbolView
                 name={{ ios: "bolt.fill", android: "bolt" }}
-                size={props.size === "large" ? 15 : 12}
+                size={speedIconSize}
                 tintColorClassName="accent-icon-muted"
                 type="monochrome"
-                style={{ position: "absolute", left: 5, top: 0 }}
+                style={{ position: "absolute", left: speedIconOffset, top: 0 }}
               />
             ) : null}
           </View>

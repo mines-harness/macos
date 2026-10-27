@@ -9,11 +9,13 @@ export function isCatalogLibraryEntryVisible(input: {
       }
     | undefined;
   readonly pinned: boolean;
+  readonly nestedUnderMine?: boolean;
 }) {
   if (input.entity.kind !== "thread") return true;
   if (input.thread && input.thread.archivedAt !== null) return false;
   return (
     input.pinned ||
+    input.nestedUnderMine ||
     (input.entity.importSource?.kind !== "subagent" &&
       input.thread?.lineage.relationshipToParent !== "subagent")
   );

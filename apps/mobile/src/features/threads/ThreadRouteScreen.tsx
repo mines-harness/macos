@@ -916,6 +916,7 @@ function ThreadRouteContent(
                   subtitle={headerSubtitle}
                   headerColor={headerColor}
                   usesNativeHeaderGlass={usesNativeHeaderGlass}
+                  shareThreadRef={selectedThreadDetailRef}
                   gitControls={{
                     ...threadGitControlProps,
                     onTransferMine: open,

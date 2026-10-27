@@ -251,6 +251,10 @@
       "types": "./src/state/usageProgress.ts",
       "default": "./src/state/usageProgress.ts"
     },
+    "./state/codex-resets": {
+      "types": "./src/state/codexResets.ts",
+      "default": "./src/state/codexResets.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"

@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import type { DevicePairingRequest } from "@t3tools/contracts/minesDevicePairing";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { ChevronDownIcon, FoldersIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
 import { hasMinesIdentityConfig, minesControlUrl } from "../../cloud/publicConfig";
@@ -32,6 +32,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ConnectionsAdvancedSettings } from "./ConnectionsAdvancedSettings";
 import { AddSshComputer } from "./AddSshComputer";
 import { DeviceCliUpdateAction } from "./DeviceCliUpdateAction";
@@ -344,7 +345,9 @@ function AccountDevicesContent() {
                           ? "Not paired"
                           : row.status === "connecting"
                             ? "Connecting…"
-                            : "Not connected"}
+                            : row.status === "unavailable"
+                              ? "Couldn’t connect"
+                              : "Not connected"}
                     </Badge>
                     {row.presence ? (
                       <span className="text-xs">
@@ -355,24 +358,33 @@ function AccountDevicesContent() {
                             : "Availability unknown"}
                       </span>
                     ) : null}
+                    {row.error ? <span className="text-xs">{row.error}</span> : null}
                   </span>
                 }
                 control={
                   <div className="flex flex-wrap gap-2">
                     {environment ? <DeviceCliUpdateAction environment={environment} /> : null}
                     {row.status === "connected" && row.environmentId ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          void navigate({
-                            to: "/settings/projects",
-                            search: { machine: row.environmentId },
-                          })
-                        }
-                      >
-                        Projects
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="plain"
+                              aria-label={`Projects on ${row.name}`}
+                              onClick={() =>
+                                void navigate({
+                                  to: "/settings/projects",
+                                  search: { machine: row.environmentId },
+                                })
+                              }
+                            />
+                          }
+                        >
+                          <FoldersIcon />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Projects</TooltipPopup>
+                      </Tooltip>
                     ) : row.environmentId ? (
                       <Button
                         size="sm"
@@ -397,14 +409,22 @@ function AccountDevicesContent() {
                       </Button>
                     )}
                     {row.environmentId ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy !== null}
-                        onClick={() => void remove(row)}
-                      >
-                        Forget
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="plain-destructive"
+                              aria-label={`Forget ${row.name}`}
+                              disabled={busy !== null}
+                              onClick={() => void remove(row)}
+                            />
+                          }
+                        >
+                          <Trash2Icon />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Forget device</TooltipPopup>
+                      </Tooltip>
                     ) : null}
                   </div>
                 }

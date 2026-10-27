@@ -6,6 +6,19 @@ import {
 
 export type { LiveVoicePeer } from "@t3tools/client-runtime/voice-live";
 
+export function isGptVoiceModel(model: string): boolean {
+  return /^gpt-/i.test(model.slice(model.lastIndexOf("/") + 1).replace(/^openai\./i, ""));
+}
+
+export function liveVoiceTargetBlockReason(input: {
+  readonly hasParticipants: boolean;
+  readonly hasMultipleModels: boolean;
+}): string | null {
+  if (input.hasParticipants) return "Live voice is unavailable in drafts with participants.";
+  if (input.hasMultipleModels) return "Select one model to start Live voice.";
+  return null;
+}
+
 function createOutput(): VoiceAudioOutput {
   const context = new AudioContext();
   let source: MediaStreamAudioSourceNode | null = null;

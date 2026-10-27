@@ -262,7 +262,54 @@ function BetaSettingsSection() {
         Fold working and monitoring mines into a Working section. They return to the top of the list
         when they need you. While this is on, active mines are ordered by time and cannot be moved.
       </Text>
+      <SettingsSection>
+        <GuestSharingSetting />
+      </SettingsSection>
     </View>
+  );
+}
+
+function GuestSharingSetting() {
+  const { selectedTargets } = useSettingsEnvironmentFilter();
+  const writableEnvironments = useEnvironmentsWithScope(selectedTargets, AuthSettingsWriteScope);
+  const writeSettings = useSettingsWriter();
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const targets = resolveMobileSettingsTargets(selectedTargets, null);
+  const enabled = uniformMobileSetting(targets, "guestSharingEnabled");
+  const canWrite =
+    targets.length > 0 &&
+    targets.every((target) => writableEnvironments.has(target.environment.environmentId));
+  const save = async (value: boolean) => {
+    if (busyRef.current || !canWrite) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await writeSettings(
+        targets,
+        targets.map((target) => ({
+          environmentId: target.environment.environmentId,
+          patch: { guestSharingEnabled: value },
+        })),
+      );
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+  return (
+    <SettingsSwitchRow
+      icon="person.2"
+      label="Guest links"
+      subtitle={
+        enabled === null && targets.length > 0
+          ? "Varies across devices. Share chats while the host device is online."
+          : "Share a chat while its host device is online."
+      }
+      value={enabled === true}
+      disabled={busy || !canWrite}
+      onValueChange={(value) => void save(value)}
+    />
   );
 }
 
