@@ -8,7 +8,7 @@ import { ScreenHeaderButton } from "./ScreenHeaderButton";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspaceColumns";
 import { useDeviceType } from "../../native/native-layout-metrics";
-import { useAdaptiveWorkspaceLayout } from "../../features/layout/AdaptiveWorkspaceLayout";
+import { useAdaptiveWorkspaceLayout } from "../../features/layout/adaptive-workspace-context";
 import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
