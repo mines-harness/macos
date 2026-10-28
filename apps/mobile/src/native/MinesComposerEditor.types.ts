@@ -44,6 +44,8 @@ export interface ComposerEditorProps {
   >;
   readonly selection?: ComposerEditorSelection;
   readonly placeholder?: string;
+  readonly accessibilityLabel?: string;
+  readonly maxLength?: number;
   readonly autoFocus?: boolean;
   readonly editable?: boolean;
   /** Blocks user edits while preserving focus, selection, and the software keyboard. */

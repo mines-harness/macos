@@ -2,15 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { groupRecipients } from "@t3tools/client-runtime/group-chat";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useState } from "react";
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  TextInput,
-  View,
-} from "react-native";
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { EnvironmentId } from "@t3tools/contracts";
 import { GroupId } from "@t3tools/contracts/groupChat";
@@ -30,6 +22,7 @@ import { useSelectWorkspaceDetail } from "../features/workspace/useSelectWorkspa
 import { useGroupDraft } from "./useGroupDraft";
 import { GroupParticipantsButton } from "./GroupParticipantsButton";
 import { MobileGroupParticipantsModal } from "./MobileGroupParticipantsModal";
+import { ComposerEditor } from "../native/MinesComposerEditor";
 
 export function MobileGroupModal({
   environmentId: rawEnvironmentId,
@@ -304,18 +297,20 @@ export function MobileGroupModal({
             }
           />
           <View className="gap-3 border-t border-border p-4">
-            <TextInput
+            <ComposerEditor
+              key={JSON.stringify([environmentId, groupId])}
               accessibilityLabel="Message the group"
               multiline
               value={draft.text}
               onChangeText={(value) => store?.setText(value)}
+              onSubmit={() => void submit()}
+              maxLength={120_000}
               editable={!!store && !archived}
               placeholder={
                 archived ? "Reopen this group to send a message" : "Message or mention a member…"
               }
-              placeholderTextColor="#777"
-              style={{ maxHeight: 160, minHeight: 48, color: "#fff" }}
-              className="rounded-xl bg-muted p-3"
+              contentInsetVertical={12}
+              style={{ maxHeight: 160, minHeight: 48 }}
             />
             {draft.attempted ? (
               <Text className="text-xs text-muted-foreground">

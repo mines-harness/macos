@@ -8,7 +8,8 @@ import type { GroupMemberInput, GroupSnapshot } from "@t3tools/contracts/groupCh
 import { useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
+import { ComposerEditor } from "../../native/MinesComposerEditor";
 import { Button } from "../../components/ui/Button";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
@@ -222,14 +223,18 @@ export function SharedGroupModal({
             }}
           />
           <View className="gap-3 border-t border-border p-4">
-            <AppTextInput
+            <ComposerEditor
+              key={JSON.stringify([profile.friendId, environmentId, group.key])}
               accessibilityLabel="Shared group message"
               multiline
               value={draft.text}
               onChangeText={(value) => store?.setText(value)}
+              onSubmit={() => void submit()}
               placeholder="Message the group"
               editable={!busy && !!store}
               maxLength={120_000}
+              contentInsetVertical={12}
+              style={{ maxHeight: 160, minHeight: 48 }}
             />
             <View className="flex-row items-center gap-2">
               <SymbolView name="brain" size={18} tintColorClassName="accent-icon" />

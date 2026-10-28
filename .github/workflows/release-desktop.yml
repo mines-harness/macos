@@ -80,6 +80,11 @@ on:
       release_channel:
         required: true
         type: string
+      provenance:
+        description: Require the canonical Mines source manifest and record target hashes.
+        required: false
+        default: false
+        type: boolean
       # Whether a `relay-client-tracing-config` artifact from the production
       # relay state is expected. PR previews carry no tracing config.
       relay_client_tracing:
@@ -122,24 +127,15 @@ jobs:
       MINES_CLERK_CLI_OAUTH_CLIENT_ID: ${{ inputs.clerk_cli_oauth_client_id }}
       MINES_RELAY_URL: ${{ inputs.relay_url }}
     steps:
-      # This repository is public, so Git needs no credentials. checkout's
-      # credential cleanup runs submodule foreach even with submodules disabled,
-      # which fails on the orphaned gitlinks in our vendored .repos tree.
-      # checkout.workers=0 writes the files on every core. Alternating both ways
-      # in one job on the Windows runners, it wrote the files about 10s faster
-      # (about 40% on arm64).
       - name: Checkout
-        shell: bash
-        env:
-          CHECKOUT_REF: ${{ inputs.ref }}
-          GIT_TERMINAL_PROMPT: "0"
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
-          git sparse-checkout set --no-cone '/*' '!/.repos/'
-          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
@@ -201,6 +197,30 @@ jobs:
           tracing_token="$(sed -n 's/^MINES_RELAY_CLIENT_OTLP_TRACES_TOKEN=//p' "$config_path")"
           echo "::add-mask::$tracing_token"
           cat "$config_path" >> "$GITHUB_ENV"
+
+      - name: Download canonical source provenance
+        if: inputs.provenance
+        uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: .release-provenance
+
+      - name: Verify source provenance
+        if: inputs.provenance
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          EXPECTED_COMMIT: ${{ inputs.ref }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const source = JSON.parse(readFileSync('.release-provenance/release-source.json', 'utf8'));
+          const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          if (source.commit !== commit || source.commit !== process.env.EXPECTED_COMMIT || source.version !== process.env.EXPECTED_VERSION) {
+            throw new Error('Packager source differs from the shared release bundle.');
+          }
+          EOF
 
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ inputs.version }}"
@@ -443,6 +463,8 @@ jobs:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
           MINES_CLERK_PASSKEY_RP_DOMAINS: ${{ vars.CLERK_PASSKEY_RP_DOMAINS }}
+          MINES_APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MINES_COMMIT_HASH: ${{ inputs.ref }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -474,8 +496,8 @@ jobs:
 
           if [[ "${{ inputs.platform }}" == "mac" ]]; then
             if has_all "$CSC_LINK" "$CSC_KEY_PASSWORD" "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"; then
-              if ! has_all "$APPLE_TEAM_ID" "$MACOS_PROVISIONING_PROFILE"; then
-                echo "macOS signing is configured, but APPLE_TEAM_ID or MACOS_PROVISIONING_PROFILE is missing." >&2
+              if ! has_all "$APPLE_TEAM_ID"; then
+                echo "macOS signing is configured, but APPLE_TEAM_ID is missing." >&2
                 exit 1
               fi
 
@@ -483,11 +505,13 @@ jobs:
               printf '%s' "$APPLE_API_KEY" > "$key_path"
               export APPLE_API_KEY="$key_path"
 
-              profile_path="$RUNNER_TEMP/t3code.provisionprofile"
-              printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
-              security cms -D -i "$profile_path" >/dev/null
               export MINES_APPLE_TEAM_ID="$APPLE_TEAM_ID"
-              export MINES_MACOS_PROVISIONING_PROFILE="$profile_path"
+              if [[ -n "$MACOS_PROVISIONING_PROFILE" ]]; then
+                profile_path="$RUNNER_TEMP/mines.provisionprofile"
+                printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+                security cms -D -i "$profile_path" >/dev/null
+                export MINES_MACOS_PROVISIONING_PROFILE="$profile_path"
+              fi
 
               echo "macOS signing enabled."
               args+=(--signed)
@@ -510,6 +534,10 @@ jobs:
               echo "Windows signing enabled (Azure Trusted Signing)."
               args+=(--signed)
             else
+              if [[ "${{ inputs.provenance }}" == "true" ]]; then
+                echo "Official Mines releases require all Azure Trusted Signing credentials." >&2
+                exit 1
+              fi
               echo "Windows signing disabled (missing one or more Azure Trusted Signing secrets)."
             fi
           else
@@ -570,11 +598,12 @@ jobs:
           fi
           for pattern in "${patterns[@]}"; do
             for file in $pattern; do
+              [[ "$file" == */builder-debug.yml ]] && continue
               cp "$file" release-publish/
             done
           done
 
-          if [[ "${{ inputs.platform }}" == "mac" && "${{ inputs.arch }}" != "arm64" ]]; then
+          if [[ "${{ inputs.platform }}" == "mac" && ( "${{ inputs.arch }}" != "arm64" || "${{ inputs.provenance }}" == "true" ) ]]; then
             shopt -s nullglob
             for manifest in release-publish/*-mac.yml; do
               mv "$manifest" "${manifest%.yml}-${{ inputs.arch }}.yml"
@@ -605,6 +634,20 @@ jobs:
           target_dir="resource-monitor-publish/${{ inputs.resource_key }}"
           mkdir -p "$target_dir"
           cp "$source_path" "$target_dir/$binary_name"
+
+      - name: Record platform provenance and require matching CLI
+        if: inputs.provenance
+        shell: bash
+        run: |
+          directories=(--directory release-publish)
+          if [[ "${{ inputs.cli_archive }}" == "true" ]]; then
+            directories+=(--directory release-cli)
+          fi
+          node scripts/mines-release-provenance.ts target \
+            --source .release-provenance/release-source.json \
+            --target "${{ inputs.platform }}-${{ inputs.arch }}" \
+            "${directories[@]}" \
+            --output "release-publish/provenance-${{ inputs.platform }}-${{ inputs.arch }}.json"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

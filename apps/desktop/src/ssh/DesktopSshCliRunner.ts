@@ -1,4 +1,7 @@
-import { resolveCliReleaseBaseUrl } from "@t3tools/shared/cliRelease";
+import {
+  DEFAULT_MINES_RELEASE_REPOSITORY,
+  resolveCliReleaseBaseUrl,
+} from "@t3tools/shared/cliRelease";
 import type { RemoteMinesRunnerOptions } from "@t3tools/ssh/tunnel";
 
 declare const __MINES_BUILD_CLI_RELEASE_BASE_URL__: string | undefined;
@@ -40,7 +43,7 @@ export function resolveDesktopSshCliRunner(
     ? runtimeEnvironment
     : hasReleaseSource(buildEnvironment)
       ? buildEnvironment
-      : { MINES_CLI_UPDATE_REPOSITORY: "mines-harness/cli" };
+      : { MINES_CLI_UPDATE_REPOSITORY: DEFAULT_MINES_RELEASE_REPOSITORY };
   const releaseBaseUrl = resolveCliReleaseBaseUrl(
     source.MINES_CLI_RELEASE_BASE_URL,
     source.MINES_CLI_UPDATE_REPOSITORY,

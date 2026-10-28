@@ -37,8 +37,8 @@ vi.mock("react-native-safe-area-context", () => ({
 vi.mock("@effect/atom-react", () => ({ useAtomValue: (value: unknown) => value }));
 vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
-  AppTextInput: () => null,
 }));
+vi.mock("../../native/MinesComposerEditor", () => ({ ComposerEditor: () => null }));
 vi.mock("../../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
 vi.mock("../../components/ui/Button", () => ({
   Button: ({

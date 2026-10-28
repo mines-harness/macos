@@ -99,9 +99,8 @@ ico.writeUInt32LE(22, 18);
 writeAsset(new URL("icon.ico", directory), Buffer.concat([ico, icon]));
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#000"/><g fill="#f0f4ef"><path d="M12 10h8v2h2v8h-2v2h-8v-2h-2v-8h2zM15 6h2v20h-2zM6 15h20v2H6zM8 8h3v3H8zm13 13h3v3h-3zM21 8h3v3h-3zM8 21h3v3H8z"/></g><path fill="#000" d="M13 12h2v2h-2z"/><rect x="23" y="5" width="4" height="4" rx="1" fill="#8ee8b0"/></svg>`;
 writeAsset(new URL("icon.svg", directory), svg);
-// Keep the widget's internal asset name stable while replacing its visible mark.
 writeAsset(
-  new URL("../apps/mobile/assets/widget/T3Mark.svg", import.meta.url),
+  new URL("../apps/mobile/assets/widget/MinesMark.svg", import.meta.url),
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="black" d="M12 10h8v2h2v8h-2v2h-8v-2h-2v-8h2zM15 6h2v20h-2zM6 15h20v2H6zM8 8h3v3H8zm13 13h3v3h-3zM21 8h3v3h-3zM8 21h3v3H8z"/></svg>`,
 );
 

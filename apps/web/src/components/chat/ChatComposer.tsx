@@ -3119,12 +3119,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         flushSync(() => {
           setIsComposerScrollCollapsed(false);
           setIsComposerFocused(true);
-          if (command === "composer.effort") setIsComposerModelPickerOpen(true);
         });
         const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
-        const controls = command === "composer.effort" ? document : shell;
         const trigger = Array.from(
-          controls?.querySelectorAll<HTMLButtonElement>(
+          shell?.querySelectorAll<HTMLButtonElement>(
             `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
           ) ?? [],
         ).find(

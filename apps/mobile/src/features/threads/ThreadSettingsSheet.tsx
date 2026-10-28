@@ -284,6 +284,7 @@ export type ExistingThreadSettingsRouteParams = {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly draftKey: string;
+  readonly initialDescriptorId?: string;
 };
 
 type ThreadSettingsSessionValue = {
@@ -1182,6 +1183,7 @@ type ThreadSettingsPickerStackParams = {
 
 type ThreadSettingsPickerPresentation = {
   readonly onClose: () => void;
+  readonly initialDescriptorId?: string;
 };
 
 const ThreadSettingsPickerStack = createNativeStackNavigator<ThreadSettingsPickerStackParams>();
@@ -1414,42 +1416,60 @@ function ThreadSettingsModelsScreen() {
   );
 }
 
+function CloseReasoningSettingsButton() {
+  const presentation = useThreadSettingsPickerPresentation();
+  return (
+    <IconButton
+      accessibilityLabel="Close reasoning settings"
+      icon="xmark"
+      onPress={presentation.onClose}
+    />
+  );
+}
+
 function ThreadSettingsChoiceScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
   const route = useRoute<RouteProp<ThreadSettingsPickerStackParams, "ThreadSettingsChoice">>();
+  const presentation = useThreadSettingsPickerPresentation();
+  const close = () => {
+    if (navigation.getState().index === 0) presentation.onClose();
+    else navigation.goBack();
+  };
 
   return (
     <>
-      <NativeStackScreenOptions options={{ headerShown: Platform.OS !== "android" }} />
+      <NativeStackScreenOptions
+        options={{
+          headerShown: Platform.OS !== "android",
+          headerRight: navigation.getState().index === 0 ? CloseReasoningSettingsButton : undefined,
+        }}
+      />
       {Platform.OS === "android" ? (
-        <AndroidScreenHeader
-          title={route.params.title}
-          onBack={() => navigation.goBack()}
-          hideBottomBorder
-        />
+        <AndroidScreenHeader title={route.params.title} onBack={close} hideBottomBorder />
       ) : null}
       <ScreenContent>
-        <ThreadSettingsChoiceContent
-          submenu={route.params}
-          onSelected={() => navigation.goBack()}
-        />
+        <ThreadSettingsChoiceContent submenu={route.params} onSelected={close} />
       </ScreenContent>
     </>
   );
 }
 
 function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) {
+  const session = useThreadSettingsSession();
   const theme = useUniwindTheme();
   const solidSheetBackground = theme["--color-sheet-solid"];
   const foreground = theme["--color-foreground"];
   const presentation = {
     onClose: props.onClose,
   };
+  const initialDescriptor = session.displayedDescriptors.find(
+    (descriptor) => descriptor.id === props.initialDescriptorId && descriptor.type === "select",
+  );
 
   return (
     <ThreadSettingsPickerPresentationContext.Provider value={presentation}>
       <ThreadSettingsPickerStack.Navigator
-        initialRouteName="ThreadSettingsModels"
+        initialRouteName={initialDescriptor ? "ThreadSettingsChoice" : "ThreadSettingsModels"}
         screenOptions={{
           animation: Platform.OS === "android" ? "default" : "slide_from_right",
           contentStyle: { backgroundColor: solidSheetBackground },
@@ -1477,6 +1497,11 @@ function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) 
         <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsChoice"
           component={ThreadSettingsChoiceScreen}
+          initialParams={
+            initialDescriptor
+              ? { kind: "descriptor", id: initialDescriptor.id, title: initialDescriptor.label }
+              : undefined
+          }
           options={({ route }) => ({ title: route.params.title })}
         />
       </ThreadSettingsPickerStack.Navigator>
@@ -1485,11 +1510,14 @@ function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) 
 }
 
 export function ThreadSettingsPickerScreen(
-  props: ThreadSettingsSessionProps & { readonly onClose: () => void },
+  props: ThreadSettingsSessionProps & ThreadSettingsPickerPresentation,
 ) {
   return (
     <ThreadSettingsSessionProvider {...props}>
-      <ThreadSettingsPickerNavigator onClose={props.onClose} />
+      <ThreadSettingsPickerNavigator
+        onClose={props.onClose}
+        initialDescriptorId={props.initialDescriptorId}
+      />
     </ThreadSettingsSessionProvider>
   );
 }
@@ -1540,6 +1568,7 @@ export function ExistingThreadSettingsRouteScreen({
 
   return (
     <ThreadSettingsPickerScreen
+      initialDescriptorId={route.params.initialDescriptorId}
       environmentId={selectedThread.environmentId}
       projectId={selectedThread.projectId}
       providerInstanceId={modelSelection.instanceId}
@@ -1567,7 +1596,9 @@ export function ExistingThreadSettingsRouteScreen({
 }
 
 /** RNS owns nested sheet dismissal; Reasoning and Runtime remain ordinary pushes. */
-export function NewTaskThreadSettingsRouteScreen() {
+export function NewTaskThreadSettingsRouteScreen({
+  route,
+}: StaticScreenProps<{ readonly initialDescriptorId?: string } | undefined>) {
   const flow = useNewTaskFlow();
   const navigation = useNavigation<NativeStackNavigationProp<Record<string, object | undefined>>>();
   const optionDescriptors = resolveProviderOptionDescriptors({
@@ -1577,6 +1608,7 @@ export function NewTaskThreadSettingsRouteScreen() {
 
   return (
     <ThreadSettingsPickerScreen
+      initialDescriptorId={route.params?.initialDescriptorId}
       environmentId={flow.selectedEnvironmentId}
       projectId={flow.selectedProject?.id ?? null}
       {...(flow.selectedModel ? { providerInstanceId: flow.selectedModel.instanceId } : {})}

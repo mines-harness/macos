@@ -30,7 +30,7 @@ import {
   DialogPanel,
   DialogFooter,
 } from "../ui/dialog";
-import { Textarea } from "../ui/textarea";
+import { GroupMessageComposer } from "../groups/GroupMessageComposer";
 import { ContactAvatar } from "./ContactsPage";
 import { useContacts } from "./ContactsProvider";
 import { sharedChatMembers } from "./SharedGroupConversation.logic";
@@ -204,6 +204,12 @@ export function SharedGroupConversation({
   const effectiveAskAi = askAi && hasAiChats;
   const submit = async (requestAiResponse = effectiveAskAi) => {
     if (!draft.text.trim() || busy || !online || !canSend) return;
+    if (draft.text.length > 120_000) {
+      setError(
+        "Group messages can contain up to 120,000 characters. Shorten your draft to send it.",
+      );
+      return;
+    }
     if (requestAiResponse && !hasAiChats) {
       setError("Bring a chat to the group before asking AI.");
       return;
@@ -368,57 +374,44 @@ export function SharedGroupConversation({
           </p>
         ) : null}
       </div>
-      <form
-        className="flex flex-col gap-2 rounded-xl border border-border/70 p-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
+      <GroupMessageComposer
+        draftKey={JSON.stringify([userId, environmentId, group.key])}
+        ariaLabel="Message your group"
+        placeholder="Message your group…"
+        value={draft.text}
+        disabled={busy}
+        submitOnEnter
+        onChange={(text) => {
+          setDraft((current) =>
+            current.text === text ? current : { text, requestId: randomUUID() },
+          );
         }}
+        onSubmit={(alternate) => void submit(effectiveAskAi || alternate)}
       >
-        <Textarea
-          aria-label="Message your group"
-          placeholder="Message your group…"
-          value={draft.text}
-          disabled={busy}
-          maxLength={120_000}
-          onChange={(event) => {
-            const text = event.currentTarget.value;
-            setDraft((current) =>
-              current.text === text ? current : { text, requestId: randomUUID() },
-            );
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            void submit(effectiveAskAi || event.metaKey || event.ctrlKey);
-          }}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant={effectiveAskAi ? "secondary" : "ghost-muted"}
-            aria-pressed={effectiveAskAi}
-            disabled={busy || !hasAiChats}
-            onClick={() => setAskAi((current) => !current)}
-          >
-            <BotMessageSquareIcon />
-            Ask AI
-          </Button>
-          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-            {hasAiChats
-              ? "Turn on Ask AI when you want a mine to respond."
-              : "Bring a chat to enable Ask AI."}
-          </span>
-          <Button
-            type="submit"
-            size="icon"
-            aria-label={effectiveAskAi ? "Send and ask AI" : "Send message"}
-            disabled={!draft.text.trim() || busy || !online || !canSend}
-          >
-            <ArrowUpIcon />
-          </Button>
-        </div>
-      </form>
+        <Button
+          size="sm"
+          variant={effectiveAskAi ? "secondary" : "ghost-muted"}
+          aria-pressed={effectiveAskAi}
+          disabled={busy || !hasAiChats}
+          onClick={() => setAskAi((current) => !current)}
+        >
+          <BotMessageSquareIcon />
+          Ask AI
+        </Button>
+        <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+          {hasAiChats
+            ? "Turn on Ask AI when you want a mine to respond."
+            : "Bring a chat to enable Ask AI."}
+        </span>
+        <Button
+          type="submit"
+          size="icon"
+          aria-label={effectiveAskAi ? "Send and ask AI" : "Send message"}
+          disabled={!draft.text.trim() || busy || !online || !canSend}
+        >
+          <ArrowUpIcon />
+        </Button>
+      </GroupMessageComposer>
       {picking && view ? (
         <SharedChatPicker
           group={group}

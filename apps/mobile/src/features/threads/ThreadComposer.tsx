@@ -409,19 +409,22 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const pendingNativeImagePasteCountRef = useRef(0);
   const [pendingPastedTextAttachmentCount, setPendingPastedTextAttachmentCount] = useState(0);
   const settingsRoutePresentedRef = useRef(false);
+  const settingsDescriptorRef = useRef<string | undefined>(undefined);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
     editorRef: inputRef,
     onPresent: () => {
       if (settingsRoutePresentedRef.current) return;
       settingsRoutePresentedRef.current = true;
+      const initialDescriptorId = settingsDescriptorRef.current;
       // The draft composer edits the new-task flow, which owns its own settings route.
       navigation.dispatch(
         props.isDraft
-          ? StackActions.push("NewTaskThreadSettings")
+          ? StackActions.push("NewTaskThreadSettings", { initialDescriptorId })
           : StackActions.push("ThreadSettingsSheet", {
               environmentId: props.environmentId,
               threadId: props.selectedThread.id,
               draftKey: composerDraftKey,
+              initialDescriptorId,
             } satisfies ExistingThreadSettingsRouteParams),
       );
     },
@@ -703,6 +706,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         option.selection.model === currentModelSelection.model,
     ) ?? null;
   const openSettings = () => {
+    settingsDescriptorRef.current = undefined;
     settingsSheetPresentation.open();
   };
 
@@ -783,6 +787,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         surfaceColor={composerPanel}
         iconOnly={!compactEditor.isExpanded}
         onPress={openSettings}
+        onPressReasoning={(descriptorId) => {
+          settingsDescriptorRef.current = descriptorId;
+          settingsSheetPresentation.open();
+        }}
       />
     </View>
   );

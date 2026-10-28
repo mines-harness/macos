@@ -1,0 +1,39 @@
+name: Mines source parity
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mines-source-parity
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Record platform source differences
+    if: github.repository == 'mines-harness/macos'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - name: Compare exact source file hashes
+        env:
+          GH_TOKEN: ${{ secrets.MINES_SOURCE_READ_TOKEN || github.token }}
+        run: node scripts/mines-source-parity.ts --output source-parity.json --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: source-parity
+          path: source-parity.json
+          if-no-files-found: error

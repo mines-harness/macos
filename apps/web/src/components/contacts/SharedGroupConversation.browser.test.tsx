@@ -27,6 +27,20 @@ vi.mock("../../state/entities", () => ({ useQuietThreadShells: () => [] }));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: vi.fn() }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: vi.fn() }));
 vi.mock("./ContactsProvider", () => ({ useContacts: vi.fn() }));
+vi.mock("../composerContextPresentation", async () => {
+  const { createContext } = await import("react");
+  return {
+    ComposerContextActionsContext: createContext(null),
+    ComposerContextRecordsContext: createContext(new Map()),
+    ComposerContextReferenceChip: () => null,
+  };
+});
+vi.mock("../chat/SkillInlineText", () => ({
+  SkillChipPopover: () => null,
+  skillPopoverDescription: () => null,
+}));
+vi.mock("../chat/AssistantCitationChip", () => ({ AssistantCitationChip: () => null }));
+vi.mock("../chat/ComposerCodeBlockNodeView", () => ({ ComposerCodeBlockNodeView: () => null }));
 vi.mock("../../state/sharedGroups", async () => {
   const { Atom } = await import("effect/reactivity");
   const allowed = Atom.make(true);
@@ -139,7 +153,11 @@ it("sends mentions as human notes until Ask AI is explicitly enabled and resets 
       input: expect.objectContaining({ message: "@everyone hello", requestAiResponse: false }),
     }),
   );
-  await expect.element(screen.getByRole("textbox", { name: "Message your group" })).toHaveValue("");
+  await vi.waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Message your group" }).element().textContent).toBe(
+      "",
+    ),
+  );
   await screen.getByRole("button", { name: "Ask AI", exact: true }).click();
   await screen
     .getByRole("textbox", { name: "Message your group" })

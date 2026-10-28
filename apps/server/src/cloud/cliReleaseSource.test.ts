@@ -5,6 +5,15 @@ import { resolveCliReleaseSource } from "./cliReleaseSource.ts";
 describe("Mines CLI release source", () => {
   it("uses the Mines distribution when no source is configured", () => {
     expect(resolveCliReleaseSource({}, {})).toEqual({
+      releaseBaseUrl: "https://github.com/mines-harness/macos/releases/download",
+      repository: "mines-harness/macos",
+    });
+  });
+
+  it("preserves an explicit legacy distribution source", () => {
+    expect(
+      resolveCliReleaseSource({ MINES_CLI_UPDATE_REPOSITORY: "mines-harness/cli" }, {}),
+    ).toEqual({
       releaseBaseUrl: "https://github.com/mines-harness/cli/releases/download",
       repository: "mines-harness/cli",
     });

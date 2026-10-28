@@ -285,6 +285,7 @@ export function ComposerEditor({
   return (
     <NativeView
       ref={nativeRef}
+      accessibilityLabel={props.accessibilityLabel}
       controlledDocumentJson={controlledDocumentJson}
       clipboardFragment={props.clipboardFragment ?? ""}
       themeJson={themeJson}
@@ -313,7 +314,7 @@ export function ComposerEditor({
       autoCorrect={props.autoCorrect ?? true}
       spellCheck={props.spellCheck ?? true}
       textPasteThresholdBytes={onPasteText ? PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES : 0}
-      maxInputChars={PROVIDER_SEND_TURN_MAX_INPUT_CHARS}
+      maxInputChars={Math.min(props.maxLength ?? Infinity, PROVIDER_SEND_TURN_MAX_INPUT_CHARS)}
       style={style as StyleProp<ViewStyle>}
       onComposerChange={(event) => {
         const acknowledgedEventCount = acceptNativeEvent(

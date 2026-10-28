@@ -71,8 +71,11 @@ export function loadRepoEnv({
 }
 
 export function resolvePublicConfig(...sources: readonly Environment[]): MinesPublicConfig {
+  const controlUrl = sources
+    .find((source) => source.MINES_CONTROL_URL !== undefined)
+    ?.MINES_CONTROL_URL?.trim();
   return {
-    controlUrl: firstNonEmpty(sources, "MINES_CONTROL_URL"),
+    controlUrl: controlUrl ?? "https://mines.gemstud.io",
     stunUrl: firstNonEmpty(sources, "MINES_STUN_URL"),
     // Device traffic never uses the upstream relay or telemetry endpoints.
     relayUrl: undefined,

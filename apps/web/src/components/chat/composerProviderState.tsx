@@ -60,6 +60,7 @@ type TraitsRenderInput = {
   planModeEnabled: boolean;
   size?: ComposerControlSize;
   hidden?: boolean;
+  disabled?: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
 };
@@ -226,6 +227,7 @@ function renderTraitsControl(Component: typeof TraitsPicker, input: TraitsRender
     planModeEnabled,
     size,
     hidden,
+    disabled,
     triggerClassName,
     isComposerOwned,
   } = input;
@@ -265,6 +267,7 @@ function renderTraitsControl(Component: typeof TraitsPicker, input: TraitsRender
       planModeEnabled={planModeEnabled}
       {...(size !== undefined ? { size } : {})}
       {...(hidden !== undefined ? { hidden } : {})}
+      {...(disabled !== undefined ? { disabled } : {})}
       {...(triggerClassName !== undefined ? { triggerClassName } : {})}
       {...(isComposerOwned ? { isComposerOwned } : {})}
     />

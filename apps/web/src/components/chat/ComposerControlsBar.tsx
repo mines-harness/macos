@@ -1,8 +1,4 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import {
-  buildTraitsTriggerDisplay,
-  REASONING_SELECT_DESCRIPTOR_IDS,
-} from "@t3tools/client-runtime/model-traits";
 import { WorkflowPicker } from "./WorkflowPicker";
 import { RetainedWorkflowLauncher } from "./RetainedWorkflowLauncher";
 import type { ChatComposerProps } from "./ChatComposer";
@@ -27,11 +23,8 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
-import { renderProviderTraitsPicker, withImplicitFastModeDefault } from "./composerProviderState";
+import { renderProviderTraitsPicker } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
-import { getProviderOptionDescriptors } from "@t3tools/shared/model";
-import { getProviderModelCapabilities } from "../../providerModels";
-import { getTraitsSpeedDisplay } from "./TraitsSpeed";
 
 /**
  * The composer footer controls: model picker, traits, mode controls and the overflow menu for
@@ -149,36 +142,10 @@ export function ComposerControlsBar(props: {
     onPromptEdit,
     planModeEnabled,
     isComposerOwned: true,
+    size: composerControlsCollapsed ? "xs" : "sm",
+    hidden: composerControlsHidden,
+    disabled: providerCatalogPending || isSendBusy,
   });
-  const capabilities = getProviderModelCapabilities(
-    selectedProviderModels,
-    selectedModel,
-    selectedProvider,
-    planModeEnabled,
-  );
-  const descriptors = getProviderOptionDescriptors({
-    caps: capabilities,
-    selections: withImplicitFastModeDefault(
-      capabilities,
-      composerModelOptions?.[selectedInstanceId],
-    ),
-  });
-  const speed = descriptors
-    .map((descriptor) => getTraitsSpeedDisplay(selectedProvider, descriptor))
-    .find((display) => display?.speedIcon);
-  const reasoningDescriptors = descriptors.filter((descriptor) =>
-    REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id),
-  );
-  const primaryReasoning = reasoningDescriptors.find((descriptor) => descriptor.type === "select");
-  const reasoningLabel = buildTraitsTriggerDisplay({
-    provider: selectedProvider,
-    descriptors: reasoningDescriptors,
-    primarySelectDescriptorId: primaryReasoning?.id ?? null,
-    ultrathinkPromptControlled:
-      (primaryReasoning?.promptInjectedValues?.length ?? 0) > 0 && promptUltrathink !== "none",
-    modelSelection: selectedModelSelection,
-    reportedModelSelection,
-  }).label;
   const restingBlockDefs = [
     {
       id: "mode",
@@ -226,9 +193,6 @@ export function ComposerControlsBar(props: {
       instanceEntries={providerInstanceEntries}
       keybindings={keybindings}
       modelOptionsByInstance={modelOptionsByInstance}
-      modelSettings={providerTraitsPicker}
-      modelSpeed={speed?.speedIcon ?? null}
-      modelReasoning={reasoningLabel}
       size={composerControlsCollapsed ? "xs" : "sm"}
       triggerClassName={
         composerControlsCollapsed
@@ -301,6 +265,7 @@ export function ComposerControlsBar(props: {
         size={composerControlsCollapsed ? "xs" : "sm"}
         disabled={isSendBusy}
       />
+      {providerTraitsPicker}
 
       {multipleModelSelections && multipleModelSelections.length > 1 ? (
         <WorkflowPicker

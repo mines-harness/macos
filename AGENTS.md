@@ -140,6 +140,12 @@ For authorized mobile verification, a missing or outdated native client is an in
 
 `evals/` checks how real models behave with T3 Code's model-facing text: agent instructions, MCP tool descriptions and schemas, and generated titles. Before you change that text, read [evals/README.md](evals/README.md) and run the evals it names. When you fix a model behavior bug, add a case that fails before the fix.
 
+## Mines releases
+
+`mines-harness/macos` is the canonical source and release repository for macOS, Windows, Linux, and CLI. Its name does not make it a separate macOS codebase. Before implementing or installing "latest", compare canonical `main`, the checkout, the installed app's embedded commit, and the [source parity report](docs/operations/mines-release.md#resolve-platform-drift-before-implementing-latest). Preserve platform fixes when bringing older repositories into that source.
+
+Official updates use the Mines release workflow: one tested source and version, complete desktop and CLI artifacts, stable signing identities, and matching updater metadata. A DMG alone cannot serve the in-app updater. Keep one installation path and preserve account, device, and conversation state; put rollback archives outside `/Applications`. Do not replace the installed app with an ad-hoc build unless the user explicitly requests a local development installation. See the [release procedure](docs/operations/mines-release.md).
+
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.

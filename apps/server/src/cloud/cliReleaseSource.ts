@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MINES_RELEASE_REPOSITORY,
   CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_REPOSITORY_ENV,
   cliReleaseIndexPageUrl,
@@ -38,7 +39,7 @@ export function resolveCliReleaseSource(
     ? environment
     : hasReleaseSource(buildEnvironment)
       ? buildEnvironment
-      : { [CLI_RELEASE_REPOSITORY_ENV]: "mines-harness/cli" };
+      : { [CLI_RELEASE_REPOSITORY_ENV]: DEFAULT_MINES_RELEASE_REPOSITORY };
   const releaseBaseUrl = resolveCliReleaseBaseUrl(
     source[CLI_RELEASE_BASE_URL_ENV],
     source[CLI_RELEASE_REPOSITORY_ENV],

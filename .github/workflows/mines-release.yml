@@ -1,0 +1,327 @@
+name: Mines release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        type: choice
+        default: preview
+        options: [preview, stable, nightly]
+      version:
+        description: Optional stable version override; otherwise allocate the next patch.
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: mines-release
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  source:
+    name: Resolve one tested source
+    if: >-
+      github.repository == 'mines-harness/macos' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.meta.outputs.commit }}
+      version: ${{ steps.meta.outputs.version }}
+      channel: ${{ steps.meta.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - name: Resolve version and require successful CI
+        id: meta
+        uses: actions/github-script@v8
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            const config = require('./.github/mines-release.json');
+            const commit = context.payload.workflow_run?.head_sha || context.sha;
+            const channel = context.eventName === 'workflow_dispatch' ? process.env.CHANNEL || 'preview' : 'stable';
+            if (context.repo.owner + '/' + context.repo.repo !== config.sourceRepository || config.distributionRepository !== config.sourceRepository) {
+              throw new Error('This pipeline publishes only the canonical Mines repository.');
+            }
+            if (channel !== 'preview' && context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main') {
+              throw new Error('Stable and nightly releases must be dispatched from main.');
+            }
+            const checks = await github.paginate(github.rest.checks.listForRef, { ...context.repo, ref: commit, per_page: 100 });
+            const latestCheck = checks.filter(check => check.name === 'Check' && check.app?.slug === 'github-actions').sort((a, b) => b.id - a.id)[0];
+            if (latestCheck?.conclusion !== 'success') {
+              throw new Error(`CI Check has not passed for ${commit}; release source cannot be substituted.`);
+            }
+            const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
+            const base = config.version.split('.').map(Number);
+            let version;
+            if (context.eventName === 'push') version = context.ref.replace('refs/tags/v', '');
+            else if (channel !== 'stable') {
+              const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+              version = `${config.version}-${channel}.${date}.${context.runNumber}`;
+            } else if (process.env.VERSION) version = process.env.VERSION;
+            else {
+              const patches = releases.map(release => /^v(\d+)\.(\d+)\.(\d+)$/.exec(release.tag_name)).filter(Boolean);
+              if (patches.some(parts => Number(parts[1]) > base[0] || (Number(parts[1]) === base[0] && Number(parts[2]) > base[1]))) {
+                throw new Error('Release base version is older than the published release train.');
+              }
+              const used = patches.filter(parts => Number(parts[1]) === base[0] && Number(parts[2]) === base[1]).map(parts => Number(parts[3]));
+              version = `${base[0]}.${base[1]}.${Math.max(base[2], ...used.map(patch => patch + 1))}`;
+            }
+            const pattern = channel === 'stable' ? /^\d+\.\d+\.\d+$/ : new RegExp(`^\\d+\\.\\d+\\.\\d+-${channel}\\.\\d{8}\\.\\d+$`);
+            if (!pattern.test(version) || releases.some(release => release.tag_name === `v${version}`)) throw new Error(`Invalid or already published release version: ${version}`);
+            core.setOutput('commit', commit);
+            core.setOutput('version', version);
+            core.setOutput('channel', channel);
+      - name: Require official signing configuration
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_TEAM_ID AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME AZURE_TRUSTED_SIGNING_PUBLISHER_NAME; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Official releases require $name. Configure signing once; unsigned builds cannot enter the updater."
+              exit 1
+            fi
+          done
+      - uses: ./.github/actions/setup-ci-deps
+      - name: Record immutable source provenance
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: node scripts/mines-release-provenance.ts source --version "$VERSION" --channel "$CHANNEL"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-source
+          path: release-source.json
+          if-no-files-found: error
+
+  bundle:
+    name: Build shared server, composer, and desktop shell once
+    needs: source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - uses: ./.github/actions/setup-apt-mirrors
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - name: Align versions and build one JS bundle
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+          MINES_COMMIT_HASH: ${{ needs.source.outputs.commit }}
+        run: |
+          node scripts/update-release-package-versions.ts "$VERSION"
+          vp run build:desktop
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: .release-provenance
+      - name: Embed provenance in every shipped web client
+        run: cp .release-provenance/release-source.json apps/server/dist/client/release-source.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop ${{ matrix.label }}
+    needs: [source, bundle]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              label: macOS arm64,
+              platform: mac,
+              arch: arm64,
+              runner: macos-26,
+              target: dmg,
+              rust: aarch64-apple-darwin,
+              resource: darwin-arm64,
+              cli: true,
+              verify: "",
+            }
+          - {
+              label: macOS x64,
+              platform: mac,
+              arch: x64,
+              runner: macos-26-intel,
+              target: dmg,
+              rust: x86_64-apple-darwin,
+              resource: darwin-x64,
+              cli: false,
+              verify: "",
+            }
+          - {
+              label: Linux x64,
+              platform: linux,
+              arch: x64,
+              runner: ubuntu-24.04,
+              target: AppImage,
+              rust: x86_64-unknown-linux-gnu,
+              resource: linux-x64,
+              cli: true,
+              verify: "",
+            }
+          - {
+              label: Linux arm64,
+              platform: linux,
+              arch: arm64,
+              runner: ubuntu-24.04-arm,
+              target: AppImage,
+              rust: aarch64-unknown-linux-gnu,
+              resource: linux-arm64,
+              cli: true,
+              verify: "",
+            }
+          - {
+              label: Windows x64,
+              platform: win,
+              arch: x64,
+              runner: ubuntu-24.04,
+              target: nsis,
+              rust: x86_64-pc-windows-msvc,
+              resource: win32-x64,
+              cli: true,
+              verify: windows-2025,
+            }
+          - {
+              label: Windows arm64,
+              platform: win,
+              arch: arm64,
+              runner: ubuntu-24.04-arm,
+              target: nsis,
+              rust: aarch64-pc-windows-msvc,
+              resource: win32-arm64,
+              cli: true,
+              verify: windows-11-arm,
+            }
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      arch: ${{ matrix.arch }}
+      rust_target: ${{ matrix.rust }}
+      resource_key: ${{ matrix.resource }}
+      cli_archive: ${{ matrix.cli }}
+      verify_runner: ${{ matrix.verify }}
+      version: ${{ needs.source.outputs.version }}
+      ref: ${{ needs.source.outputs.commit }}
+      release_channel: ${{ needs.source.outputs.channel }}
+      provenance: true
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+
+  publish:
+    name: Verify complete release and publish atomically
+    needs: [source, desktop]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: release-assets
+      - name: Require one source and every desktop and CLI archive
+        run: node scripts/mines-release-provenance.ts verify --source release-assets/release-source.json --directory release-assets --output release-assets/release-report.json
+      - name: Merge per-architecture updater feeds
+        if: needs.source.outputs.channel != 'preview'
+        shell: bash
+        env:
+          CHANNEL: ${{ needs.source.outputs.channel }}
+        run: |
+          feed=latest
+          if [[ "$CHANNEL" == nightly ]]; then feed=nightly; fi
+          node scripts/merge-update-manifests.ts --platform mac "release-assets/$feed-mac-arm64.yml" "release-assets/$feed-mac-x64.yml" "release-assets/$feed-mac.yml"
+          node scripts/merge-update-manifests.ts --platform win "release-assets/$feed-win-x64.yml" "release-assets/$feed-win-arm64.yml" "release-assets/$feed.yml"
+      - name: Hash final assets and publish the complete release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.source.outputs.version }}
+          CHANNEL: ${{ needs.source.outputs.channel }}
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          (cd release-assets && sha256sum -- * > SHA256SUMS)
+          printf 'Built from %s at commit `%s`.\n\nEvery platform shares this source, version, and composer. `release-report.json` records target hashes; `SHA256SUMS` covers all final downloads.\n' "$GITHUB_REPOSITORY" "$SOURCE_COMMIT" > release-notes.md
+          if [[ "$CHANNEL" == preview ]]; then
+            printf '\nMaintainer preview: manual installation only; this release has no automatic update feed.\n' >> release-notes.md
+          fi
+          args=(--repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "Mines $VERSION" --notes-file release-notes.md --draft)
+          if [[ "$CHANNEL" != stable ]]; then args+=(--prerelease); fi
+          gh release create "v$VERSION" "${args[@]}" release-assets/*
+          latest=false
+          if [[ "$CHANNEL" == stable ]]; then latest=true; fi
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
+      - name: Record published release
+        run: cat release-assets/release-report.json >> "$GITHUB_STEP_SUMMARY"

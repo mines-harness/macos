@@ -15,6 +15,32 @@ afterEach(() => {
 });
 
 describe("loadRepoEnv", () => {
+  it("keeps Mines account controls available without a private build environment", () => {
+    const repoRoot = makeTemporaryDirectory();
+
+    expect(loadRepoEnv({ baseEnv: {}, repoRoot })).toMatchObject({
+      MINES_CONTROL_URL: "https://mines.gemstud.io",
+      VITE_MINES_CONTROL_URL: "https://mines.gemstud.io",
+      EXPO_PUBLIC_MINES_CONTROL_URL: "https://mines.gemstud.io",
+      MINES_RELAY_URL: undefined,
+      VITE_MINES_RELAY_URL: undefined,
+    });
+  });
+
+  it("lets an explicit empty origin disable accounts over a lower-priority configuration", () => {
+    const repoRoot = makeTemporaryDirectory();
+    NodeFS.writeFileSync(
+      NodePath.join(repoRoot, ".env"),
+      "MINES_CONTROL_URL=https://root.example.test\n",
+    );
+
+    expect(loadRepoEnv({ baseEnv: { MINES_CONTROL_URL: "" }, repoRoot })).toMatchObject({
+      MINES_CONTROL_URL: "",
+      VITE_MINES_CONTROL_URL: "",
+      EXPO_PUBLIC_MINES_CONTROL_URL: "",
+    });
+  });
+
   it("applies process, root local, and root precedence in that order", () => {
     const repoRoot = makeTemporaryDirectory();
     NodeFS.writeFileSync(

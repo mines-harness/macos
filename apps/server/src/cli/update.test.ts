@@ -55,7 +55,7 @@ it.effect("checks the Mines distribution index without a shell release configura
     );
     assert.equal(version, "0.1.12");
     assert.deepStrictEqual(urls, [
-      "https://api.github.com/repos/mines-harness/cli/releases?per_page=100&page=1",
+      "https://api.github.com/repos/mines-harness/macos/releases?per_page=100&page=1",
     ]);
   }),
 );

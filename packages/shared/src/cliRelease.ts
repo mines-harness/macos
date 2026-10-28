@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 
+export const DEFAULT_MINES_RELEASE_REPOSITORY = "mines-harness/macos";
+
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "MINES_CLI_RELEASE_BASE_URL";
 export const CLI_RELEASE_REPOSITORY_ENV = "MINES_CLI_UPDATE_REPOSITORY";

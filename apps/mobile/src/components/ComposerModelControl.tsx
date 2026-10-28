@@ -1,6 +1,5 @@
 import type { ModelSelection, ProviderDriverKind } from "@t3tools/contracts";
 import {
-  buildTraitsTriggerDisplay,
   getPromptControlledTraits,
   REASONING_SELECT_DESCRIPTOR_IDS,
 } from "@t3tools/client-runtime/model-traits";
@@ -28,6 +27,7 @@ export function ComposerModelControl(props: {
   readonly size?: "regular" | "large";
   readonly iconOnly?: boolean;
   readonly onPress: () => void;
+  readonly onPressReasoning?: (descriptorId: string) => void;
 }) {
   const { scale } = useAndroidControlSizing();
   const descriptors = resolveProviderOptionDescriptors({
@@ -35,16 +35,6 @@ export function ComposerModelControl(props: {
     selections: props.selection?.options,
   });
   const promptTraits = getPromptControlledTraits(descriptors, props.prompt);
-  const summary = props.provider
-    ? buildTraitsTriggerDisplay({
-        provider: props.provider,
-        descriptors,
-        primarySelectDescriptorId: promptTraits.primarySelectDescriptor?.id ?? null,
-        ultrathinkPromptControlled: promptTraits.ultrathinkPromptControlled,
-        modelSelection: props.selection,
-        reportedModelSelection: props.reportedSelection,
-      }).label
-    : "";
   const badge = props.modelOption?.providerBadge;
   const label = props.modelOption?.label ?? props.selection?.model ?? "Choose model";
   const reasoningDescriptor = descriptors.find(
@@ -73,71 +63,84 @@ export function ComposerModelControl(props: {
   const speedIconSize = Math.round(MOBILE_TYPOGRAPHY.caption.fontSize * scale);
   const speedIconOffset = Math.round(speedIconSize / 3);
   return (
-    <ComposerInlineControl
-      accessibilityLabel={[
-        "Model and reasoning settings",
-        label,
-        badge?.showBadge ? badge.displayName : null,
-        summary,
-      ]
-        .filter(Boolean)
-        .join(", ")}
-      size={props.size}
-      disabled={props.disabled}
-      emphasized
-      renderIcon={(size) =>
-        badge?.showBadge ? (
-          <ProviderInstanceIcon
-            iconUrl={props.modelOption?.providerIconUrl}
-            provider={props.modelOption?.providerDriver}
-            displayName={badge.displayName}
-            accentColor={badge.accentColor}
-            showBadge
-            surfaceColor={props.surfaceColor}
-            size={size}
-          />
-        ) : (
-          <ProviderIcon
-            iconUrl={props.modelOption?.providerIconUrl}
-            provider={props.modelOption?.providerDriver}
-            size={size}
-          />
-        )
-      }
-      label={label}
-      detail={reasoningLabel || (speedIconCount > 0 ? speedLabel : undefined)}
-      iconOnly={props.iconOnly}
-      detailPrefix={
-        speedIconCount > 0 ? (
-          <View
-            style={{
-              width: speedIconSize + (speedIconCount === 2 ? speedIconOffset : 0),
-              height: speedIconSize,
-            }}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-          >
-            <SymbolView
-              name={{ ios: "bolt.fill", android: "bolt" }}
-              size={speedIconSize}
-              tintColorClassName="accent-icon-muted"
-              type="monochrome"
-              style={{ position: "absolute", left: 0, top: 0 }}
-            />
-            {speedIconCount === 2 ? (
-              <SymbolView
-                name={{ ios: "bolt.fill", android: "bolt" }}
-                size={speedIconSize}
-                tintColorClassName="accent-icon-muted"
-                type="monochrome"
-                style={{ position: "absolute", left: speedIconOffset, top: 0 }}
+    <View className="min-w-0 shrink flex-row items-center">
+      <View className="min-w-0 shrink">
+        <ComposerInlineControl
+          accessibilityLabel={["Model", label, badge?.showBadge ? badge.displayName : null]
+            .filter(Boolean)
+            .join(", ")}
+          size={props.size}
+          disabled={props.disabled}
+          emphasized
+          renderIcon={(size) =>
+            badge?.showBadge ? (
+              <ProviderInstanceIcon
+                iconUrl={props.modelOption?.providerIconUrl}
+                provider={props.modelOption?.providerDriver}
+                displayName={badge.displayName}
+                accentColor={badge.accentColor}
+                showBadge
+                surfaceColor={props.surfaceColor}
+                size={size}
               />
-            ) : null}
-          </View>
-        ) : undefined
-      }
-      maxWidth="100%"
-      onPress={props.onPress}
-    />
+            ) : (
+              <ProviderIcon
+                iconUrl={props.modelOption?.providerIconUrl}
+                provider={props.modelOption?.providerDriver}
+                size={size}
+              />
+            )
+          }
+          label={label}
+          detail={speedIconCount > 0 ? speedLabel : undefined}
+          iconOnly={props.iconOnly}
+          detailPrefix={
+            speedIconCount > 0 ? (
+              <View
+                style={{
+                  width: speedIconSize + (speedIconCount === 2 ? speedIconOffset : 0),
+                  height: speedIconSize,
+                }}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                <SymbolView
+                  name={{ ios: "bolt.fill", android: "bolt" }}
+                  size={speedIconSize}
+                  tintColorClassName="accent-icon-muted"
+                  type="monochrome"
+                  style={{ position: "absolute", left: 0, top: 0 }}
+                />
+                {speedIconCount === 2 ? (
+                  <SymbolView
+                    name={{ ios: "bolt.fill", android: "bolt" }}
+                    size={speedIconSize}
+                    tintColorClassName="accent-icon-muted"
+                    type="monochrome"
+                    style={{ position: "absolute", left: speedIconOffset, top: 0 }}
+                  />
+                ) : null}
+              </View>
+            ) : undefined
+          }
+          maxWidth="100%"
+          onPress={props.onPress}
+        />
+      </View>
+      {reasoningDescriptor ? (
+        <ComposerInlineControl
+          accessibilityLabel={`Reasoning effort, ${reasoningLabel || "Default"}`}
+          size={props.size}
+          disabled={props.disabled}
+          icon="brain"
+          label={reasoningLabel || "Reasoning"}
+          iconOnly={props.iconOnly}
+          onPress={() => {
+            if (props.onPressReasoning) props.onPressReasoning(reasoningDescriptor.id);
+            else props.onPress();
+          }}
+        />
+      ) : null}
+    </View>
   );
 }

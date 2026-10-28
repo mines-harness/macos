@@ -22,6 +22,7 @@ import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import gnomeCaptureBundle from "../apps/desktop/gnome-extension/bundle.json" with { type: "json" };
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
+import minesReleaseConfig from "../.github/mines-release.json" with { type: "json" };
 
 import {
   ReleasePackageManifestError,
@@ -42,6 +43,7 @@ import {
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import { selectLocalMacSigningIdentity } from "./lib/local-macos-signing.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -183,6 +185,7 @@ interface BuildCliInput {
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
+  readonly localSigned?: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
@@ -839,7 +842,7 @@ const spawnAndCollectOutput = Effect.fn("spawnAndCollectOutput")(function* (
 
 const resolveGitCommitHash = Effect.fn("resolveGitCommitHash")(function* (repoRoot: string) {
   const result = yield* spawnAndCollectOutput(
-    ChildProcess.make("git", ["rev-parse", "--short=12", "HEAD"], {
+    ChildProcess.make("git", ["rev-parse", "HEAD"], {
       cwd: repoRoot,
     }),
   ).pipe(
@@ -854,7 +857,7 @@ const resolveGitCommitHash = Effect.fn("resolveGitCommitHash")(function* (repoRo
     return "unknown";
   }
   const hash = result.stdout.trim();
-  if (!/^[0-9a-f]{7,40}$/i.test(hash)) {
+  if (!/^[0-9a-f]{40}$/i.test(hash)) {
     return "unknown";
   }
   return hash.toLowerCase();
@@ -929,6 +932,7 @@ interface ResolvedBuildOptions {
   readonly skipBuild: boolean;
   readonly keepStage: boolean;
   readonly signed: boolean;
+  readonly localSigningIdentity: string | undefined;
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
@@ -1117,6 +1121,15 @@ export class InvalidAppleTeamIdError extends Schema.TaggedError<InvalidAppleTeam
 ) {
   override get message(): string {
     return `MINES_APPLE_TEAM_ID '${this.teamId}' must be a 10-character Apple Developer Team ID.`;
+  }
+}
+
+export class LocalMacSigningConfigurationError extends Schema.TaggedError<LocalMacSigningConfigurationError>()(
+  "LocalMacSigningConfigurationError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return this.reason;
   }
 }
 
@@ -1427,6 +1440,8 @@ const BuildEnvConfig = Config.all({
   skipBuild: Config.Boolean("MINES_DESKTOP_SKIP_BUILD").pipe(Config.withDefault(false)),
   keepStage: Config.Boolean("MINES_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
   signed: Config.Boolean("MINES_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
+  localSigned: Config.Boolean("MINES_DESKTOP_LOCAL_SIGNED").pipe(Config.withDefault(false)),
+  localSigningIdentity: Config.String("MINES_DESKTOP_LOCAL_SIGN_IDENTITY").pipe(Config.option),
   verbose: Config.Boolean("MINES_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
   mockUpdates: Config.Boolean("MINES_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.String("MINES_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
@@ -1507,6 +1522,39 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const skipBuild = resolveBooleanFlag(input.skipBuild, env.skipBuild);
   const keepStage = resolveBooleanFlag(input.keepStage, env.keepStage);
   const signed = resolveBooleanFlag(input.signed, env.signed);
+  const localSigned = resolveBooleanFlag(input.localSigned ?? Option.none(), env.localSigned);
+  if (localSigned && (signed || platform !== "mac" || hostPlatform !== "darwin")) {
+    return yield* new LocalMacSigningConfigurationError({
+      reason:
+        "Local development signing requires a macOS host and target, and cannot be combined with --signed.",
+    });
+  }
+  const localSigningIdentity = localSigned
+    ? yield* Effect.gen(function* () {
+        const result = yield* spawnAndCollectOutput(
+          ChildProcess.make("security", ["find-identity", "-v", "-p", "codesigning"]),
+        );
+        if (result.exitCode !== 0) {
+          return yield* new LocalMacSigningConfigurationError({
+            reason: "Could not inspect local code-signing identities.",
+          });
+        }
+        return yield* Effect.try({
+          try: () =>
+            selectLocalMacSigningIdentity(
+              result.stdout,
+              Option.getOrUndefined(env.localSigningIdentity),
+            ),
+          catch: (cause) =>
+            new LocalMacSigningConfigurationError({
+              reason:
+                cause instanceof Error
+                  ? cause.message
+                  : "Could not select a local signing identity.",
+            }),
+        });
+      })
+    : undefined;
   const verbose = resolveBooleanFlag(input.verbose, env.verbose);
 
   const mockUpdates = resolveBooleanFlag(input.mockUpdates, env.mockUpdates);
@@ -1533,6 +1581,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     skipBuild,
     keepStage,
     signed,
+    localSigningIdentity,
     verbose,
     mockUpdates,
     mockUpdateServerPort,
@@ -1577,13 +1626,36 @@ export class DesktopBuildAlreadyRunningError extends Schema.TaggedError<DesktopB
   }
 }
 
+const requireMacReleaseTeamId = Effect.fn("desktopArtifact.requireMacReleaseTeamId")(function* () {
+  const teamId = (yield* Config.String("MINES_APPLE_TEAM_ID")).trim();
+  if (!APPLE_TEAM_ID_PATTERN.test(teamId)) return yield* new InvalidAppleTeamIdError({ teamId });
+  return teamId;
+});
+
 export const validateMacPackagedApp = Effect.fn("validateMacPackagedApp")(function* (
   appPath: string,
   signed: boolean,
   verbose: boolean,
+  localSigningIdentity?: string,
 ) {
+  const teamId = signed ? yield* requireMacReleaseTeamId() : undefined;
   yield* runCommand(
-    ChildProcess.make("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]),
+    ChildProcess.make("codesign", [
+      "--verify",
+      "--deep",
+      "--strict",
+      "--verbose=2",
+      ...(teamId
+        ? [
+            `-R=anchor apple generic and identifier "${DESKTOP_APP_ID}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${teamId}"`,
+          ]
+        : localSigningIdentity
+          ? [
+              `-R=anchor apple generic and identifier "${DESKTOP_APP_ID}" and certificate leaf = H"${localSigningIdentity}"`,
+            ]
+          : []),
+      appPath,
+    ]),
     { label: "codesign (packaged app integrity)", verbose },
   );
   if (signed) {
@@ -2497,7 +2569,10 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   const env = yield* Config.all({
     updateRepository: Config.String("MINES_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
   });
-  const rawRepo = (Option.getOrUndefined(env.updateRepository)?.trim() || "").trim();
+  const rawRepo = Option.getOrElse(
+    env.updateRepository,
+    () => minesReleaseConfig.distributionRepository,
+  ).trim();
   if (!rawRepo) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
@@ -2555,10 +2630,9 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-export function resolveDesktopProductName(version: string): string {
-  return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "mines (Nightly)"
-    : (desktopPackageJson.productName ?? "mines");
+export function resolveDesktopProductName(_version: string): string {
+  // Every packaged channel shares an app ID and profile, so it must also share its install path.
+  return desktopPackageJson.productName ?? "mines";
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2576,10 +2650,14 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
+  localSigningIdentity?: string,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
+    ...(platform === "mac" || platform === "win"
+      ? { forceCodeSigning: signed || Boolean(localSigningIdentity) }
+      : {}),
     artifactName: "mines-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [
@@ -2609,25 +2687,24 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
   if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
-    if (publishConfig) {
-      buildConfig.publish = [publishConfig];
-    } else if (mockUpdates) {
+    if (mockUpdates) {
       buildConfig.publish = [
         {
           provider: "generic",
           url: resolveMockUpdateServerUrl(mockUpdateServerPort),
         },
       ];
+    } else if (signed || platform === "linux") {
+      const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
+      if (publishConfig) buildConfig.publish = [publishConfig];
     }
   }
 
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
-    buildConfig.forceCodeSigning = signed;
     buildConfig.mac = {
-      type: "distribution",
+      type: localSigningIdentity ? "development" : "distribution",
       hardenedRuntime: signed,
       notarize: signed,
       // Disabling discovery otherwise leaves Electron's linker signature and no resource seal.
@@ -2672,6 +2749,8 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      // electron-builder does not discover Apple Development certificates for non-MAS targets.
+      ...(localSigningIdentity ? { sign: path.join(repoRoot, "scripts/sign-macos-local.ts") } : {}),
       ...(macWebAuthnSigning
         ? {
             entitlements: macWebAuthnSigning.entitlementsPath,
@@ -3344,6 +3423,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const hostPlatform = yield* HostProcess.Platform;
+  if (options.platform === "mac" && options.signed) yield* requireMacReleaseTeamId();
   if (hostPlatform === "linux" && options.platform === "linux") {
     yield* preflightLinuxDesktopBuild(options.arch);
   }
@@ -3661,6 +3741,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         : undefined,
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
+      options.localSigningIdentity,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -3761,6 +3842,9 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     delete buildEnv.APPLE_API_KEY_ID;
     delete buildEnv.APPLE_API_ISSUER;
   }
+  if (options.localSigningIdentity) {
+    buildEnv.MINES_DESKTOP_LOCAL_SIGN_IDENTITY = options.localSigningIdentity;
+  }
 
   if (hostPlatform === "win32") {
     const python = yield* resolvePythonForNodeGyp();
@@ -3841,6 +3925,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       ),
       options.signed,
       options.verbose,
+      options.localSigningIdentity,
     );
   }
 
@@ -3916,6 +4001,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   signed: Flag.Boolean("signed").pipe(
     Flag.withDescription(
       "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: MINES_DESKTOP_SIGNED).",
+    ),
+    Flag.optional,
+  ),
+  localSigned: Flag.Boolean("local-signed").pipe(
+    Flag.withDescription(
+      "Sign a local macOS build with a pinned Apple Development identity; no notarization or update feed (env: MINES_DESKTOP_LOCAL_SIGNED).",
     ),
     Flag.optional,
   ),

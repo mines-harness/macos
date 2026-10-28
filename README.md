@@ -1,43 +1,79 @@
-# mines
+<p align="center">
+  <img src="assets/mines/icon-256.png" width="96" height="96" alt="Mines pixel mine icon" />
+</p>
 
-An AI workspace for continuing useful work across your computers and phones. Mines builds on [t3code at `375da0f`](https://github.com/pingdotgg/t3code/tree/375da0fb9a20dfdbd2eb2db99050341fc30f3a23), retaining its Electron desktop, React Native companions, native provider adapters, and durable orchestration.
+<h1 align="center">mines</h1>
 
-The interface uses a true-black canvas, restrained motion, and original mine/flag icons. Minesweeper tiles are not part of the interface.
+<p align="center">Your coding agents. Your subscriptions. Your computers.</p>
+
+<p align="center">
+  <a href="https://github.com/mines-harness/macos/releases">Releases</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/operations/development.md">Development</a> ·
+  <a href="LICENSE">MIT license</a>
+</p>
+
+Mines is an open-source workspace for coding agents, available as an Electron desktop app, a web client, a command-line host, and native mobile companions. Keep the agent and its files on the computer that owns the work, then connect from another approved device.
+
+Built on [T3 Code](https://github.com/pingdotgg/t3code), with provider adapters for Codex, Claude Code, Cursor, Grok, OpenCode, and Antigravity. Provider features depend on the runtime and account you connect.
+
+## A look inside
+
+![Mines web composer with separate model, device, and effort controls](assets/showcase/web-composer.png)
+
+Web development capture with an example unsent draft.
+
+<p align="center">
+  <img src="assets/showcase/ios-library.png" width="250" alt="Mines library in an iOS simulator preview, with no host connected" />
+  <img src="assets/showcase/android-pairing.png" width="250" alt="Mines pairing screen in an Android emulator preview, signed out" />
+</p>
+
+Native mobile preview captures from a simulator and emulator. These screens show the unconnected clients; they do not demonstrate a live agent session.
+
+## Work across devices
+
+- **One library.** Arrange mines, projects, sections, and pins. Add shared instructions and context files without moving the original workspace.
+- **Agents together.** Compare models, build with reviewers, or bring existing mines into a group conversation.
+- **Your provider accounts.** Use native provider runtimes and isolated profiles. Import supported conversation histories with their provenance.
+- **An app for the work.** A dark desktop workspace, a browser when you need it, and iOS/Android companions for remote control.
+- **Approved device connections.** Devices connect directly over authenticated WebRTC. Cached history remains available when a host is offline.
+
+The account service coordinates identity, presence, and connection setup. Agent execution and provider credentials stay on the host. Direct access depends on the network; a sleeping host cannot serve live work. Optional public guest sharing has a separate, explicit forwarding configuration. See [remote access](docs/user/remote-access.md) and the [device-service guide](infra/mines-control/README.md).
+
+## Source and downloads
+
+| Repository                                                                                        | Purpose                                                                                                          |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [macos](https://github.com/mines-harness/macos)                                                   | This shared monorepo: desktop, web, server, contracts, and mobile client source.                                 |
+| [windows](https://github.com/mines-harness/windows)                                               | Windows platform work and packaging.                                                                             |
+| [cli](https://github.com/mines-harness/cli)                                                       | Earlier standalone host downloads and checksums; new desktop and CLI builds share the monorepo release pipeline. |
+| [cli-source-private](https://github.com/mines-harness/cli-source-private)                         | Earlier CLI source snapshot; current shared host source is in this monorepo.                                     |
+| [android](https://github.com/mines-harness/android) · [ios](https://github.com/mines-harness/ios) | Native mobile companion source and preview builds.                                                               |
+
+Read each release's validation notes before installing. A source commit, a packaged download, and an installed app are separate states. Mobile previews and locally signed builds do not imply App Store distribution, notarization, or verified live provider sessions.
 
 ## Develop locally
 
-Use the versions pinned in `package.json` (Node 26.12.1 and pnpm 12.14.0).
+Use the Node and pnpm versions pinned in [package.json](package.json).
 
 ```sh
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev --home-dir /absolute/path/to/mines-dev
 ```
 
-The dev runner prints a local pairing URL. `pnpm dev:desktop` starts the Electron application. Mobile development lives in `apps/mobile`; the WebRTC module requires a native development build, not Expo Go. App identifiers, data directories, account configuration, icons, and distribution feeds are isolated from upstream.
+The dev runner prints the local URL and pairing information. `pnpm dev:desktop` starts Electron. Use an isolated development home; keep your installed app's data directory separate. Mobile development requires a native development client rather than Expo Go; see [mobile development](docs/internals/mobile-development.md).
 
-Configure a dedicated Clerk application and your own device service using `.env.example`. Local work remains useful before phone setup. No upstream Clerk application, relay, telemetry destination, or release feed is enabled by default. Updates stay disabled until an explicit mines release source is configured.
+For account and remote-device features, configure your own Mines account service using [.env.example](.env.example) and the [device-service guide](infra/mines-control/README.md). Local agent work does not require a phone or a hosted Mines account service.
 
-## Workspace
-
-- Library hierarchy: optional sections, projects, conversations and groups, with independent ordered pins and an encrypted Yjs catalog.
-- Drag mines, projects and sections to arrange the Library or add a shortcut to Pinned. Projects and sections have custom instructions and device-specific context files/folders; section instructions apply before project instructions. Organizing a mine never moves its files or changes its execution computer.
-- Adjacent model and device selectors, multi-model workflows, existing-mine groups, explicit mentions and bounded delegation.
-- Isolated provider profiles and fresh-evidence quota recovery. Automatic switching is gated by the adapter's supported account policy; current unverified subscription integrations remain manual.
-- Resumable, read-only history imports with provenance and explicit coverage reports.
-- Codex Cloud and Claude Cloud as subscription-backed devices, with verified native CLI controls and provider links for unavailable operations.
-- Direct WebRTC phone/computer connections, authenticated device approval, encrypted caches, recent-first history, gzip, range loading, and resumable live subscriptions.
-
-The OVH service handles identity, presence and signaling. It does not relay or queue conversations. Restrictive networks can prevent direct access: switch networks or use cached content. See the [device-service deployment guide](infra/mines-control/README.md), [remote access](docs/user/remote-access.md), and [implementation and release gates](docs/mines/STATUS.md).
-
-## Validation and release
+Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md). Run focused tests while editing, then the changed-file checks:
 
 ```sh
-pnpm check:changed 375da0fb9a20dfdbd2eb2db99050341fc30f3a23
-pnpm icons:check
+pnpm exec vp run check:changed
+pnpm exec vp run icons:check
 ```
 
-Physical iOS/Android networking, live subscription integrations, signing/notarization, update delivery, accessibility and performance acceptance remain release gates. Local tests and fixtures do not certify those gates. This checkout is a development implementation, not a published or signed beta.
+Release maintainers: see the [unified release procedure](docs/operations/mines-release.md). Checks, artifact provenance, signing, installation, and live connection verification each have their own evidence.
 
 ## License and attribution
 
-The upstream MIT license and copyright notices are retained in [LICENSE](LICENSE), alongside third-party notices. Internal workspace package names and compatibility command paths still use `@t3tools`/`t3`; these are not claims of affiliation. Original mines icon assets live in `assets/mines`.
+Mines retains T3 Code's [MIT license](LICENSE) and copyright notices. Third-party components retain their own licenses. Internal `@t3tools` package names and compatible `t3` command paths remain where required; Mines is independently maintained. The original Mines mine and flag artwork lives in [assets/mines](assets/mines).

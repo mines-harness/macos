@@ -12,7 +12,7 @@ describe("desktop SSH CLI runner", () => {
   it("installs the app's exact Mines release when launched without a shell environment", () => {
     expect(resolveDesktopSshCliRunner(packaged, {}, {})).toEqual({
       archiveVersion: "0.1.12",
-      releaseBaseUrl: "https://github.com/mines-harness/cli/releases/download",
+      releaseBaseUrl: "https://github.com/mines-harness/macos/releases/download",
     });
   });
 

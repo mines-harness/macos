@@ -539,12 +539,23 @@ fi
 exec "$MINES_RUNTIME_DIR/mines" "$@"
 `;
 
+const REMOTE_INSTALLED_RUNNER_SCRIPT = `find_running_mines_runner() {
+  for candidate in "$DEFAULT_SERVER_HOME/bin/mines" "$HOME/.local/bin/mines"; do
+    if [ -x "$candidate" ] && "$candidate" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE" >/dev/null 2>&1; then
+      printf '%s\\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}`;
+
 const REMOTE_LAUNCH_SCRIPT = `set -eu
 @@MINES_NODE_ENV_SCRIPT@@
 STATE_KEY="$1"
 STATE_DIR="$HOME/.mines/ssh-launch/$STATE_KEY"
 DEFAULT_SERVER_HOME="$HOME/.mines"
 DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/userdata/server-runtime.json"
+@@MINES_INSTALLED_RUNNER_SCRIPT@@
 PORT_FILE="$STATE_DIR/port"
 PID_FILE="$STATE_DIR/pid"
 MANAGED_FILE="$STATE_DIR/managed"
@@ -566,8 +577,9 @@ MINES_ARCHIVE_MODE=@@MINES_ARCHIVE_MODE@@
 MINES_HELPER_RUNNER="$RUNNER_FILE"
 if [ "$MINES_ARCHIVE_MODE" = "1" ]; then
   # Reconnecting to a running host must not require downloading the desktop's CLI release.
-  if [ -x "$DEFAULT_SERVER_HOME/bin/mines" ] && "$DEFAULT_SERVER_HOME/bin/mines" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE" >/dev/null 2>&1; then
-    MINES_HELPER_RUNNER="$DEFAULT_SERVER_HOME/bin/mines"
+  MINES_INSTALLED_RUNNER="$(find_running_mines_runner || true)"
+  if [ -n "$MINES_INSTALLED_RUNNER" ]; then
+    MINES_HELPER_RUNNER="$MINES_INSTALLED_RUNNER"
   else
     "$RUNNER_FILE" --version >/dev/null
   fi
@@ -751,6 +763,8 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 const REMOTE_PAIRING_SCRIPT = `set -eu
 STATE_DIR="$HOME/.mines/ssh-launch/@@MINES_STATE_KEY@@"
 DEFAULT_SERVER_HOME="$HOME/.mines"
+DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/userdata/server-runtime.json"
+@@MINES_INSTALLED_RUNNER_SCRIPT@@
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
 mkdir -p "$STATE_DIR"
 cat >"$RUNNER_FILE" <<'SH'
@@ -759,8 +773,11 @@ SH
 chmod 700 "$RUNNER_FILE"
 PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"
 MINES_PAIRING_RUNNER="$RUNNER_FILE"
-if [ "@@MINES_ARCHIVE_MODE@@" = "1" ] && [ -x "$DEFAULT_SERVER_HOME/bin/mines" ] && "$DEFAULT_SERVER_HOME/bin/mines" __ssh-helper runtime-port "$DEFAULT_SERVER_HOME/userdata/server-runtime.json" >/dev/null 2>&1; then
-  MINES_PAIRING_RUNNER="$DEFAULT_SERVER_HOME/bin/mines"
+if [ "@@MINES_ARCHIVE_MODE@@" = "1" ]; then
+  MINES_INSTALLED_RUNNER="$(find_running_mines_runner || true)"
+  if [ -n "$MINES_INSTALLED_RUNNER" ]; then
+    MINES_PAIRING_RUNNER="$MINES_INSTALLED_RUNNER"
+  fi
 fi
 "$MINES_PAIRING_RUNNER" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json
 `;
@@ -864,6 +881,7 @@ function buildRemoteLaunchScript(input?: RemoteMinesRunnerOptions): string {
     MINES_ARCHIVE_MODE: isNodeScriptRunner(input) ? "0" : "1",
     MINES_ARCHIVE_VERSION: shellSingleQuote(input?.archiveVersion?.trim() || ""),
     MINES_NODE_ENV_SCRIPT: buildRemoteNodeEnvScript(input),
+    MINES_INSTALLED_RUNNER_SCRIPT: REMOTE_INSTALLED_RUNNER_SCRIPT,
     MINES_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteMinesRunnerScript(input)),
     MINES_PICK_PORT_SCRIPT: stripTrailingNewlines(REMOTE_PICK_PORT_SCRIPT),
     MINES_WAIT_READY_SCRIPT: stripTrailingNewlines(REMOTE_WAIT_READY_SCRIPT),
@@ -880,6 +898,7 @@ function buildRemotePairingScript(stateKey: string, input?: RemoteMinesRunnerOpt
     MINES_STATE_KEY: stateKey,
     MINES_ARCHIVE_MODE: isNodeScriptRunner(input) ? "0" : "1",
     MINES_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteMinesRunnerScript(input)),
+    MINES_INSTALLED_RUNNER_SCRIPT: REMOTE_INSTALLED_RUNNER_SCRIPT,
   });
 }
 

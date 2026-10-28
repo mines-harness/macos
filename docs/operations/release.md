@@ -1,5 +1,7 @@
 # Release Checklist
 
+For Mines, use [Mines releases](mines-release.md). The workflow and infrastructure below are retained upstream guidance; Mines publishes every desktop and CLI target from its canonical source through `mines-release.yml`.
+
 > For maintainers. Using mines? See [docs/user](../user/).
 
 This document covers the unified release workflow for stable and nightly desktop releases.

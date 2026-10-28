@@ -24,11 +24,11 @@ import { useThreadShells } from "../../state/entities";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Textarea } from "../ui/textarea";
 import { SidebarInset } from "../ui/sidebar";
 import { groupRecipients } from "@t3tools/client-runtime/group-chat";
 import { refreshGroupMemberships } from "../../state/groupMemberships";
 import { GroupParticipantsControl } from "./GroupParticipantsControl";
+import { GroupMessageComposer } from "./GroupMessageComposer";
 
 export const GROUP_WORKFLOWS: ReadonlyArray<{
   id: GroupWorkflow;
@@ -191,6 +191,7 @@ export function GroupWorkspace({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const snapshot = query.data;
+  // oxlint-disable-next-line mines/react-effect-budget -- Remote group names must stay synchronized in the shared catalog.
   useEffect(() => {
     if (snapshot && catalog && owned && snapshot.group.visibility !== "shared")
       catalog.upsert({
@@ -632,29 +633,17 @@ export function GroupWorkspace({
                 ) : null}
               </div>
             </div>
-            <form
-              className="mx-auto w-full max-w-3xl shrink-0 space-y-3 px-6 pb-6"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <Textarea
-                aria-label="Message the group"
-                disabled={archived}
+            <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pb-6">
+              <GroupMessageComposer
+                draftKey={JSON.stringify([accountId, environmentId, groupId])}
                 value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
+                onChange={setPrompt}
+                onSubmit={() => void submit()}
+                ariaLabel="Message the group"
                 placeholder="What should we work on together?"
-                rows={3}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
-                    void submit();
-                  }
-                }}
-              />
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs text-muted-foreground">
+                disabled={archived}
+              >
+                <p className="min-w-0 flex-1 text-xs text-muted-foreground">
                   {snapshot
                     ? GROUP_WORKFLOWS.find((option) => option.id === snapshot.group.workflow)?.label
                     : "Team"}{" "}
@@ -668,8 +657,8 @@ export function GroupWorkspace({
                 >
                   <ArrowUpIcon />
                 </Button>
-              </div>
-            </form>
+              </GroupMessageComposer>
+            </div>
           </>
         )}
         {error || query.error ? (

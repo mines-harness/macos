@@ -28,6 +28,7 @@ import {
   parseWslRuntimeArchiveMembers,
   readWorkspaceConfig,
   createBuildConfig,
+  resolveDesktopProductName,
   validateMacPackagedApp,
   DESKTOP_FILE_EXCLUSIONS,
   InvalidAppleTeamIdError,
@@ -490,6 +491,35 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it("keeps one installation name when changing release channels", () => {
+    assert.equal(resolveDesktopProductName("1.2.3"), "mines (Beta)");
+    assert.equal(resolveDesktopProductName("1.2.3-nightly.20261029.1"), "mines (Beta)");
+    assert.equal(resolveDesktopProductName("1.2.3-preview.20261029.1"), "mines (Beta)");
+  });
+
+  it.effect.each(["mac", "win"] as const)(
+    "keeps unsigned %s artifacts off the configured updater feed",
+    (platform) =>
+      Effect.gen(function* () {
+        const config = yield* createBuildConfig(
+          platform,
+          "dir",
+          "1.2.3",
+          false,
+          false,
+          undefined,
+          undefined,
+        );
+        assert.isNull(config.publish);
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { MINES_DESKTOP_UPDATE_REPOSITORY: "example/mines" } }),
+          ),
+        ),
+      ),
+  );
+
   it.effect("seals local macOS bundles with an ad-hoc signature", () =>
     Effect.gen(function* () {
       const config = yield* createBuildConfig(
@@ -508,6 +538,29 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it.effect("pins local development signing without notarization or a distribution feed", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
+        "arm64",
+        "A".repeat(40),
+      );
+      const mac = config.mac as Record<string, unknown>;
+      assert.equal(config.forceCodeSigning, true);
+      assert.equal(mac.type, "development");
+      assert.equal(mac.notarize, false);
+      assert.match(mac.sign as string, /sign-macos-local\.ts$/u);
+      assert.isNull(config.publish);
+    }),
+  );
+
   it.effect.each(["codesign", "xcrun", "spctl"])(
     "rejects macOS artifacts when %s rejects the app",
     (failedCommand) => {
@@ -523,7 +576,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         );
         assert.instanceOf(error, BuildCommandFailedError);
         assert.equal(commands.at(-1), failedCommand);
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { MINES_APPLE_TEAM_ID: "ABC1234567" } }),
+          ),
+        ),
+      );
     },
   );
 
@@ -537,6 +597,33 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       yield* validateMacPackagedApp("/build/mines (Beta).app", false, false);
       assert.deepStrictEqual(commands, ["codesign"]);
     }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+  });
+
+  it.effect("verifies the expected Developer ID team before accepting a signed macOS build", () => {
+    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+    const spawner = ChildProcessSpawner.make((command) => {
+      commands.push(command as unknown as (typeof commands)[number]);
+      return Effect.succeed(mockProcess(0));
+    });
+    return Effect.gen(function* () {
+      yield* validateMacPackagedApp("/build/mines (Beta).app", true, false);
+      const requirement = commands[0]?.args.find((arg) => arg.startsWith("-R="));
+      assert.isString(requirement);
+      assert.include(requirement!, 'identifier "app.mines.desktop"');
+      assert.include(requirement!, 'certificate leaf[subject.OU] = "ABC1234567"');
+      assert.include(requirement!, "certificate leaf[field.1.2.840.113635.100.6.1.13] exists");
+      assert.deepStrictEqual(
+        commands.map((command) => command.command),
+        ["codesign", "xcrun", "spctl"],
+      );
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { MINES_APPLE_TEAM_ID: "ABC1234567" } }),
+        ),
+      ),
+    );
   });
 
   it.effect("requires signing and notarization for signed macOS artifacts", () =>
@@ -631,7 +718,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "mac",
         "dmg",
         "0.0.33",
-        false,
+        true,
         false,
         undefined,
         undefined,
@@ -666,24 +753,41 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
-  it.effect("does not inherit an upstream update feed from GitHub build metadata", () =>
+  it.effect("uses the Mines distribution feed without inheriting GitHub build metadata", () =>
     Effect.gen(function* () {
       const release = yield* createBuildConfig(
         "mac",
         "dmg",
         "0.1.0",
-        false,
+        true,
         false,
         undefined,
         undefined,
       );
-      assert.isNull(release.publish);
+      assert.deepStrictEqual(release.publish, [
+        { provider: "github", owner: "mines-harness", repo: "macos", releaseType: "release" },
+      ]);
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
           ConfigProvider.fromEnv({
             env: { GITHUB_REPOSITORY: "pingdotgg/t3code" },
           }),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("keeps mock updates on their local feed when a production feed is configured", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig("mac", "dir", "1.2.3", false, true, 4567, undefined);
+      assert.deepStrictEqual(config.publish, [
+        { provider: "generic", url: "http://localhost:4567" },
+      ]);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { MINES_DESKTOP_UPDATE_REPOSITORY: "example/mines" } }),
         ),
       ),
     ),
@@ -1354,7 +1458,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         });
 
         assert.isFalse(
-          commands.some((command) => command.options.env?.ELECTRON_RUN_AS_NODE === "1"),
+          commands.some(
+            (command) =>
+              command.command ===
+                NodePath.join(fixture.packagedAppDir, fixture.appExecutableName) &&
+              command.options.env?.ELECTRON_RUN_AS_NODE === "1",
+          ),
         );
         assert.isTrue(
           commands.some(
@@ -1656,7 +1765,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     Effect.gen(function* () {
       const signedWinConfig = (hostPlatform: string) =>
         createBuildConfig("win", "nsis", "1.2.3", true, false, undefined, undefined).pipe(
-          Effect.map((config) => config.win as Record<string, unknown>),
+          Effect.map((config) => {
+            assert.equal(config.forceCodeSigning, true);
+            assert.equal(config.productName, "mines (Beta)");
+            return config.win as Record<string, unknown>;
+          }),
           Effect.provideService(HostProcess.Platform, hostPlatform),
         );
 
