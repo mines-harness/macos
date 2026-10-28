@@ -4,7 +4,7 @@
 
 ## From source to an update
 
-[Mines release](../../.github/workflows/mines-release.yml) starts after canonical `main` passes the complete `CI / Check` gate. It allocates the next unused stable patch, using [.github/mines-release.json](../../.github/mines-release.json) as the minimum version. Manual dispatch defaults to a maintainer preview. Stable tags and stable/nightly dispatches must also identify a commit whose CI passed; dispatch `CI` first when testing a branch that has no check on its exact commit. A failed or incomplete build publishes nothing.
+The selected release profile starts after canonical `main` passes the complete `CI / Check` gate. With the repository Actions variable `MINES_RELEASE_MODE=personal`, [Mines personal release build](../../.github/workflows/mines-personal-release.yml) prepares the shared bundle and Linux/Windows artifacts for local Mac signing. Otherwise, [Mines release](../../.github/workflows/mines-release.yml) performs distribution signing and publication in CI. Both allocate the next unused stable patch, using [.github/mines-release.json](../../.github/mines-release.json) as the minimum version. Stable tags and dispatches must identify a commit whose CI passed. A failed or incomplete build publishes nothing.
 
 The workflow builds the web client, server, and Electron shell once, then packages that bundle for macOS, Linux, and Windows on both architectures. Windows packages embed the Linux CLI from the same run for their WSL backend. Each standalone CLI is smoke-tested on its target platform. macOS x64 supports the Electron app, but Node does not support its standalone SEA executable; no x64 macOS CLI is advertised.
 
@@ -19,6 +19,14 @@ Official publication requires a consistent Developer ID Application identity, it
 Missing credentials stop every official channel, including maintainer previews, before packaging. The repository-scoped `GITHUB_TOKEN` publishes the release; no cross-repository publishing token is needed. Keep the signing identity, bundle identifier, Windows installer identity, app name, and install path stable across updates. Moving from an old ad-hoc signature to the proper identity can require one final permission grant; future releases must retain that identity.
 
 A local development build can use `--local-signed` with an Apple Development certificate already installed in Keychain. Pin its SHA-1 fingerprint in `MINES_DESKTOP_LOCAL_SIGN_IDENTITY` when more than one exists. This mode has no notarization or production update feed and cannot replace the official release gate.
+
+An explicitly authorized Personal Team release uses `--personal-release` with a stable or nightly version. macOS also requires `--local-signed`, generating the DMG, updater ZIP, blockmaps, and canonical GitHub feed without notarization. Keep the same pinned certificate for subsequent releases; its SHA-1 can live in the gitignored root `.env` or `.env.local`, and an explicit environment value takes priority. Label these Mac downloads as development-signed and unnotarized. Gatekeeper may require users to approve the first installation. Matching Linux and Windows builds use `--personal-release` without `--local-signed`; Windows is unsigned unless its separate Azure signing configuration is available. Ordinary unsigned Windows, local Mac builds, and previews still have no production feed. The official CI workflow continues to require Developer ID and notarization credentials.
+
+The personal workflow uploads `release-source` and `js-bundle` before the other targets finish. On the maintainer Mac, check out that exact commit, restore the shared bundle under `apps`, and package both Mac architectures with `--skip-build`, plus the matching darwin-arm64 CLI. Record both Mac target manifests against that run's `release-source.json`, collect its four non-Mac desktop and CLI artifact sets, and apply the complete release verification and feed merging procedure before publishing the draft. The signing key remains in the Mac's Keychain.
+
+```sh
+MINES_DESKTOP_LOCAL_SIGN_IDENTITY="<certificate SHA-1>" vp run dist:desktop:artifact --platform mac --target dmg --arch arm64 --build-version 0.1.19 --local-signed --personal-release
+```
 
 ## Update the installed Mac app
 

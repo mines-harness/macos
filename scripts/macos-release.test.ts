@@ -3,7 +3,8 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { assert, it } from "@effect/vitest";
+import * as NodeVM from "node:vm";
+import { assert, expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
@@ -21,6 +22,8 @@ async function readDesktopReleaseSteps(file = "release-desktop.yml") {
                   name: Schema.optional(Schema.String),
                   run: Schema.optional(Schema.String),
                   uses: Schema.optional(Schema.String),
+                  id: Schema.optional(Schema.String),
+                  with: Schema.optional(Schema.Struct({ script: Schema.optional(Schema.String) })),
                 }),
               ),
             ),
@@ -31,6 +34,98 @@ async function readDesktopReleaseSteps(file = "release-desktop.yml") {
   )(await NodeFSP.readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8"));
   return Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
 }
+
+async function runPersonalReleaseMetadata(input: {
+  checks: ReadonlyArray<{ id: number; name: string; app: { slug: string }; conclusion: string }>;
+  tags?: readonly string[];
+  requestedVersion?: string;
+  dispatchRef?: string;
+}) {
+  const script = (await readDesktopReleaseSteps("mines-personal-release.yml")).find(
+    (step) => step.id === "meta",
+  )?.with?.script;
+  assert.isString(script);
+  const checkedRefs: string[] = [];
+  const outputs = new Map<string, string>();
+  const listChecks = Symbol("checks");
+  const listReleases = Symbol("releases");
+  await (NodeVM.runInNewContext(`(async () => {\n${script!}\n})()`, {
+    github: {
+      rest: {
+        checks: { listForRef: listChecks },
+        repos: { listReleases },
+      },
+      paginate: async (method: unknown, options: { ref: string }) => {
+        if (method === listChecks) {
+          checkedRefs.push(options.ref);
+          return input.checks;
+        }
+        if (method === listReleases) return (input.tags ?? []).map((tag_name) => ({ tag_name }));
+        throw new Error("Unexpected GitHub method");
+      },
+    },
+    context: {
+      repo: { owner: "mines-harness", repo: "macos" },
+      payload: input.dispatchRef ? {} : { workflow_run: { head_sha: "1".repeat(40) } },
+      sha: "2".repeat(40),
+      eventName: input.dispatchRef ? "workflow_dispatch" : "workflow_run",
+      ref: input.dispatchRef ?? "refs/heads/main",
+    },
+    core: { setOutput: (name: string, value: string) => outputs.set(name, value) },
+    require: (file: string) => {
+      assert.equal(file, "./.github/mines-release.json");
+      return {
+        version: "1.2.3",
+        sourceRepository: "mines-harness/macos",
+        distributionRepository: "mines-harness/macos",
+      };
+    },
+    process: { env: { VERSION: input.requestedVersion ?? "" } },
+  }) as Promise<void>);
+  return { checkedRefs, outputs };
+}
+
+it("allocates the next personal patch from the exact CI-tested source", async () => {
+  const result = await runPersonalReleaseMetadata({
+    checks: [{ id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" }],
+    tags: ["v1.2.3", "v1.2.4", "v1.2.5-preview.20261029.1"],
+  });
+  assert.deepEqual(result.checkedRefs, ["1".repeat(40)]);
+  assert.equal(result.outputs.get("commit"), "1".repeat(40));
+  assert.equal(result.outputs.get("version"), "1.2.5");
+});
+
+it("rejects a personal release when the latest CI check failed", async () => {
+  await expect(
+    runPersonalReleaseMetadata({
+      checks: [
+        { id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" },
+        { id: 2, name: "Check", app: { slug: "github-actions" }, conclusion: "failure" },
+      ],
+    }),
+  ).rejects.toThrow("CI Check has not passed");
+});
+
+it("requires CI on the dispatched commit and preserves an unused explicit version", async () => {
+  const result = await runPersonalReleaseMetadata({
+    checks: [{ id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" }],
+    dispatchRef: "refs/heads/main",
+    requestedVersion: "1.2.8",
+  });
+  assert.deepEqual(result.checkedRefs, ["2".repeat(40)]);
+  assert.equal(result.outputs.get("commit"), "2".repeat(40));
+  assert.equal(result.outputs.get("version"), "1.2.8");
+});
+
+it("rejects an occupied personal release version and dispatches outside main", async () => {
+  const checks = [{ id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" }];
+  await expect(
+    runPersonalReleaseMetadata({ checks, tags: ["v1.2.3"], requestedVersion: "1.2.3" }),
+  ).rejects.toThrow("already published release version");
+  await expect(
+    runPersonalReleaseMetadata({ checks, dispatchRef: "refs/heads/feature" }),
+  ).rejects.toThrow("Personal releases must be dispatched from main");
+});
 
 it("checks out the exact public release source without traversing orphaned vendored gitlinks", async () => {
   await using temp = await NodeFSP.mkdtempDisposable(
@@ -67,7 +162,12 @@ it("checks out the exact public release source without traversing orphaned vendo
   const commit = git(["rev-parse", "HEAD"]);
   git(["remote", "add", "origin", remote]);
   git(["push", "origin", "HEAD:refs/heads/main"]);
-  for (const file of ["release-desktop.yml", "mines-release.yml", "mines-source-parity.yml"]) {
+  for (const file of [
+    "release-desktop.yml",
+    "mines-release.yml",
+    "mines-personal-release.yml",
+    "mines-source-parity.yml",
+  ]) {
     const checkouts = (await readDesktopReleaseSteps(file)).filter(
       (step) => step.name === "Checkout" || step.uses?.startsWith("actions/checkout@"),
     );
@@ -102,6 +202,74 @@ it("checks out the exact public release source without traversing orphaned vendo
         ),
       );
     }
+  }
+});
+
+it("permits unsigned Windows updater artifacts only for the explicit personal release profile", async () => {
+  await using temp = await NodeFSP.mkdtempDisposable(
+    NodePath.join(NodeOS.tmpdir(), "mines-personal-release-"),
+  );
+  const run = (await readDesktopReleaseSteps()).find(
+    (step) => step.name === "Build desktop artifact",
+  )?.run;
+  assert.isString(run);
+  const azureNames = [
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_TRUSTED_SIGNING_ENDPOINT",
+    "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
+    "AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME",
+    "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
+  ];
+  for (const [index, profile] of [
+    { personal: false, credentials: false },
+    { personal: true, credentials: false },
+    { personal: true, credentials: true },
+  ].entries()) {
+    const capture = NodePath.join(temp.path, `${index}.args`);
+    const output = NodePath.join(temp.path, `${index}.outputs`);
+    const inputs: Record<string, string> = {
+      platform: "win",
+      arch: "x64",
+      target: "nsis",
+      version: "0.1.19",
+      provenance: "true",
+      personal_release: String(profile.personal),
+    };
+    const script = run!.replace(/\$\{\{ inputs\.([a-z_]+) \}\}/gu, (_, key) => inputs[key] ?? "");
+    const result = NodeChildProcess.spawnSync(
+      "bash",
+      ["-euo", "pipefail", "-c", `vp() { printf '%s\\n' "$@" > "$CAPTURE"; }\n${script}`],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ...Object.fromEntries(
+            azureNames.map((name) => [name, profile.credentials ? "fixture" : ""]),
+          ),
+          GITHUB_WORKSPACE: temp.path,
+          GITHUB_OUTPUT: output,
+          CAPTURE: capture,
+        },
+      },
+    );
+    if (!profile.personal) {
+      assert.equal(result.status, 1, result.stderr);
+      assert.include(result.stderr, "Official Mines releases require");
+      assert.isFalse(
+        await NodeFSP.stat(capture).then(
+          () => true,
+          () => false,
+        ),
+      );
+      continue;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    const args = (await NodeFSP.readFile(capture, "utf8")).trim().split("\n");
+    assert.include(args, "--personal-release");
+    assert.equal(args.includes("--signed"), profile.credentials);
+    assert.include(await NodeFSP.readFile(output, "utf8"), `signed=${String(profile.credentials)}`);
   }
 });
 

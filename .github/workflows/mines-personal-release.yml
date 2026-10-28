@@ -1,0 +1,223 @@
+name: Mines personal release build
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional stable version override; otherwise allocate the next patch.
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: mines-personal-release
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  source:
+    name: Resolve one tested personal release source
+    if: >-
+      github.repository == 'mines-harness/macos' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (vars.MINES_RELEASE_MODE == 'personal' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.meta.outputs.commit }}
+      version: ${{ steps.meta.outputs.version }}
+      channel: stable
+    steps:
+      # Action credential cleanup traverses orphaned gitlinks even with sparse checkout.
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+      - name: Resolve version and require successful CI
+        id: meta
+        uses: actions/github-script@v8
+        env:
+          VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            const config = require('./.github/mines-release.json');
+            const commit = context.payload.workflow_run?.head_sha || context.sha;
+            if (context.repo.owner + '/' + context.repo.repo !== config.sourceRepository || config.distributionRepository !== config.sourceRepository) {
+              throw new Error('This pipeline builds only the canonical Mines repository.');
+            }
+            if (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main') {
+              throw new Error('Personal releases must be dispatched from main.');
+            }
+            const checks = await github.paginate(github.rest.checks.listForRef, { ...context.repo, ref: commit, per_page: 100 });
+            const latestCheck = checks.filter(check => check.name === 'Check' && check.app?.slug === 'github-actions').sort((a, b) => b.id - a.id)[0];
+            if (latestCheck?.conclusion !== 'success') {
+              throw new Error(`CI Check has not passed for ${commit}; release source cannot be substituted.`);
+            }
+            const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
+            const base = config.version.split('.').map(Number);
+            const patches = releases.map(release => /^v(\d+)\.(\d+)\.(\d+)$/.exec(release.tag_name)).filter(Boolean);
+            if (patches.some(parts => Number(parts[1]) > base[0] || (Number(parts[1]) === base[0] && Number(parts[2]) > base[1]))) {
+              throw new Error('Release base version is older than the published release train.');
+            }
+            const used = patches.filter(parts => Number(parts[1]) === base[0] && Number(parts[2]) === base[1]).map(parts => Number(parts[3]));
+            const version = process.env.VERSION || `${base[0]}.${base[1]}.${Math.max(base[2], ...used.map(patch => patch + 1))}`;
+            if (!/^\d+\.\d+\.\d+$/.test(version) || releases.some(release => release.tag_name === `v${version}`)) {
+              throw new Error(`Invalid or already published release version: ${version}`);
+            }
+            core.setOutput('commit', commit);
+            core.setOutput('version', version);
+      - uses: ./.github/actions/setup-ci-deps
+      - name: Record immutable source provenance
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: node scripts/mines-release-provenance.ts source --version "$VERSION" --channel stable
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-source
+          path: release-source.json
+          if-no-files-found: error
+
+  bundle:
+    name: Build shared server, composer, and desktop shell once
+    needs: source
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ needs.source.outputs.commit }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+      - uses: ./.github/actions/setup-ci-deps
+      - uses: ./.github/actions/setup-apt-mirrors
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - name: Align versions and build one JS bundle
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+          MINES_COMMIT_HASH: ${{ needs.source.outputs.commit }}
+        run: |
+          node scripts/update-release-package-versions.ts "$VERSION"
+          vp run build:desktop
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: .release-provenance
+      - name: Embed provenance in every shipped web client
+        run: cp .release-provenance/release-source.json apps/server/dist/client/release-source.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+      - name: Record local signing handoff
+        run: printf 'The shared `js-bundle` and `release-source` artifacts are ready for local macOS signing while the other target builds continue. No release has been published.\n' >> "$GITHUB_STEP_SUMMARY"
+
+  desktop:
+    name: Desktop ${{ matrix.label }}
+    needs: [source, bundle]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              label: Linux x64,
+              platform: linux,
+              arch: x64,
+              runner: ubuntu-24.04,
+              target: AppImage,
+              rust: x86_64-unknown-linux-gnu,
+              resource: linux-x64,
+              cli: true,
+              verify: "",
+            }
+          - {
+              label: Linux arm64,
+              platform: linux,
+              arch: arm64,
+              runner: ubuntu-24.04-arm,
+              target: AppImage,
+              rust: aarch64-unknown-linux-gnu,
+              resource: linux-arm64,
+              cli: true,
+              verify: "",
+            }
+          - {
+              label: Windows x64,
+              platform: win,
+              arch: x64,
+              runner: ubuntu-24.04,
+              target: nsis,
+              rust: x86_64-pc-windows-msvc,
+              resource: win32-x64,
+              cli: true,
+              verify: windows-2025,
+            }
+          - {
+              label: Windows arm64,
+              platform: win,
+              arch: arm64,
+              runner: ubuntu-24.04-arm,
+              target: nsis,
+              rust: aarch64-pc-windows-msvc,
+              resource: win32-arm64,
+              cli: true,
+              verify: windows-11-arm,
+            }
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      arch: ${{ matrix.arch }}
+      rust_target: ${{ matrix.rust }}
+      resource_key: ${{ matrix.resource }}
+      cli_archive: ${{ matrix.cli }}
+      verify_runner: ${{ matrix.verify }}
+      version: ${{ needs.source.outputs.version }}
+      ref: ${{ needs.source.outputs.commit }}
+      release_channel: stable
+      provenance: true
+      personal_release: true
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+
+  ready:
+    name: Await local Personal Team signing
+    needs: [source, bundle, desktop]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record build handoff
+        env:
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          printf '## Personal release build ready\n\nSource: `%s`\n\nVersion: `%s`\n\nShared `js-bundle`, `release-source`, four non-macOS `desktop-*` targets and four matching `cli-*` archives are available from this run.\n\nThe macOS arm64 and x64 apps plus darwin-arm64 CLI must be signed on the maintainer Mac using this exact source and shared bundle. Run the complete six-target provenance verifier before publishing.\n\nNo GitHub release has been published by this workflow.\n' "$SOURCE_COMMIT" "$VERSION" >> "$GITHUB_STEP_SUMMARY"

@@ -32,6 +32,7 @@ import {
   validateMacPackagedApp,
   DESKTOP_FILE_EXCLUSIONS,
   InvalidAppleTeamIdError,
+  LocalMacSigningConfigurationError,
   UnsupportedDesktopBuildArchitectureError,
   MacWebAuthnSigningConfigurationResolutionError,
   packWindowsServerAsar,
@@ -559,6 +560,134 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.match(mac.sign as string, /sign-macos-local\.ts$/u);
       assert.isNull(config.publish);
     }),
+  );
+
+  it.effect("publishes updater metadata only for explicit Personal Team releases", () =>
+    Effect.gen(function* () {
+      for (const version of ["1.2.3", "1.2.3-nightly.20261029.1"]) {
+        const config = yield* createBuildConfig(
+          "mac",
+          "dmg",
+          version,
+          false,
+          false,
+          undefined,
+          undefined,
+          false,
+          "arm64",
+          "A".repeat(40),
+          true,
+        );
+        const mac = config.mac as Record<string, unknown>;
+        assert.equal(config.forceCodeSigning, true);
+        assert.equal(mac.type, "development");
+        assert.equal(mac.notarize, false);
+        assert.deepStrictEqual(mac.target, ["dmg", "zip"]);
+        assert.deepStrictEqual(config.publish, [
+          {
+            provider: "github",
+            owner: "mines-harness",
+            repo: "macos",
+            releaseType: version.includes("nightly") ? "prerelease" : "release",
+            ...(version.includes("nightly") ? { channel: "nightly" } : {}),
+          },
+        ]);
+      }
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect.each(["win", "linux"] as const)(
+    "publishes matching unsigned %s assets for the explicit personal release profile",
+    (platform) =>
+      Effect.gen(function* () {
+        for (const version of ["1.2.3", "1.2.3-nightly.20261029.1"]) {
+          const config = yield* createBuildConfig(
+            platform,
+            platform === "win" ? "nsis" : "AppImage",
+            version,
+            false,
+            false,
+            undefined,
+            undefined,
+            false,
+            "arm64",
+            undefined,
+            true,
+          );
+          assert.notProperty(config, "mac");
+          if (platform === "win") assert.equal(config.forceCodeSigning, false);
+          assert.deepStrictEqual(config.publish, [
+            {
+              provider: "github",
+              owner: "mines-harness",
+              repo: "macos",
+              releaseType: version.includes("nightly") ? "prerelease" : "release",
+              ...(version.includes("nightly") ? { channel: "nightly" } : {}),
+            },
+          ]);
+        }
+      }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect(
+    "rejects Personal Team releases without development signing or a real release feed",
+    () =>
+      Effect.gen(function* () {
+        for (const input of [
+          { platform: "mac", version: "1.2.3", signed: false, mockUpdates: false },
+          {
+            platform: "win",
+            version: "1.2.3",
+            signed: false,
+            mockUpdates: false,
+            identity: "A".repeat(40),
+          },
+          {
+            platform: "mac",
+            version: "1.2.3",
+            signed: true,
+            mockUpdates: false,
+            identity: "A".repeat(40),
+          },
+          {
+            platform: "mac",
+            version: "1.2.3",
+            signed: false,
+            mockUpdates: true,
+            identity: "A".repeat(40),
+          },
+          {
+            platform: "mac",
+            version: "1.2.3-preview.20261029.1",
+            signed: false,
+            mockUpdates: false,
+            identity: "A".repeat(40),
+          },
+          {
+            platform: "linux",
+            version: "1.2.3",
+            signed: true,
+            mockUpdates: false,
+          },
+        ] as const) {
+          const error = yield* Effect.flip(
+            createBuildConfig(
+              input.platform,
+              "dmg",
+              input.version,
+              input.signed,
+              input.mockUpdates,
+              undefined,
+              undefined,
+              false,
+              "arm64",
+              "identity" in input ? input.identity : undefined,
+              true,
+            ),
+          );
+          assert.instanceOf(error, LocalMacSigningConfigurationError);
+        }
+      }),
   );
 
   it.effect.each(["codesign", "xcrun", "spctl"])(
@@ -1763,8 +1892,20 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("signs Windows builds with signtool on Windows and the jsign hook elsewhere", () =>
     Effect.gen(function* () {
-      const signedWinConfig = (hostPlatform: string) =>
-        createBuildConfig("win", "nsis", "1.2.3", true, false, undefined, undefined).pipe(
+      const signedWinConfig = (hostPlatform: string, personalRelease = false) =>
+        createBuildConfig(
+          "win",
+          "nsis",
+          "1.2.3",
+          true,
+          false,
+          undefined,
+          undefined,
+          false,
+          "x64",
+          undefined,
+          personalRelease,
+        ).pipe(
           Effect.map((config) => {
             assert.equal(config.forceCodeSigning, true);
             assert.equal(config.productName, "mines (Beta)");
@@ -1783,6 +1924,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.match(signtoolOptions.sign as string, /scripts[\\/]lib[\\/]windows-jsign\.ts$/);
       assert.deepStrictEqual(signtoolOptions.signingHashAlgorithms, ["sha256"]);
       assert.deepStrictEqual(signtoolOptions.publisherName, ["T3"]);
+      const personalOnLinux = yield* signedWinConfig("linux", true);
+      assert.deepStrictEqual(personalOnLinux.signtoolOptions, onLinux.signtoolOptions);
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
@@ -1872,6 +2015,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         skipBuild: Option.some(false),
         keepStage: Option.some(false),
         signed: Option.some(false),
+        personalRelease: Option.some(false),
         verbose: Option.some(false),
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
@@ -1884,6 +2028,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
                 MINES_DESKTOP_SKIP_BUILD: "true",
                 MINES_DESKTOP_KEEP_STAGE: "true",
                 MINES_DESKTOP_SIGNED: "true",
+                MINES_DESKTOP_PERSONAL_RELEASE: "true",
                 MINES_DESKTOP_VERBOSE: "true",
                 MINES_DESKTOP_MOCK_UPDATES: "true",
               },
@@ -1895,6 +2040,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(resolved.skipBuild, false);
       assert.equal(resolved.keepStage, false);
       assert.equal(resolved.signed, false);
+      assert.equal(resolved.personalRelease, false);
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
     }),

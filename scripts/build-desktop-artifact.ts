@@ -48,6 +48,7 @@ import { selectLocalMacSigningIdentity } from "./lib/local-macos-signing.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Config from "effect/Config";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -186,6 +187,7 @@ interface BuildCliInput {
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
   readonly localSigned?: Option.Option<boolean>;
+  readonly personalRelease?: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
@@ -933,6 +935,7 @@ interface ResolvedBuildOptions {
   readonly keepStage: boolean;
   readonly signed: boolean;
   readonly localSigningIdentity: string | undefined;
+  readonly personalRelease: boolean;
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
@@ -1441,6 +1444,7 @@ const BuildEnvConfig = Config.all({
   keepStage: Config.Boolean("MINES_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
   signed: Config.Boolean("MINES_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
   localSigned: Config.Boolean("MINES_DESKTOP_LOCAL_SIGNED").pipe(Config.withDefault(false)),
+  personalRelease: Config.Boolean("MINES_DESKTOP_PERSONAL_RELEASE").pipe(Config.withDefault(false)),
   localSigningIdentity: Config.String("MINES_DESKTOP_LOCAL_SIGN_IDENTITY").pipe(Config.option),
   verbose: Config.Boolean("MINES_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
   mockUpdates: Config.Boolean("MINES_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
@@ -1469,6 +1473,26 @@ const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
   Option.getOrElse(flag, () => envValue);
 const mergeOptions = <A>(a: Option.Option<A>, b: Option.Option<A>, defaultValue: A) =>
   Option.getOrElse(a, () => Option.getOrElse(b, () => defaultValue));
+
+const validatePersonalRelease = Effect.fn("validatePersonalRelease")(function* (input: {
+  readonly platform: typeof BuildPlatform.Type;
+  readonly version: string;
+  readonly developmentSigned: boolean;
+  readonly signed: boolean;
+  readonly mockUpdates: boolean;
+}) {
+  if (
+    input.developmentSigned !== (input.platform === "mac") ||
+    (input.signed && input.platform !== "win") ||
+    input.mockUpdates ||
+    !/^\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?$/u.test(input.version)
+  ) {
+    return yield* new LocalMacSigningConfigurationError({
+      reason:
+        "Personal releases require a stable or nightly version and no mock updates; macOS requires --local-signed, other platforms cannot use it, and only Windows may use --signed.",
+    });
+  }
+});
 
 export const resolveMockUpdateServerPort = Effect.fn("resolveMockUpdateServerPort")(function* (
   mockUpdateServerPort: string | undefined,
@@ -1523,6 +1547,20 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const keepStage = resolveBooleanFlag(input.keepStage, env.keepStage);
   const signed = resolveBooleanFlag(input.signed, env.signed);
   const localSigned = resolveBooleanFlag(input.localSigned ?? Option.none(), env.localSigned);
+  const personalRelease = resolveBooleanFlag(
+    input.personalRelease ?? Option.none(),
+    env.personalRelease,
+  );
+  const mockUpdates = resolveBooleanFlag(input.mockUpdates, env.mockUpdates);
+  if (personalRelease) {
+    yield* validatePersonalRelease({
+      platform,
+      version: version ?? serverPackageJson.version,
+      developmentSigned: localSigned,
+      signed,
+      mockUpdates,
+    });
+  }
   if (localSigned && (signed || platform !== "mac" || hostPlatform !== "darwin")) {
     return yield* new LocalMacSigningConfigurationError({
       reason:
@@ -1557,7 +1595,6 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     : undefined;
   const verbose = resolveBooleanFlag(input.verbose, env.verbose);
 
-  const mockUpdates = resolveBooleanFlag(input.mockUpdates, env.mockUpdates);
   const configuredMockUpdateServerPort = Option.getOrUndefined(env.mockUpdateServerPort);
   const mockUpdateServerPort =
     Option.getOrUndefined(input.mockUpdateServerPort) ??
@@ -1582,6 +1619,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     keepStage,
     signed,
     localSigningIdentity,
+    personalRelease,
     verbose,
     mockUpdates,
     mockUpdateServerPort,
@@ -2651,7 +2689,17 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
   localSigningIdentity?: string,
+  personalRelease = false,
 ) {
+  if (personalRelease) {
+    yield* validatePersonalRelease({
+      platform,
+      version,
+      developmentSigned: Boolean(localSigningIdentity),
+      signed,
+      mockUpdates,
+    });
+  }
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
@@ -2694,7 +2742,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           url: resolveMockUpdateServerUrl(mockUpdateServerPort),
         },
       ];
-    } else if (signed || platform === "linux") {
+    } else if (signed || personalRelease || platform === "linux") {
       const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
       if (publishConfig) buildConfig.publish = [publishConfig];
     }
@@ -3742,6 +3790,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
       options.localSigningIdentity,
+      options.personalRelease,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -4010,6 +4059,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     ),
     Flag.optional,
   ),
+  personalRelease: Flag.Boolean("personal-release").pipe(
+    Flag.withDescription(
+      "Generate updater metadata for development-signed macOS, unsigned Linux, and optional Azure-signed Windows (env: MINES_DESKTOP_PERSONAL_RELEASE).",
+    ),
+    Flag.optional,
+  ),
   verbose: Flag.Boolean("verbose").pipe(
     Flag.withDescription("Stream subprocess stdout (env: MINES_DESKTOP_VERBOSE)."),
     Flag.optional,
@@ -4037,9 +4092,16 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
 const cliRuntimeLayer = Layer.mergeAll(Logger.layer([Logger.consolePretty()]), NodeServices.layer);
 
 if (import.meta.main) {
+  const env = Object.fromEntries(
+    Object.entries(loadRepoEnv()).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
   Command.run(buildDesktopArtifactCli, { version: "0.0.0" }).pipe(
     Effect.scoped,
-    Effect.provide(cliRuntimeLayer),
+    Effect.provide(
+      Layer.merge(cliRuntimeLayer, ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+    ),
     NodeRuntime.runMain,
   );
 }

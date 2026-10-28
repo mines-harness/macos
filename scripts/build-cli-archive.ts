@@ -341,7 +341,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
   const apiIssuer = Option.getOrUndefined(signing.appleApiIssuer);
   if (!apiKey || !apiKeyId || !apiIssuer) {
     yield* Effect.logWarning(
-      "[cli-archive] Developer ID signed but not notarized (missing APPLE_API_KEY*).",
+      "[cli-archive] Code signed but not notarized (missing APPLE_API_KEY*).",
     );
     return;
   }

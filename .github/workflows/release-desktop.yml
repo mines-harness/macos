@@ -8,6 +8,10 @@ name: Release desktop build
 
 on:
   workflow_call:
+    outputs:
+      signed:
+        description: Whether this target used its configured distribution signing credentials.
+        value: ${{ jobs.build.outputs.signed }}
     secrets:
       CSC_LINK:
         required: false
@@ -85,6 +89,11 @@ on:
         required: false
         default: false
         type: boolean
+      personal_release:
+        description: Build the explicit personal release profile; macOS signing stays local.
+        required: false
+        default: false
+        type: boolean
       # Whether a `relay-client-tracing-config` artifact from the production
       # relay state is expected. PR previews carry no tracing config.
       relay_client_tracing:
@@ -118,6 +127,8 @@ jobs:
   build:
     name: Build ${{ inputs.label }}
     runs-on: ${{ inputs.runner }}
+    outputs:
+      signed: ${{ steps.artifact.outputs.signed }}
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
     timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}
@@ -454,6 +465,7 @@ jobs:
           path: wsl-runtime
 
       - name: Build desktop artifact
+        id: artifact
         shell: bash
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
@@ -488,6 +500,14 @@ jobs:
           if [[ -n "${{ inputs.verify_runner }}" ]]; then
             args+=(--keep-stage)
           fi
+          if [[ "${{ inputs.personal_release }}" == "true" ]]; then
+            if [[ "${{ inputs.platform }}" == "mac" ]]; then
+              echo "Personal Team macOS packages must be signed on the maintainer's Mac." >&2
+              exit 1
+            fi
+            args+=(--personal-release)
+          fi
+          signed=false
 
           has_all() {
             for value in "$@"; do
@@ -519,6 +539,7 @@ jobs:
 
               echo "macOS signing enabled."
               args+=(--signed)
+              signed=true
             else
               echo "macOS releases require CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER. Use a local unsigned build for development." >&2
               exit 1
@@ -537,8 +558,9 @@ jobs:
               "$AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"; then
               echo "Windows signing enabled (Azure Trusted Signing)."
               args+=(--signed)
+              signed=true
             else
-              if [[ "${{ inputs.provenance }}" == "true" ]]; then
+              if [[ "${{ inputs.provenance }}" == "true" && "${{ inputs.personal_release }}" != "true" ]]; then
                 echo "Official Mines releases require all Azure Trusted Signing credentials." >&2
                 exit 1
               fi
@@ -549,6 +571,7 @@ jobs:
           fi
 
           vp run dist:desktop:artifact "${args[@]}"
+          printf 'signed=%s\n' "$signed" >> "$GITHUB_OUTPUT"
 
       # The verify job runs what this host could not: the packaged natives and
       # the CLI. Its scripts are bundled so that job needs no install.
