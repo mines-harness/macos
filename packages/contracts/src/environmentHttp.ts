@@ -459,8 +459,8 @@ export function formatConnectReachable(
 }
 
 /**
- * Sections of docs/user/t3-connect-troubleshooting.md. Each is the GitHub anchor of a
- * heading there; the test fails when a heading is renamed without updating this list.
+ * Stable anchors in docs/user/t3-connect-troubleshooting.md, including legacy links
+ * retained above the corresponding Mines headings.
  */
 export const T3_CONNECT_TROUBLESHOOTING_SECTIONS = [
   "the-hosts-tunnel-is-offline",
@@ -477,7 +477,7 @@ export type T3ConnectTroubleshootingSection = (typeof T3_CONNECT_TROUBLESHOOTING
 
 /** Clients, the CLI, and server logs link here as "More info". */
 export function t3ConnectTroubleshootingUrl(section: T3ConnectTroubleshootingSection): string {
-  return `https://github.com/pingdotgg/t3code/blob/main/docs/user/t3-connect-troubleshooting.md#${section}`;
+  return `https://github.com/mines-harness/macos/blob/main/docs/user/t3-connect-troubleshooting.md#${section}`;
 }
 
 const REACHABILITY_SECTION = {

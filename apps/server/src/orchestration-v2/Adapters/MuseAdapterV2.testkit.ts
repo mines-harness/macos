@@ -22,6 +22,7 @@ import {
   type MuseSdkHostOptions,
 } from "@t3tools/provider-muse/testing";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
@@ -407,6 +408,67 @@ function makeReplayCreateHost(controller: MuseReplayController) {
 }
 
 const DEFAULT_MUSE_SETTINGS = Schema.decodeSync(MuseSettings)({ enabled: true });
+
+export function materializeMuseReplayProtocol(
+  transcript: ProviderReplayTranscript,
+  model: string,
+): ProviderReplayTranscript {
+  const clientInfo = museInitializeParams().clientInfo;
+  return {
+    ...transcript,
+    entries: transcript.entries.map((entry) => {
+      if (
+        entry.type !== "expect_outbound" ||
+        !isRecord(entry.frame) ||
+        !isRecord(entry.frame.params)
+      )
+        return entry;
+      const frame = entry.frame;
+      const params = entry.frame.params;
+      const recordedClient = params.clientInfo;
+      if (
+        frame.method === "initialize" &&
+        isRecord(recordedClient) &&
+        recordedClient.name === "t3_code" &&
+        recordedClient.title === "T3 Code"
+      ) {
+        return {
+          ...entry,
+          frame: {
+            ...frame,
+            params: {
+              ...params,
+              clientInfo: { ...recordedClient, name: clientInfo.name, title: clientInfo.title },
+            },
+          },
+        };
+      }
+      if (frame.method !== "turn/start" || !Array.isArray(params.input)) return entry;
+      const first: unknown = params.input[0];
+      if (!isRecord(first) || first.type !== "text" || typeof first.text !== "string") return entry;
+      const instructions = buildRuntimeInstructions({
+        harness: "Muse Code",
+        model,
+        reasoningEffort:
+          typeof params.reasoningEffort === "string" ? params.reasoningEffort : undefined,
+      });
+      const recordedInstructions = instructions
+        .replace("you are running in mines through", "you are running in T3 Code through")
+        .replace("open it in mines's files viewer.", "open it in T3 Code's files viewer.");
+      if (first.text !== recordedInstructions) return entry;
+      return {
+        ...entry,
+        frame: {
+          ...frame,
+          params: {
+            ...params,
+            input: [{ ...first, text: instructions }, ...params.input.slice(1)],
+          },
+        },
+      };
+    }),
+  };
+}
 
 export function layer(input: {
   readonly scenario: string;

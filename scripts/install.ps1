@@ -1,7 +1,7 @@
 # Installs the mines CLI from a GitHub Release archive on Windows. Needs
 # only PowerShell 5.1+; no Node, npm, or compiler.
 #
-#   $env:MINES_CLI_UPDATE_REPOSITORY = "owner/mines"; ./install.ps1
+#   ./install.ps1
 #
 # Environment:
 #   MINES_CHANNEL           release train to follow: stable, nightly, or preview
@@ -9,7 +9,7 @@
 #   MINES_VERSION           exact version to install (overrides MINES_CHANNEL)
 #   MINES_HOME              mines home directory (default: ~\.mines)
 #   MINES_INSTALL_BIN_DIR   where mines.exe is linked (default: ~\.local\bin)
-#   MINES_CLI_UPDATE_REPOSITORY  own GitHub release repository (owner/repo)
+#   MINES_CLI_UPDATE_REPOSITORY  GitHub release repository (default: mines-harness/macos)
 #   MINES_CLI_RELEASE_BASE_URL   own mirror for releases/download
 #
 # The archive is unpacked into $MINES_HOME\runtime\versions\<version>, the
@@ -19,6 +19,7 @@ $ErrorActionPreference = "Stop"
 
 $repo = $env:MINES_CLI_UPDATE_REPOSITORY
 $baseUrl = if ($env:MINES_CLI_RELEASE_BASE_URL) { $env:MINES_CLI_RELEASE_BASE_URL.TrimEnd("/") } else { "" }
+if (-not $repo -and -not $baseUrl) { $repo = "mines-harness/macos" }
 $minesHome = if ($env:MINES_HOME) { $env:MINES_HOME } else { Join-Path $HOME ".mines" }
 $binDir = if ($env:MINES_INSTALL_BIN_DIR) { $env:MINES_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }
 
@@ -142,8 +143,12 @@ if (-not $version) {
     "preview" { '^v\d+\.\d+\.\d+-preview\.\d+\.\d+$' }
     default { Fail "MINES_CHANNEL must be stable, nightly, or preview" }
   }
-  $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers @{ "User-Agent" = "mines-install" }
-  $tag = ($releases | Where-Object { -not $_.draft -and $_.tag_name -match $tagPattern } | Select-Object -First 1).tag_name
+  $tag = $null
+  for ($page = 1; $page -le 10 -and -not $tag; $page++) {
+    $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100&page=$page" -Headers @{ "User-Agent" = "mines-install" }
+    $tag = ($releases | Where-Object { -not $_.draft -and $_.tag_name -match $tagPattern } | Select-Object -First 1).tag_name
+    if (-not $releases) { break }
+  }
   if (-not $tag) { Fail "could not find a $channel release; set MINES_VERSION" }
   $version = $tag.Substring(1)
 }

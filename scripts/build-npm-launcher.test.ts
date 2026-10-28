@@ -2,6 +2,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { DEFAULT_MINES_RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -99,6 +100,100 @@ const serveFakeRelease = Effect.fn("test.serveFakeRelease")(function* (root: str
 
 it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
   it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
+    "downloads from the canonical release without configuration and preserves explicit repositories",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "mines-npm-default-test-" });
+        const output = yield* buildNpmLauncher({
+          version: VERSION,
+          outputDir: path.join(root, "out"),
+        });
+        const release = yield* serveFakeRelease(root);
+        const launcher = path.join(output.packageDir, "bin/mines.mjs");
+        const preload = path.join(root, "local-release.mjs");
+        yield* fs.writeFileString(
+          preload,
+          [
+            'import fs from "node:fs";',
+            "const fetchRelease = globalThis.fetch;",
+            "globalThis.fetch = (input, options) => {",
+            '  const url = typeof input === "string" ? input : input.url;',
+            "  fs.appendFileSync(process.env.MINES_FIXTURE_REQUESTS, `${url}\\n`);",
+            "  const expected = process.env.MINES_FIXTURE_RELEASE_BASE;",
+            "  if (!url.startsWith(`${expected}/`)) throw new Error(`Unexpected release request: ${url}`);",
+            "  return fetchRelease(process.env.MINES_FIXTURE_LOCAL_BASE + url.slice(expected.length), options);",
+            "};",
+          ].join("\n"),
+        );
+        const key = `${yield* HostProcess.Platform}-${yield* HostProcess.Architecture}`;
+        for (const repository of [undefined, "mines-harness/cli", "example/private-mines"]) {
+          const home = path.join(root, repository?.replaceAll("/", "-") ?? "default");
+          const requests = `${home}.requests`;
+          const base = `https://github.com/${repository ?? DEFAULT_MINES_RELEASE_REPOSITORY}/releases/download`;
+          const env = {
+            PATH: process.env.PATH,
+            MINES_HOME: home,
+            ...(repository === undefined ? {} : { MINES_CLI_UPDATE_REPOSITORY: repository }),
+            T3CODE_CLI_RELEASE_BASE_URL: "https://old.example.test",
+            MINES_FIXTURE_RELEASE_BASE: base,
+            MINES_FIXTURE_LOCAL_BASE: release.baseUrl,
+            MINES_FIXTURE_REQUESTS: requests,
+          };
+          const args = ["--import", preload, launcher, "--version"];
+          const installed = yield* run(process.execPath, args, { cwd: root, env });
+          assert.equal(installed.exitCode, 7, installed.stderr);
+          assert.include(installed.stdout, "stub --version launcher=");
+          assert.deepStrictEqual((yield* fs.readFileString(requests)).trim().split("\n"), [
+            `${base}/v${VERSION}/SHA256SUMS`,
+            `${base}/v${VERSION}/mines-${VERSION}-${key}.tar.gz`,
+          ]);
+          assert.equal(
+            (yield* fs.readFileString(
+              path.join(home, "runtime/versions", VERSION, ".install-complete"),
+            )).trim(),
+            VERSION,
+          );
+          const count = release.requests.length;
+          const cached = yield* run(process.execPath, args, { cwd: root, env });
+          assert.equal(cached.exitCode, 7, cached.stderr);
+          assert.equal(release.requests.length, count);
+        }
+        const invalidSources = [
+          { MINES_CLI_UPDATE_REPOSITORY: "pingdotgg/t3code" },
+          { MINES_CLI_UPDATE_REPOSITORY: "invalid/repo/path" },
+          { MINES_CLI_RELEASE_BASE_URL: "https://github.com/pingdotgg/t3code/releases/download" },
+          { MINES_CLI_RELEASE_BASE_URL: "https://user:secret@mirror.example/download" },
+          { MINES_CLI_RELEASE_BASE_URL: "http://mirror.example/download" },
+        ];
+        for (const [index, source] of invalidSources.entries()) {
+          const requests = path.join(root, `rejected-${index}.requests`);
+          const home = path.join(root, `rejected-${index}`);
+          yield* fs.writeFileString(requests, "");
+          const result = yield* run(
+            process.execPath,
+            ["--import", preload, launcher, "--version"],
+            {
+              cwd: root,
+              env: {
+                PATH: process.env.PATH,
+                MINES_HOME: home,
+                MINES_FIXTURE_RELEASE_BASE: `https://github.com/${DEFAULT_MINES_RELEASE_REPOSITORY}/releases/download`,
+                MINES_FIXTURE_LOCAL_BASE: release.baseUrl,
+                MINES_FIXTURE_REQUESTS: requests,
+                ...source,
+              },
+            },
+          );
+          assert.equal(result.exitCode, 1, result.stderr);
+          assert.include(result.stderr, "MINES_CLI_UPDATE_REPOSITORY");
+          assert.equal(yield* fs.readFileString(requests), "");
+          assert.isFalse(yield* fs.exists(home));
+        }
+      }),
+  );
+  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
     "publishes a launcher that downloads, verifies, caches, and runs the release executable",
     () =>
       Effect.gen(function* () {
@@ -115,6 +210,11 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
         );
         assert.equal(manifest.name, "mines");
         assert.equal(manifest.version, VERSION);
+        assert.deepStrictEqual(manifest.repository, {
+          type: "git",
+          url: `https://github.com/${DEFAULT_MINES_RELEASE_REPOSITORY}`,
+          directory: "apps/server",
+        });
         assert.deepStrictEqual(manifest.bin, { mines: "./bin/mines.mjs" });
         assert.isUndefined(manifest.dependencies);
         assert.isUndefined(manifest.optionalDependencies);
@@ -128,21 +228,21 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
         assert.equal(unpack.exitCode, 0, unpack.stderr);
         const packageDir = path.join(installed, "package");
 
-        const unconfigured = yield* run(
+        const rejected = yield* run(
           process.execPath,
           [path.join(packageDir, "bin/mines.mjs"), "--version"],
           {
             cwd: root,
             env: {
               PATH: process.env.PATH,
-              MINES_HOME: path.join(root, "unconfigured"),
-              T3CODE_CLI_RELEASE_BASE_URL: "https://old.example.test",
+              MINES_HOME: path.join(root, "rejected"),
+              MINES_CLI_UPDATE_REPOSITORY: "pingdotgg/t3code",
             },
           },
         );
-        assert.equal(unconfigured.exitCode, 1);
-        assert.include(unconfigured.stderr, "MINES_CLI_UPDATE_REPOSITORY");
-        assert.isFalse(yield* fs.exists(path.join(root, "unconfigured")));
+        assert.equal(rejected.exitCode, 1);
+        assert.include(rejected.stderr, "MINES_CLI_UPDATE_REPOSITORY");
+        assert.isFalse(yield* fs.exists(path.join(root, "rejected")));
 
         const release = yield* serveFakeRelease(root);
         const home = path.join(root, "home");

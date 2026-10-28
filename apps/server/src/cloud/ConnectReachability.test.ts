@@ -1,7 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off - reads the user guide to check its anchors.
 import * as NodeFS from "node:fs";
 
-import { T3_CONNECT_TROUBLESHOOTING_SECTIONS } from "@t3tools/contracts";
+import {
+  T3_CONNECT_TROUBLESHOOTING_SECTIONS,
+  t3ConnectTroubleshootingUrl,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import { classifyReachability, type ReachabilityFacts } from "./ConnectReachability.ts";
@@ -67,23 +70,30 @@ describe("classifyReachability", () => {
   });
 });
 
-describe("T3 Connect troubleshooting links", () => {
-  it("each section names a heading in the user guide", () => {
+describe("Mines connection troubleshooting links", () => {
+  it("each link names an anchor in the Mines user guide", () => {
     const guide = NodeFS.readFileSync(
       new URL("../../../../docs/user/t3-connect-troubleshooting.md", import.meta.url),
       "utf8",
     );
     // GitHub's heading anchors: lowercase, drop punctuation, spaces become hyphens.
-    const anchors = new Set(
-      [...guide.matchAll(/^#{2,3} (.+)$/gm)].map(([, heading]) =>
+    const anchors = new Set([
+      ...[...guide.matchAll(/^#{2,3} (.+)$/gm)].map(([, heading]) =>
         heading!
           .toLowerCase()
           .replace(/[^\p{L}\p{N} _-]/gu, "")
           .replace(/ /g, "-"),
       ),
-    );
+      ...[...guide.matchAll(/^<a id="([^"]+)"><\/a>$/gm)].map(([, anchor]) => anchor!),
+    ]);
     for (const section of T3_CONNECT_TROUBLESHOOTING_SECTIONS) {
-      expect(anchors, section).toContain(section);
+      const url = new URL(t3ConnectTroubleshootingUrl(section));
+      expect(url.origin).toBe("https://github.com");
+      expect(url.pathname).toBe(
+        "/mines-harness/macos/blob/main/docs/user/t3-connect-troubleshooting.md",
+      );
+      expect(url.hash).toBe(`#${section}`);
+      expect(anchors, url.href).toContain(url.hash.slice(1));
     }
   });
 });

@@ -11,6 +11,7 @@ const { version } = JSON.parse(
 );
 
 const SUPPORTED = ["darwin-arm64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"];
+const DEFAULT_RELEASE_REPOSITORY = "__MINES_DEFAULT_RELEASE_REPOSITORY__";
 
 function minesHome() {
   const raw = (process.env.MINES_HOME || "").trim();
@@ -25,7 +26,7 @@ class MinesReleaseConfigurationError extends Error {
 }
 
 function releaseBaseUrl() {
-  const repository = process.env.MINES_CLI_UPDATE_REPOSITORY?.trim();
+  const repository = process.env.MINES_CLI_UPDATE_REPOSITORY?.trim() || DEFAULT_RELEASE_REPOSITORY;
   const ownRepository =
     repository &&
     /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repository) &&

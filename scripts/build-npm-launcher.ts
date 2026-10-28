@@ -12,6 +12,7 @@ import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { DEFAULT_MINES_RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
@@ -20,6 +21,7 @@ import { windowsSystemTar } from "./lib/windows-tar.ts";
 export const NPM_LAUNCHER_PACKAGE_NAME = "mines";
 
 const encodePackageJson = Schema.encodeEffect(fromJsonStringPretty(Schema.Unknown));
+const encodeRepositoryLiteral = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
 export class NpmLauncherCommandFailedError extends Schema.TaggedError<NpmLauncherCommandFailedError>()(
   "NpmLauncherCommandFailedError",
@@ -38,7 +40,10 @@ export function npmLauncherPackageManifest(version: string) {
     description:
       "mines CLI. Downloads the self-contained executable for this platform from the GitHub Release.",
     license: serverPackageJson.license,
-    repository: serverPackageJson.repository,
+    repository: {
+      ...serverPackageJson.repository,
+      url: `https://github.com/${DEFAULT_MINES_RELEASE_REPOSITORY}`,
+    },
     bin: { mines: "./bin/mines.mjs" },
     files: ["bin"],
     engines: { node: ">=20.11" },
@@ -65,7 +70,14 @@ export const buildNpmLauncher = Effect.fn("buildNpmLauncher")(function* (input: 
     path.join(stageDir, "package.json"),
     `${yield* encodePackageJson(npmLauncherPackageManifest(input.version))}\n`,
   );
-  yield* fs.copyFile(path.join(sourceDir, "mines.mjs"), path.join(stageDir, "bin/mines.mjs"));
+  const launcher = yield* fs.readFileString(path.join(sourceDir, "mines.mjs"));
+  yield* fs.writeFileString(
+    path.join(stageDir, "bin/mines.mjs"),
+    launcher.replace(
+      '"__MINES_DEFAULT_RELEASE_REPOSITORY__"',
+      encodeRepositoryLiteral(DEFAULT_MINES_RELEASE_REPOSITORY),
+    ),
+  );
   yield* fs.chmod(path.join(stageDir, "bin/mines.mjs"), 0o755);
   const readme = yield* path.fromFileUrl(new URL("../apps/server/README.md", import.meta.url));
   if (yield* fs.exists(readme)) {

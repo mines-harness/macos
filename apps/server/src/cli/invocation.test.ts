@@ -95,8 +95,8 @@ it.layer(NodeServices.layer)("root CLI commands", (it) => {
 
       expect(
         yield* rootCommand({
-          node: "/opt/t3/t3",
-          entry: "/opt/t3/t3",
+          node: "/opt/t3/mines",
+          entry: "/opt/t3/mines",
           executable: true,
         }),
       ).toBe("sudo /opt/t3/mines browser setup");

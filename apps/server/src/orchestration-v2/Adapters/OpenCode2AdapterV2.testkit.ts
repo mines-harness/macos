@@ -9,6 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
@@ -46,6 +47,40 @@ const OpenCode2ReplayTranscript = Schema.Struct({
 });
 type OpenCode2ReplayTranscript = typeof OpenCode2ReplayTranscript.Type;
 const decodeOpenCode2ReplayTranscript = Schema.decodeUnknownEffect(OpenCode2ReplayTranscript);
+
+function materializeMinesProtocolNamespace(
+  transcript: ProviderReplayTranscript,
+): ProviderReplayTranscript {
+  return {
+    ...transcript,
+    entries: transcript.entries.map((entry) => {
+      if (
+        entry.type !== "expect_outbound" ||
+        !Predicate.isObject(entry.frame) ||
+        !Predicate.isObject(entry.frame.input)
+      )
+        return entry;
+      const frame = entry.frame;
+      const input = entry.frame.input;
+      if (frame.type === "session.instructions.entry.put" && input.key === "t3-code") {
+        return { ...entry, frame: { ...frame, input: { ...input, key: "mines" } } };
+      }
+      if (
+        (frame.type === "session.create" || frame.type === "session.update") &&
+        Array.isArray(input.permissions)
+      ) {
+        const permissions = input.permissions.map((rule: unknown) => {
+          if (!Predicate.isObject(rule) || typeof rule.action !== "string") return rule;
+          return rule.action === "t3-code-*" || rule.action.startsWith("t3-code-thread_")
+            ? { ...rule, action: rule.action.replace(/^t3-code-/u, "mines-") }
+            : rule;
+        });
+        return { ...entry, frame: { ...frame, input: { ...input, permissions } } };
+      }
+      return entry;
+    }),
+  };
+}
 
 const operationOf = (
   method: string,
@@ -197,7 +232,7 @@ export const replayServer = (
   },
 ) =>
   Effect.gen(function* () {
-    const controller = new OpenCodeReplayController(transcript);
+    const controller = new OpenCodeReplayController(materializeMinesProtocolNamespace(transcript));
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         options?.replayGate?.releaseAll();

@@ -2,7 +2,7 @@
 # Installs the mines CLI from a GitHub Release archive. Needs only sh, tar,
 # sha256sum or shasum, and curl or wget; no Node, npm, or compiler.
 #
-#   MINES_CLI_UPDATE_REPOSITORY=owner/mines sh ./install.sh
+#   sh ./install.sh
 #
 # Environment:
 #   MINES_CHANNEL           release train to follow: stable, nightly, or preview
@@ -10,7 +10,7 @@
 #   MINES_VERSION           exact version to install (overrides MINES_CHANNEL)
 #   MINES_HOME              mines home directory (default: ~/.mines)
 #   MINES_INSTALL_BIN_DIR   where the `mines` symlink goes (default: ~/.local/bin)
-#   MINES_CLI_UPDATE_REPOSITORY  own GitHub release repository (owner/repo)
+#   MINES_CLI_UPDATE_REPOSITORY  GitHub release repository (default: mines-harness/macos)
 #   MINES_CLI_RELEASE_BASE_URL   own mirror for releases/download
 #
 # The archive is unpacked into $MINES_HOME/runtime/versions/<version>, the
@@ -20,6 +20,7 @@ set -eu
 
 repo="${MINES_CLI_UPDATE_REPOSITORY:-}"
 base_url="${MINES_CLI_RELEASE_BASE_URL:-}"
+if [ -z "$repo" ] && [ -z "$base_url" ]; then repo="mines-harness/macos"; fi
 mines_home="${MINES_HOME:-$HOME/.mines}"
 bin_dir="${MINES_INSTALL_BIN_DIR:-$HOME/.local/bin}"
 
