@@ -24,8 +24,8 @@ class MinesReviewDiffModule : Module() {
       Prop("selectedRowIdsJson") { view: MinesReviewDiffView, selectedRowIdsJson: String ->
         view.setSelectedRowIdsJson(selectedRowIdsJson)
       }
-      Prop("collapsedCommentIdsJson") { view: MinesReviewDiffView, collapsedCommentIdsJson: String ->
-        view.setCollapsedCommentIdsJson(collapsedCommentIdsJson)
+      Prop("collapsedCommentIdsJson") { view: MinesReviewDiffView, json: String ->
+        view.setCollapsedCommentIdsJson(json)
       }
       Prop("appearanceScheme") { view: MinesReviewDiffView, appearanceScheme: String ->
         view.setAppearanceScheme(appearanceScheme)
@@ -63,8 +63,8 @@ class MinesReviewDiffModule : Module() {
         "onToggleComment",
       )
 
-      AsyncFunction("scrollToFile") { view: MinesReviewDiffView, fileId: String, animated: Boolean ->
-        view.scrollToFile(fileId, animated)
+      AsyncFunction("scrollToFile") { view: MinesReviewDiffView, id: String, animated: Boolean ->
+        view.scrollToFile(id, animated)
       }
       AsyncFunction("scrollToTop") { view: MinesReviewDiffView, animated: Boolean ->
         view.scrollToTop(animated)

@@ -73,7 +73,9 @@ class MinesWorkspaceNavigationModule : Module() {
       }
       Prop("rail") { view: MinesWorkspaceNavigationView, value: Boolean -> view.rail = value }
       Prop("dark") { view: MinesWorkspaceNavigationView, value: Boolean -> view.dark = value }
-      Prop("textScale") { view: MinesWorkspaceNavigationView, value: Float -> view.textScale = value }
+      Prop("textScale") { view: MinesWorkspaceNavigationView, value: Float ->
+        view.textScale = value
+      }
       Prop("newEnabled") { view: MinesWorkspaceNavigationView, value: Boolean ->
         view.newEnabled = value
       }

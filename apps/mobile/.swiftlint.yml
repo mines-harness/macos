@@ -1,15 +1,15 @@
 included:
-  - ios/T3Code
-  - modules/t3-composer-editor/ios
-  - modules/t3-highlights/ios
-  - modules/t3-native-controls/ios
-  - modules/t3-terminal/ios
-  - modules/t3-review-diff/ios
+  - ios/mines
+  - modules/mines-composer-editor/ios
+  - modules/mines-highlights/ios
+  - modules/mines-native-controls/ios
+  - modules/mines-terminal/ios
+  - modules/mines-review-diff/ios
 
 excluded:
   - ios/Pods
   - ios/build
-  - modules/t3-terminal/Vendor
+  - modules/mines-terminal/Vendor
 
 reporter: xcode
 
