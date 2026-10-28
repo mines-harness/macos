@@ -22,7 +22,13 @@ A local development build can use `--local-signed` with an Apple Development cer
 
 An explicitly authorized Personal Team release uses `--personal-release` with a stable or nightly version. macOS also requires `--local-signed`, generating the DMG, updater ZIP, blockmaps, and canonical GitHub feed without notarization. Keep the same pinned certificate for subsequent releases; its SHA-1 can live in the gitignored root `.env` or `.env.local`, and an explicit environment value takes priority. Label these Mac downloads as development-signed and unnotarized. Gatekeeper may require users to approve the first installation. Matching Linux and Windows builds use `--personal-release` without `--local-signed`; Windows is unsigned unless its separate Azure signing configuration is available. Ordinary unsigned Windows, local Mac builds, and previews still have no production feed. The official CI workflow continues to require Developer ID and notarization credentials.
 
-The personal workflow uploads `release-source` and `js-bundle` before the other targets finish. On the maintainer Mac, check out that exact commit, restore the shared bundle under `apps`, and package both Mac architectures with `--skip-build`, plus the matching darwin-arm64 CLI. Record both Mac target manifests against that run's `release-source.json`, collect its four non-Mac desktop and CLI artifact sets, and apply the complete release verification and feed merging procedure before publishing the draft. The signing key remains in the Mac's Keychain.
+The personal workflow uploads `release-source` and `js-bundle` before the other targets finish. On the maintainer Mac, check out that exact commit, restore the shared bundle under `apps`, and package both Mac architectures with `--skip-build`, plus the matching darwin-arm64 CLI. Record both Mac target manifests against that run's `release-source.json`. Create a draft `v<version>` targeting the full source commit and upload the Mac installers, updater ZIPs, blockmaps, per-architecture feeds, CLI archive, both provenance manifests, and `SIGNING.json`; [the publication workflow](../../.github/workflows/mines-personal-publish.yml) checks the exact handoff set. The signing key remains in the Mac's Keychain.
+
+Dispatch publication with the shared-bundle run ID. A successful base run supplies its non-Mac artifacts directly. If packaging failed after the source and shared bundle succeeded, the publisher rebuilds the four non-Mac targets from that same tested source and bundle. It rejects intervening application changes on `main`, verifies all six desktop targets and five CLI archives, merges the updater feeds, and checks uploaded hashes before publishing the stable release. `build-runs.json` distinguishes the original bundle run from a packaging recovery run.
+
+```sh
+gh workflow run mines-personal-publish.yml --repo mines-harness/macos --ref main -f build_run_id="<shared-bundle-run-id>"
+```
 
 ```sh
 MINES_DESKTOP_LOCAL_SIGN_IDENTITY="<certificate SHA-1>" vp run dist:desktop:artifact --platform mac --target dmg --arch arm64 --build-version 0.1.19 --local-signed --personal-release
@@ -35,7 +41,7 @@ node scripts/install-desktop.ts --audit
 node scripts/install-desktop.ts /path/to/mines.app
 ```
 
-The second command is a preflight. After the app has stopped, add `--apply` to install at `/Applications/mines (Beta).app`. Rollbacks are compressed under `~/Library/Caches/mines/desktop-rollbacks`, outside Launch Services' app discovery. A changed app identity requires an intentional one-time `--allow-identity-change`. Never reset the profile, database, paired devices, or Keychain to make an update pass.
+The second command is a preflight. After the app has stopped, add `--apply` to install at `/Applications/mines (Beta).app`. Personal Team signatures require `--allow-development`. Rollbacks are compressed under `~/Library/Caches/mines/desktop-rollbacks`, outside Launch Services' app discovery. A changed app identity requires an intentional one-time `--allow-identity-change`. Never reset the profile, database, paired devices, or Keychain to make an update pass.
 
 An installed-release claim requires the installed version and commit, matching release provenance, signature verification, runtime health, and preservation of conversations and account/device identity. A passing source build alone does not identify the app the user launched.
 

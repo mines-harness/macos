@@ -81,6 +81,16 @@ on:
       ref:
         required: true
         type: string
+      artifact_run_id:
+        description: Optional source run for shared build inputs; target outputs remain in this run.
+        required: false
+        default: ""
+        type: string
+      linux_cli_run_id:
+        description: Optional Linux CLI producer run when repairing targets from an older shared bundle.
+        required: false
+        default: ""
+        type: string
       release_channel:
         required: true
         type: string
@@ -170,6 +180,8 @@ jobs:
         with:
           name: release-dependency-verification
           path: ${{ runner.temp }}/pnpm-metadata
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Install desktop dependencies
         env:
@@ -206,6 +218,8 @@ jobs:
         with:
           name: relay-client-tracing-config
           path: ${{ runner.temp }}/relay-client-tracing
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Load relay client tracing config
         if: inputs.relay_client_tracing
@@ -222,6 +236,8 @@ jobs:
         with:
           name: release-source
           path: .release-provenance
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Verify source provenance
         if: inputs.provenance
@@ -251,6 +267,8 @@ jobs:
         with:
           name: js-bundle
           path: apps
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Install cargo-xwin
         if: inputs.platform == 'win' && runner.os != 'Windows' && steps.resource_monitor_cache.outputs.cache-hit != 'true'
@@ -309,7 +327,7 @@ jobs:
           # The executable bundles the server again, so it needs the same stamp
           # as release.yml's JS bundle.
           MINES_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && inputs.release_channel || 'dev' }}
-        run: node apps/server/scripts/cli.ts build-exe --verbose ${{ inputs.platform == 'win' && format('--target win-{0}', inputs.arch) || '' }}
+        run: node apps/server/scripts/cli.ts build-exe --verbose ${{ inputs.platform == 'win' && runner.os != 'Windows' && format('--target win-{0}', inputs.arch) || '' }}
 
       - name: Import macOS signing certificate for the CLI archive
         if: inputs.cli_archive && inputs.platform == 'mac'
@@ -426,12 +444,13 @@ jobs:
         timeout-minutes: 40
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.linux_cli_run_id || inputs.artifact_run_id || github.run_id }}
           ARTIFACT: cli-linux-${{ inputs.arch }}
           LINUX_JOB: Build Linux ${{ inputs.arch }}
         run: |
           node --input-type=module <<'EOF'
           const env = process.env;
-          const run = `${env.GITHUB_API_URL}/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+          const run = `${env.GITHUB_API_URL}/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.ARTIFACT_RUN_ID}`;
           const headers = { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' };
           const request = async (path) => {
             const response = await fetch(`${run}${path}`, { headers });
@@ -446,7 +465,7 @@ jobs:
                 console.log(`${env.ARTIFACT} is ready.`);
                 break;
               }
-              const jobs = await request(`/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`);
+              const jobs = await request('/jobs?filter=latest&per_page=100');
               const linux = jobs.jobs.find((job) => job.name.endsWith(env.LINUX_JOB));
               if (!linux) {
                 if (missingSince === null) missingSince = Date.now();
@@ -478,6 +497,8 @@ jobs:
         with:
           name: cli-linux-${{ inputs.arch }}
           path: wsl-runtime
+          run-id: ${{ inputs.linux_cli_run_id || inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Build desktop artifact
         id: artifact
@@ -645,6 +666,22 @@ jobs:
               cp "$file" release-publish/
             done
           done
+
+          if [[ "${{ inputs.platform }}" == "linux" && "${{ inputs.arch }}" == "x64" ]]; then
+            node --input-type=module <<'EOF'
+          import { readdirSync, renameSync, readFileSync, writeFileSync } from 'node:fs';
+          const directory = 'release-publish';
+          const files = readdirSync(directory);
+          for (const name of files.filter(name => name.endsWith('-x86_64.AppImage'))) {
+            const normalized = name.replace(/-x86_64\.AppImage$/, '-x64.AppImage');
+            renameSync(`${directory}/${name}`, `${directory}/${normalized}`);
+            for (const feed of files.filter(name => name.endsWith('.yml'))) {
+              const path = `${directory}/${feed}`;
+              writeFileSync(path, readFileSync(path, 'utf8').replaceAll(name, normalized));
+            }
+          }
+          EOF
+          fi
 
           if [[ "${{ inputs.platform }}" == "mac" && ( "${{ inputs.arch }}" != "arm64" || "${{ inputs.provenance }}" == "true" ) ]]; then
             shopt -s nullglob

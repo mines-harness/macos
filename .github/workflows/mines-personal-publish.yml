@@ -1,0 +1,371 @@
+name: Mines personal release publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Completed personal build run containing the tested shared bundle.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  checks: read
+
+concurrency:
+  group: mines-personal-publish
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  source:
+    name: Validate personal release handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+      main_commit: ${{ steps.resolve.outputs.main-commit }}
+      build_run_id: ${{ steps.resolve.outputs.build-run-id }}
+      build_run_url: ${{ steps.resolve.outputs.build-run-url }}
+      build_conclusion: ${{ steps.resolve.outputs.build-conclusion }}
+      nonmac_run_id: ${{ steps.resolve.outputs.nonmac-run-id }}
+      rebuild_nonmac: ${{ steps.resolve.outputs.rebuild-nonmac }}
+      version: ${{ steps.source.outputs.version }}
+      tag: ${{ steps.source.outputs.tag }}
+      release_id: ${{ steps.source.outputs.release-id }}
+      mac_assets: ${{ steps.source.outputs.mac-assets }}
+    steps:
+      - name: Require the original tested shared bundle
+        id: resolve
+        uses: actions/github-script@v8
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        with:
+          script: |
+            const repository = context.repo.owner + '/' + context.repo.repo;
+            if (repository !== 'mines-harness/macos' || context.ref !== 'refs/heads/main') {
+              throw new Error('Personal publication must be dispatched from canonical main.');
+            }
+            const runId = Number(process.env.BUILD_RUN_ID);
+            if (!/^\d+$/.test(process.env.BUILD_RUN_ID || '') || !Number.isSafeInteger(runId) || runId <= 0) {
+              throw new Error('build_run_id must be a positive GitHub Actions run ID.');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId });
+            const runUrl = `https://github.com/${repository}/actions/runs/${runId}`;
+            if (run.status !== 'completed' || !['success', 'failure'].includes(run.conclusion) ||
+                run.path !== '.github/workflows/mines-personal-release.yml' || run.head_branch !== 'main' ||
+                run.repository?.full_name !== repository || run.head_repository?.full_name !== repository ||
+                !/^[a-f0-9]{40}$/.test(run.head_sha || '') || run.html_url !== runUrl) {
+              throw new Error('Source must be a completed canonical main personal build, with successful shared inputs.');
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: runId, filter: 'latest', per_page: 100 });
+            const required = ['Resolve one tested personal release source', 'Build shared server, composer, and desktop shell once'];
+            if (run.conclusion === 'success') required.push('Desktop Linux x64 / Build Linux x64', 'Desktop Linux arm64 / Build Linux arm64', 'Desktop Windows x64 / Build Windows x64', 'Desktop Windows arm64 / Build Windows arm64');
+            for (const name of required) {
+              const job = jobs.find(job => job.name === name);
+              if (job?.status !== 'completed' || job.conclusion !== 'success') {
+                throw new Error(`Required original build job did not succeed: ${name}`);
+              }
+            }
+            const checks = await github.paginate(github.rest.checks.listForRef, { ...context.repo, ref: run.head_sha, per_page: 100 });
+            const latest = checks.filter(check => check.name === 'Check' && check.app?.slug === 'github-actions').sort((a, b) => b.id - a.id)[0];
+            if (latest?.conclusion !== 'success') throw new Error(`CI Check has not passed for ${run.head_sha}.`);
+            const { data: branch } = await github.rest.repos.getBranch({ ...context.repo, branch: 'main' });
+            const mainCommit = branch.commit.sha;
+            const { data: comparison } = await github.rest.repos.compareCommits({ ...context.repo, base: run.head_sha, head: mainCommit });
+            const infrastructure = new Set(['.github/workflows/mines-personal-publish.yml', '.github/workflows/release-desktop.yml', 'scripts/macos-release.test.ts', 'docs/operations/mines-release.md']);
+            if (!['identical', 'ahead'].includes(comparison.status) || !Array.isArray(comparison.files) || comparison.files.length >= 300 ||
+                comparison.files.some(file => !infrastructure.has(file.filename) || (file.previous_filename && !infrastructure.has(file.previous_filename)))) {
+              throw new Error('Current main has application drift, incompatible ancestry, or a truncated comparison. Build a new tested release source.');
+            }
+            core.setOutput('commit', run.head_sha);
+            core.setOutput('main-commit', mainCommit);
+            core.setOutput('build-run-id', String(runId));
+            core.setOutput('build-run-url', runUrl);
+            core.setOutput('build-conclusion', run.conclusion);
+            core.setOutput('rebuild-nonmac', String(run.conclusion !== 'success'));
+            core.setOutput('nonmac-run-id', String(run.conclusion === 'success' ? runId : context.runId));
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ steps.resolve.outputs.commit }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+      - name: Download original source provenance
+        uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: release-assets
+          run-id: ${{ steps.resolve.outputs.build-run-id }}
+          github-token: ${{ github.token }}
+      - name: Verify exact source and the maintainer's Mac draft
+        id: source
+        uses: actions/github-script@v8
+        env:
+          SOURCE_COMMIT: ${{ steps.resolve.outputs.commit }}
+          BUILD_RUN_URL: ${{ steps.resolve.outputs.build-run-url }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { createHash } = require('node:crypto');
+            const { execFileSync } = require('node:child_process');
+            const config = JSON.parse(fs.readFileSync('.github/mines-release.json', 'utf8'));
+            const source = JSON.parse(fs.readFileSync('release-assets/release-source.json', 'utf8'));
+            const git = ref => execFileSync('git', ['rev-parse', ref], { encoding: 'utf8' }).trim();
+            const lockfile = createHash('sha256').update(fs.readFileSync('pnpm-lock.yaml')).digest('hex');
+            if (config.sourceRepository !== 'mines-harness/macos' || config.distributionRepository !== config.sourceRepository ||
+                source.schemaVersion !== 1 || source.repository !== config.sourceRepository || source.channel !== 'stable' ||
+                !/^\d+\.\d+\.\d+$/.test(source.version || '') || source.commit !== process.env.SOURCE_COMMIT ||
+                source.commit !== git('HEAD') || source.tree !== git('HEAD^{tree}') ||
+                source.lockfileSha256 !== lockfile || source.runUrl !== process.env.BUILD_RUN_URL) {
+              throw new Error('Source provenance differs from the exact tested commit, tree, lockfile, stable version, or build run.');
+            }
+            const tag = `v${source.version}`;
+            const { data: release } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag });
+            if (!release.draft || release.prerelease || release.tag_name !== tag || release.target_commitish !== source.commit) {
+              throw new Error('The Mac handoff must be a non-prerelease draft targeting the exact source commit.');
+            }
+            const names = ['arm64', 'x64'].flatMap(arch => [
+              `mines-${source.version}-${arch}.dmg`, `mines-${source.version}-${arch}.zip`,
+              `mines-${source.version}-${arch}.dmg.blockmap`, `mines-${source.version}-${arch}.zip.blockmap`,
+              `latest-mac-${arch}.yml`, `provenance-mac-${arch}.json`,
+            ]);
+            names.push(`mines-${source.version}-darwin-arm64.tar.gz`, 'SIGNING.json');
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, { ...context.repo, release_id: release.id, per_page: 100 });
+            for (const name of names) {
+              if (!assets.some(asset => asset.name === name && asset.state === 'uploaded' && asset.size > 0)) {
+                throw new Error(`Missing local Mac handoff asset: ${name}`);
+              }
+            }
+            core.setOutput('version', source.version);
+            core.setOutput('tag', tag);
+            core.setOutput('release-id', String(release.id));
+            core.setOutput('mac-assets', names.join('\n'));
+
+  nonmac:
+    name: Desktop ${{ matrix.label }}
+    needs: source
+    if: needs.source.outputs.rebuild_nonmac == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              label: Linux x64,
+              platform: linux,
+              target: AppImage,
+              arch: x64,
+              runner: ubuntu-24.04,
+              rust: x86_64-unknown-linux-gnu,
+              resource: linux-x64,
+            }
+          - {
+              label: Linux arm64,
+              platform: linux,
+              target: AppImage,
+              arch: arm64,
+              runner: ubuntu-24.04-arm,
+              rust: aarch64-unknown-linux-gnu,
+              resource: linux-arm64,
+            }
+          - {
+              label: Windows x64,
+              platform: win,
+              target: nsis,
+              arch: x64,
+              runner: windows-2025,
+              rust: x86_64-pc-windows-msvc,
+              resource: win32-x64,
+            }
+          - {
+              label: Windows arm64,
+              platform: win,
+              target: nsis,
+              arch: arm64,
+              runner: windows-11-arm,
+              rust: aarch64-pc-windows-msvc,
+              resource: win32-arm64,
+            }
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      arch: ${{ matrix.arch }}
+      rust_target: ${{ matrix.rust }}
+      resource_key: ${{ matrix.resource }}
+      cli_archive: true
+      verify_runner: ""
+      version: ${{ needs.source.outputs.version }}
+      ref: ${{ needs.source.outputs.commit }}
+      artifact_run_id: ${{ needs.source.outputs.build_run_id }}
+      linux_cli_run_id: ${{ github.run_id }}
+      release_channel: stable
+      provenance: true
+      personal_release: true
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+
+  publish:
+    name: Verify all targets and publish the existing draft
+    needs: [source, nonmac]
+    if: always() && needs.source.result == 'success' && (needs.nonmac.result == 'success' || needs.nonmac.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ needs.source.outputs.commit }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+      - uses: ./.github/actions/setup-ci-deps
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: release-assets
+          run-id: ${{ needs.source.outputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-linux-x64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-linux-arm64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-linux-x64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-linux-arm64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-win-x64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-win-arm64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-win-x64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-win-arm64
+          path: release-assets
+          run-id: ${{ needs.source.outputs.nonmac_run_id }}
+          github-token: ${{ github.token }}
+      - name: Download only the locally signed Mac handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          MAC_ASSETS: ${{ needs.source.outputs.mac_assets }}
+        run: |
+          set -euo pipefail
+          patterns=()
+          while IFS= read -r name; do patterns+=(--pattern "$name"); done <<< "$MAC_ASSETS"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets "${patterns[@]}"
+      - name: Verify all six desktop targets and five matching CLI archives
+        run: node scripts/mines-release-provenance.ts verify --source release-assets/release-source.json --directory release-assets --output release-assets/release-report.json
+      - name: Merge stable updater manifests
+        run: |
+          node scripts/merge-update-manifests.ts --platform mac release-assets/latest-mac-arm64.yml release-assets/latest-mac-x64.yml release-assets/latest-mac.yml
+          node scripts/merge-update-manifests.ts --platform win release-assets/latest-win-x64.yml release-assets/latest-win-arm64.yml release-assets/latest.yml
+      - name: Verify signing handoff, upload, and publish stable latest
+        id: publish
+        uses: actions/github-script@v8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+          MAIN_COMMIT: ${{ needs.source.outputs.main_commit }}
+          VERSION: ${{ needs.source.outputs.version }}
+          TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_ID: ${{ needs.source.outputs.release_id }}
+          BUILD_RUN_ID: ${{ needs.source.outputs.build_run_id }}
+          BUILD_RUN_URL: ${{ needs.source.outputs.build_run_url }}
+          BUILD_CONCLUSION: ${{ needs.source.outputs.build_conclusion }}
+          NONMAC_RUN_ID: ${{ needs.source.outputs.nonmac_run_id }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { createHash } = require('node:crypto');
+            const { execFileSync } = require('node:child_process');
+            const signing = JSON.parse(fs.readFileSync('release-assets/SIGNING.json', 'utf8'));
+            if (signing.schemaVersion !== 1 || signing.profile !== 'personal' || signing.version !== process.env.VERSION ||
+                signing.sourceCommit !== process.env.SOURCE_COMMIT || signing.macos?.identityKind !== 'Apple Development' ||
+                signing.macos.certificateSha1 !== '52879C68B5791127EB3A4BA446BBCD10A272DAE8' || signing.macos.teamIdentifier !== '89MW3QT5N2' ||
+                signing.macos.notarized !== false || signing.macos.strictSignatureVerified !== true ||
+                signing.windows?.signed !== false || signing.linux?.signed !== false) {
+              throw new Error('SIGNING.json does not match the approved Personal Team release profile and exact source.');
+            }
+            const { data: branch } = await github.rest.repos.getBranch({ ...context.repo, branch: 'main' });
+            if (branch.commit.sha !== process.env.MAIN_COMMIT) throw new Error('Main changed during publication. Re-dispatch to validate source drift again.');
+            const releaseId = Number(process.env.RELEASE_ID);
+            const requireDraft = release => {
+              if (!release.draft || release.prerelease || release.tag_name !== process.env.TAG || release.target_commitish !== process.env.SOURCE_COMMIT) {
+                throw new Error('The release is no longer the exact non-prerelease draft validated for this source.');
+              }
+            };
+            requireDraft((await github.rest.repos.getRelease({ ...context.repo, release_id: releaseId })).data);
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            fs.writeFileSync('release-assets/build-runs.json', JSON.stringify({
+              schemaVersion: 1,
+              sourceCommit: process.env.SOURCE_COMMIT,
+              sharedBundle: { runId: Number(process.env.BUILD_RUN_ID), runUrl: process.env.BUILD_RUN_URL, conclusion: process.env.BUILD_CONCLUSION },
+              nonMac: { runId: Number(process.env.NONMAC_RUN_ID), runUrl: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.NONMAC_RUN_ID}` },
+              publication: { runId: context.runId, runUrl },
+            }, null, 2) + '\n');
+            const names = fs.readdirSync('release-assets').filter(name => name !== 'SHA256SUMS').sort();
+            const hash = name => createHash('sha256').update(fs.readFileSync(`release-assets/${name}`)).digest('hex');
+            fs.writeFileSync('release-assets/SHA256SUMS', names.map(name => `${hash(name)}  ${name}\n`).join(''));
+            names.push('SHA256SUMS');
+            const expected = names.map(name => ({ name, size: fs.statSync(`release-assets/${name}`).size, digest: `sha256:${hash(name)}` }));
+            execFileSync('gh', ['release', 'upload', process.env.TAG, '--repo', `${context.repo.owner}/${context.repo.repo}`, '--clobber', ...names.map(name => `release-assets/${name}`)], { stdio: 'inherit' });
+            requireDraft((await github.rest.repos.getRelease({ ...context.repo, release_id: releaseId })).data);
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, { ...context.repo, release_id: releaseId, per_page: 100 });
+            if (assets.length !== expected.length || expected.some(file => !assets.some(asset => asset.name === file.name && asset.state === 'uploaded' && asset.size === file.size && asset.digest === file.digest))) {
+              throw new Error('Uploaded release assets differ from the verified local names, sizes, or SHA-256 digests. The release remains a draft.');
+            }
+            if ((await github.rest.repos.getBranch({ ...context.repo, branch: 'main' })).data.commit.sha !== process.env.MAIN_COMMIT) {
+              throw new Error('Main changed during upload. Re-dispatch to validate source drift again. The release remains a draft.');
+            }
+            const { data: published } = await github.rest.repos.updateRelease({ ...context.repo, release_id: releaseId, draft: false, prerelease: false, make_latest: 'true' });
+            await core.summary.addHeading(`Mines ${process.env.VERSION} published`).addRaw(`Source: ${process.env.SOURCE_COMMIT}\n\n${published.html_url}\n\nPersonal Team macOS signing is unnotarized; Windows and Linux are unsigned. See SIGNING.json and build-runs.json.`).write();
