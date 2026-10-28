@@ -4,6 +4,7 @@ import {
   CloudTask,
   CodexSettings,
   ProviderInstanceId,
+  resolveProviderInstanceEnabled,
   type CloudApplyInput,
   type CloudApplyResult,
   type CloudCapabilities,
@@ -162,7 +163,6 @@ function parseProviderLink(provider: CloudProvider, value: string) {
 
 function linkFromOutput(provider: CloudProvider, output: string) {
   // ANSI escapes delimit terminal links and must never become part of a provider URL.
-  // eslint-disable-next-line no-control-regex
   for (const match of output.matchAll(/https:\/\/(?:chatgpt\.com|claude\.ai)\/[^\s<>"'\u001b]+/g)) {
     const link = parseProviderLink(provider, match[0].replace(/[).,;]+$/, ""));
     if (link) return link;
@@ -325,7 +325,7 @@ const make = Effect.gen(function* () {
       provider === "codex"
         ? decodeCodexSettings(entry.config ?? {})
         : decodeClaudeSettings(entry.config ?? {});
-    if (Option.isNone(config) || entry.enabled === false || config.value.enabled === false) {
+    if (Option.isNone(config) || !resolveProviderInstanceEnabled(entry)) {
       return {
         visible,
         ...(accountKey ? { accountKey } : {}),

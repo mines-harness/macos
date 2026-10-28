@@ -162,9 +162,11 @@ function ContextEditor({
   );
   const save = () => {
     if (conflict) return;
+    if (added.length > 0 && sources.length > MAX_CATALOG_CONTEXT_SOURCES) {
+      setError(`You can add up to ${MAX_CATALOG_CONTEXT_SOURCES} context sources.`);
+      return;
+    }
     try {
-      if (added.length > 0 && sources.length > MAX_CATALOG_CONTEXT_SOURCES)
-        throw new Error(`You can add up to ${MAX_CATALOG_CONTEXT_SOURCES} context sources.`);
       catalog.transaction(() => {
         if (dirtyInstructions) catalog.setContextInstructions(entity.id, instructions);
         for (const id of removed) catalog.removeContextSource(entity.id, id);
@@ -418,9 +420,11 @@ function AddContextSource({
   const [error, setError] = useState<string | null>(null);
   const access = useFilesystemReadAccess(environmentId);
   const current = useRef({ active: true, canReadFiles: access.canReadFiles });
+  // oxlint-disable-next-line mines/react-effect-budget -- Pending native-picker callbacks must recheck the latest filesystem grant.
   useEffect(() => {
     current.current.canReadFiles = access.canReadFiles;
   }, [access.canReadFiles]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Ignore native-picker and metadata completions after this dialog unmounts.
   useEffect(() => {
     current.current.active = true;
     return () => {
@@ -436,7 +440,7 @@ function AddContextSource({
     if (busy) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const source = await createCatalogFolderSource(
         { environmentId, path },
         {
@@ -455,12 +459,14 @@ function AddContextSource({
       if (!current.current.active) return;
       onAdd(source);
       setBrowsing(false);
-    } catch (cause) {
-      if (current.current.active)
-        setError(cause instanceof Error ? cause.message : "Could not add this folder.");
-    } finally {
-      if (current.current.active) setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        if (current.current.active)
+          setError(cause instanceof Error ? cause.message : "Could not add this folder.");
+      })
+      .finally(() => {
+        if (current.current.active) setBusy(false);
+      });
   };
   const choose = async () => {
     setError(null);

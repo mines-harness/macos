@@ -25,11 +25,13 @@ export function CloudCatalogDevices({
     })),
   );
   const previousAccounts = useRef(accountState);
+  // oxlint-disable-next-line mines/react-effect-budget -- Provider account changes must refresh the remote cloud-task snapshot.
   useEffect(() => {
     if (previousAccounts.current === accountState) return;
     previousAccounts.current = accountState;
     refresh();
   }, [accountState, refresh]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Cloud snapshots must reconcile the external persisted catalog.
   useEffect(() => {
     const data = snapshot.data;
     if (!data?.checkedAt || snapshot.error) return;

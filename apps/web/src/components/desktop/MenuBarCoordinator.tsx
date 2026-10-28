@@ -51,6 +51,7 @@ function AccountMenuBarContent() {
   }
   const refreshDirectory = useEffectEvent(directory.refresh);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Resolve this signed-in client's device identity from the host approval service.
   useEffect(() => {
     if (!isSignedIn || !userId) return;
     let active = true;
@@ -62,6 +63,7 @@ function AccountMenuBarContent() {
     };
   }, [approval, isSignedIn, userId]);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Refresh account presence on browser focus and visibility changes while signed in.
   useEffect(() => {
     if (!isSignedIn) return;
     let refreshedAt = Date.now();
@@ -117,10 +119,12 @@ function MenuBarContent({
   });
   const serialized = JSON.stringify(state);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Publish renderer status to the native Electron menu bar through IPC.
   useEffect(() => {
     void window.desktopBridge?.setMenuBarState?.(JSON.parse(serialized)).catch(() => undefined);
   }, [serialized]);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Subscribe to native menu actions and release the IPC listener on unmount.
   useEffect(
     () =>
       window.desktopBridge?.onMenuAction((action) => {

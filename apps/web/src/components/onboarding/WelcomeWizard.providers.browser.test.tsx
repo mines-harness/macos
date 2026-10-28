@@ -7,11 +7,12 @@ import {
   type ServerConfig,
   type ServerProvider,
 } from "@t3tools/contracts";
-import { Atom } from "effect/reactivity";
+import { RegistryContext } from "@effect/atom-react";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { render } from "../../../test/render";
+import { act, render } from "../../../test/render";
 
 const state = vi.hoisted(() => ({
   providers: null as Atom.Atom<readonly ServerProvider[]> | null,
@@ -100,28 +101,34 @@ function provider(instanceId: string, driver: string, enabled = false): ServerPr
 
 it("uses every detected account even when another provider is filtered out", async () => {
   setup();
+  const registry = AtomRegistry.make();
+  using _registry = { [Symbol.dispose]: () => registry.dispose() };
+  const config = Atom.make<Pick<ServerConfig, "settings"> | null>(null);
+  state.config = config;
   state.providers = Atom.make([
     provider("opencode", "opencode"),
     provider("opencode_work", "opencode"),
     provider("cursor", "cursor"),
     { ...provider("grok", "grok"), auth: { status: "unknown" as const } },
   ]);
-  await using screen = await render(wizard());
+  await using screen = await render(<RegistryContext value={registry}>{wizard()}</RegistryContext>);
   await userEvent.fill(page.getByRole("searchbox", { name: "Search providers" }), "OpenCode");
-  state.config = Atom.make({
-    settings: {
-      ...DEFAULT_SERVER_SETTINGS,
-      providerInstances: {
-        opencode: {
-          driver: ProviderDriverKind.make("opencode"),
-          enabled: false,
-          displayName: "Personal",
-          config: { enabled: false, binaryPath: "/native/opencode" },
+  await act(() =>
+    registry.set(config, {
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          opencode: {
+            driver: ProviderDriverKind.make("opencode"),
+            enabled: false,
+            displayName: "Personal",
+            config: { enabled: false, binaryPath: "/native/opencode" },
+          },
         },
       },
-    },
-  });
-  await screen.rerender(wizard());
+    }),
+  );
+  await screen.rerender(<RegistryContext value={registry}>{wizard()}</RegistryContext>);
   await vi.waitFor(() => expect(state.persist).toHaveBeenCalledTimes(3));
   expect(state.persist.mock.calls.map(([mutation]) => mutation.instanceId).toSorted()).toEqual([
     "cursor",
@@ -138,7 +145,7 @@ it("uses every detected account even when another provider is filtered out", asy
       }),
     }),
   );
-  await screen.rerender(wizard());
+  await screen.rerender(<RegistryContext value={registry}>{wizard()}</RegistryContext>);
   expect(state.persist).toHaveBeenCalledTimes(3);
 });
 

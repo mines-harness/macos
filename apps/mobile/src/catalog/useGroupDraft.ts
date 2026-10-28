@@ -15,6 +15,7 @@ export function useGroupDraft(environmentId: string, groupId: string) {
   const accountId = useAtomValue(minesAccountIdAtom) ?? "local-device";
   const key = JSON.stringify([accountId, environmentId, groupId]);
   const [state, setState] = useState<{ key: string; store?: DraftStore; error?: string }>({ key });
+  // oxlint-disable-next-line mines/react-effect-budget -- The encrypted draft store opens asynchronously for the current account and group.
   useEffect(() => {
     let closed = false;
     let pending = stores.get(key);

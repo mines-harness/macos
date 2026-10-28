@@ -46,6 +46,7 @@ export function useMinesCatalog() {
     handle?: Handle;
     error: string | null;
   }>({ accountId, catalog: null, error: null });
+  // oxlint-disable-next-line mines/react-effect-budget -- Load encrypted catalog storage when the authenticated account changes.
   useEffect(() => {
     let cancelled = false;
     void openBrowserCatalog(accountId)
@@ -65,6 +66,7 @@ export function useMinesCatalog() {
     };
   }, [accountId]);
   const catalog = state.accountId === accountId ? state.catalog : null;
+  // oxlint-disable-next-line mines/react-effect-budget -- Bind catalog replication to live peer sessions and detach it on account changes.
   useEffect(() => {
     if (!catalog || !peers || accountId === "local-device") return;
     const stops = new Set<() => void>();
@@ -82,6 +84,7 @@ export function useMinesCatalog() {
     };
   }, [catalog, peers, accountId]);
   const handle = state.accountId === accountId ? state.handle : undefined;
+  // oxlint-disable-next-line mines/react-effect-budget -- Execution commands need the active account's catalog and persistence flush registered.
   useEffect(() => {
     if (!catalog || !handle) return;
     return registerCatalogExecutionSource(appAtomRegistry, accountId, catalog, handle.flush);

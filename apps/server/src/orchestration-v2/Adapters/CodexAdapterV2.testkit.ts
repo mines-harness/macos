@@ -14,6 +14,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../../config.ts";
+import { buildCodexInitializeParams } from "../../provider/CodexProvider.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { ProviderAdapterDriverCreateError } from "@t3tools/provider-core/server/adapterDriver";
@@ -185,10 +186,37 @@ export function layer(input: {
   readonly transcript: CodexReplay.CodexAppServerReplayTranscript;
   readonly driver?: CodexReplay.CodexAppServerReplayDriver;
 }) {
+  const clientInfo = buildCodexInitializeParams().clientInfo;
+  const transcript = {
+    ...input.transcript,
+    entries: input.transcript.entries.map((entry) => {
+      if (entry.type !== "expect_outbound") return entry;
+      const frame = entry.frame;
+      if (
+        !Predicate.isObject(frame) ||
+        frame.method !== "initialize" ||
+        !Predicate.isObject(frame.params) ||
+        !Predicate.isObject(frame.params.clientInfo)
+      )
+        return entry;
+      const recorded = frame.params.clientInfo;
+      if (recorded.name !== "T3 Code" || recorded.title !== "T3 Code") return entry;
+      return {
+        ...entry,
+        frame: {
+          ...frame,
+          params: {
+            ...frame.params,
+            clientInfo: { ...recorded, name: clientInfo.name, title: clientInfo.title },
+          },
+        },
+      };
+    }),
+  };
   const layerReplay =
     input.driver === undefined
-      ? CodexReplay.layerReplay(input.transcript)
-      : CodexReplay.layerReplayWithDriver(input.driver);
+      ? CodexReplay.layerReplay(transcript)
+      : CodexReplay.layerReplayWithDriver({ ...input.driver, transcript });
   const layerReplayClientFactory = Layer.succeed(CodexAdapterV2.CodexAppServerClientFactory, {
     open: (openInput) =>
       Effect.gen(function* () {

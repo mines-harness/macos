@@ -132,7 +132,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     const workflow = appAtomRegistry.get(draftWorkflowAtom(routeThreadKey));
     if (workflow !== "compare") {
       const originalDraft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
-      try {
+      await (async () => {
         // The upload promise was started by the composer; observe failures even when groups reject attachments.
         void attachmentsPromise.catch(() => undefined);
         if (sendSnapshot.attachments.length > 0)
@@ -259,17 +259,19 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
             },
           });
         }
-      } catch (error) {
-        setThreadError(
-          threadId,
-          error instanceof Error
-            ? error.message
-            : "The group could not be started. Created mines remain in your library; retry resumes preparation.",
-        );
-      } finally {
-        sendInFlightRef.current = false;
-        resetLocalDispatch();
-      }
+      })()
+        .catch((error: unknown) => {
+          setThreadError(
+            threadId,
+            error instanceof Error
+              ? error.message
+              : "The group could not be started. Created mines remain in your library; retry resumes preparation.",
+          );
+        })
+        .finally(() => {
+          sendInFlightRef.current = false;
+          resetLocalDispatch();
+        });
       return;
     }
     const failedSelections: ModelSelection[] = [];

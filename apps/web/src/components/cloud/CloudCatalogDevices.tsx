@@ -25,11 +25,13 @@ export function CloudCatalogDevices({
     })),
   );
   const previousAccounts = useRef(accountState);
+  // oxlint-disable-next-line mines/react-effect-budget -- Provider account changes invalidate the host's cloud-device snapshot.
   useEffect(() => {
     if (previousAccounts.current === accountState) return;
     previousAccounts.current = accountState;
     refresh();
   }, [accountState, refresh]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Host cloud-device snapshots must synchronize into the shared catalog.
   useEffect(() => {
     const data = snapshot.data;
     if (!data?.checkedAt || snapshot.error) return;

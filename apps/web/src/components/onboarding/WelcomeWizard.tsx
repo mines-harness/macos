@@ -559,7 +559,7 @@ function ConnectedAgentsStep({
     void (async () => {
       await Promise.all(
         accounts.map(async (provider) => {
-          try {
+          await (async () => {
             if (!readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
             const instance = serverConfig.settings.providerInstances[provider.instanceId] ?? {
               driver: provider.driver,
@@ -581,7 +581,7 @@ function ConnectedAgentsStep({
               },
             });
             if (result._tag !== "Success") throw squashAtomCommandFailure(result);
-          } catch (cause) {
+          })().catch((cause: unknown) => {
             const message =
               cause instanceof Error ? cause.message : "Could not connect this account.";
             setAccountErrors((current) => ({ ...current, [provider.instanceId]: message }));
@@ -590,7 +590,7 @@ function ConnectedAgentsStep({
               title: "Could not connect saved account",
               description: message,
             });
-          }
+          });
         }),
       );
       await refreshProviders({ environmentId, input: {} });
@@ -1322,7 +1322,7 @@ function ImportStep({
     }
     setIsImporting(true);
     setImportError("");
-    try {
+    await (async () => {
       backgroundImports.enqueue(
         selection.map((candidate) => {
           const existingProjectId = resolveOnboardingProjectId(
@@ -1369,11 +1369,11 @@ function ImportStep({
         `${selectedCounts.conversations} conversations${selectedCounts.subagents ? ` and ${selectedCounts.subagents} subagents` : ""} queued in the background. Open Imports in Settings to see progress or pause. Keep mines running; after quitting, resume from the saved batch.`,
         0,
       );
-    } catch (cause) {
-      setImportError(cause instanceof Error ? cause.message : "Could not save the import queue.");
-    } finally {
-      setIsImporting(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setImportError(cause instanceof Error ? cause.message : "Could not save the import queue.");
+      })
+      .finally(() => setIsImporting(false));
   };
 
   if (scans.every((scan) => scan.data === null) && scans.some((scan) => scan.isPending)) {

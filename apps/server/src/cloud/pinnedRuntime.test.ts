@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -493,14 +494,17 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
         const path = yield* Path.Path;
         const { baseDir, versionsDir } = yield* setup(["1.0.0", "1.1.0"]);
         const entry = path.join(versionsDir, "1.0.0", "mines");
-        yield* fs.copyFile("/bin/sleep", entry);
+        yield* fs.copyFile("/bin/cat", entry);
         yield* fs.chmod(entry, 0o755);
         const link = path.join(baseDir, "mines");
         yield* fs.symlink(entry, link);
         // Its argv names only the link, as with `mines serve` run from PATH. Removing the link after
         // spawning leaves the process's executable as the only reference.
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        yield* spawner.spawn(ChildProcess.make(link, ["-e", "setTimeout(() => {}, 30_000)"]));
+        const process = yield* spawner.spawn(
+          ChildProcess.make(link, [], { stdin: { stream: Stream.never, endOnDone: true } }),
+        );
+        assert.isTrue(yield* process.isRunning);
         yield* fs.remove(link);
 
         const removed = yield* prunePinnedRuntimes({ baseDir, keep: ["2.0.0"] }).pipe(

@@ -1,10 +1,6 @@
 <p align="center">
-  <img src="assets/mines/icon-256.png" width="96" height="96" alt="Mines pixel mine icon" />
+  <img src="https://raw.githubusercontent.com/mines-harness/.github/main/profile/mines-banner.png" width="100%" alt="mines — Your agents. Your subscriptions. Your computers." />
 </p>
-
-<h1 align="center">mines</h1>
-
-<p align="center">Your coding agents. Your subscriptions. Your computers.</p>
 
 <p align="center">
   <a href="https://github.com/mines-harness/macos/releases">Releases</a> ·
@@ -18,10 +14,6 @@ Mines is an open-source workspace for coding agents, available as an Electron de
 Built on [T3 Code](https://github.com/pingdotgg/t3code), with provider adapters for Codex, Claude Code, Cursor, Grok, OpenCode, and Antigravity. Provider features depend on the runtime and account you connect.
 
 ## A look inside
-
-![Mines web composer with separate model, device, and effort controls](assets/showcase/web-composer.png)
-
-Web development capture with an example unsent draft.
 
 <p align="center">
   <img src="assets/showcase/ios-library.png" width="250" alt="Mines library in an iOS simulator preview, with no host connected" />

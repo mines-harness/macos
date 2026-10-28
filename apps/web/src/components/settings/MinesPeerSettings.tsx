@@ -45,6 +45,15 @@ function failureMessage(error: unknown): string {
   return error instanceof Error ? error.message : "The device request could not be completed.";
 }
 
+function reviewPeerApproval(code: string, currentDeviceId: string | undefined) {
+  const device = decodePeerApproval(code);
+  if (device.deviceId === currentDeviceId)
+    throw new Error(
+      "This is the current computer's code. Paste the code shown on the other device.",
+    );
+  return device;
+}
+
 const noAccountDirectory = {
   data: null,
   isPending: false,
@@ -126,15 +135,13 @@ function PeerSettingsContent({
     if (checkingDevice || busy || !canCheck) return;
     setCheckingDevice(deviceId);
     setError(null);
-    try {
+    await (async () => {
       const result = await check({ environmentId, input: { deviceId } });
       if (result._tag !== "Success") throw squashAtomCommandFailure(result);
       deviceStatus.refresh();
-    } catch (cause) {
-      setError(failureMessage(cause));
-    } finally {
-      setCheckingDevice(null);
-    }
+    })()
+      .catch((cause: unknown) => setError(failureMessage(cause)))
+      .finally(() => setCheckingDevice(null));
   };
   const statusById = new Map(
     deviceStatus.data?.devices.map((status) => [status.device.deviceId, status]),
@@ -150,12 +157,7 @@ function PeerSettingsContent({
     ) ?? [];
   const prepareApproval = () => {
     try {
-      const device = decodePeerApproval(approvalCode);
-      if (device.deviceId === trust.data?.device.deviceId) {
-        throw new Error(
-          "This is the current computer's code. Paste the code shown on the other device.",
-        );
-      }
+      const device = reviewPeerApproval(approvalCode, trust.data?.device.deviceId);
       setCandidate(device);
       setError(null);
     } catch (cause) {
@@ -164,10 +166,13 @@ function PeerSettingsContent({
     }
   };
   const createPairing = async (device: PeerDevice, approveFirst: boolean) => {
-    if (!trust.data || !connection.data?.online || !connection.data.controlUrl) return;
+    const host = trust.data?.device;
+    const connectionState = connection.data;
+    const controlUrl = connectionState?.controlUrl;
+    if (!host || !connectionState?.online || !controlUrl) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       if (approveFirst) {
         const result = await approve({ environmentId, input: { device } });
         if (result._tag !== "Success") throw squashAtomCommandFailure(result);
@@ -183,9 +188,9 @@ function PeerSettingsContent({
       const expiresAt = DateTime.formatIso(grant.expiresAt);
       const value = encodePeerPairing({
         version: 1,
-        host: trust.data.device,
-        controlUrl: connection.data.controlUrl,
-        stunServers: connection.data.stunServers,
+        host,
+        controlUrl,
+        stunServers: connectionState.stunServers,
         environmentId,
         pairingToken: grant.credential,
         expiresAt,
@@ -199,16 +204,14 @@ function PeerSettingsContent({
       });
       setCandidate(null);
       setApprovalCode("");
-    } catch (cause) {
-      setError(failureMessage(cause));
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => setError(failureMessage(cause)))
+      .finally(() => setBusy(false));
   };
   const revokeDevice = async (deviceId: string) => {
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const result = await revoke({ environmentId, input: { deviceId } });
       if (result._tag !== "Success") throw squashAtomCommandFailure(result);
       if (pairing?.deviceId === deviceId) {
@@ -216,16 +219,14 @@ function PeerSettingsContent({
         setPairing(null);
       }
       trust.refresh();
-    } catch (cause) {
-      setError(failureMessage(cause));
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => setError(failureMessage(cause)))
+      .finally(() => setBusy(false));
   };
   const disableAccess = async () => {
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       let preferenceSaved = true;
       const { accountId, controlUrl } = connection.data ?? {};
       if (accountId && controlUrl) {
@@ -244,11 +245,9 @@ function PeerSettingsContent({
         throw new Error(
           "Device access is disabled, but this preference could not be saved. Allow local storage before restarting Mines.",
         );
-    } catch (cause) {
-      setError(failureMessage(cause));
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => setError(failureMessage(cause)))
+      .finally(() => setBusy(false));
   };
 
   return (
@@ -528,7 +527,7 @@ function PeerConfigureControls({
   const enable = async () => {
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       if (!userId)
         throw new Error("Sign in to your mines account before registering this computer.");
       const token = await getToken();
@@ -548,11 +547,9 @@ function PeerConfigureControls({
         true,
       );
       onConfigured();
-    } catch (cause) {
-      setError(failureMessage(cause));
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => setError(failureMessage(cause)))
+      .finally(() => setBusy(false));
   };
   return (
     <div className="space-y-3">

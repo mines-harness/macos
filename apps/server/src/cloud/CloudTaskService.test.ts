@@ -94,6 +94,7 @@ const fixture = Effect.fn("test.cloudFixture")(function* (
         [claudeId]: {
           driver: ProviderDriverKind.make("claudeAgent"),
           displayName: "Work",
+          enabled: true,
           config: { binaryPath: "claude", homePath: "/native/claude" },
         },
       },
@@ -229,6 +230,28 @@ it.layer(NodeServices.layer)("CloudTaskService", (it) => {
         const linked = yield* service.link({ targetId: codexTarget, url: codexUrl });
         expect(linked.status).toBe("linked");
         expect(calls.some((call) => call.env?.CODEX_HOME === "/native/codex")).toBe(false);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("does not launch cloud work for an explicitly disabled Claude account", () =>
+    Effect.gen(function* () {
+      const { layer, cwd, calls } = yield* fixture(undefined, false, {
+        providerInstances: {
+          [claudeId]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            enabled: false,
+            config: { binaryPath: "claude", homePath: "/native/claude" },
+          },
+        },
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* CloudTaskService.CloudTaskService;
+        const failure = yield* service
+          .submit({ requestId: "disabled", targetId: claudeTarget, cwd, prompt: "Do not launch" })
+          .pipe(Effect.flip);
+        expect(failure.reason).toBe("target-unavailable");
+        expect(calls).toEqual([]);
       }).pipe(Effect.provide(layer));
     }),
   );

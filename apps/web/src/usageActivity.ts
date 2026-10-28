@@ -27,6 +27,7 @@ function updateSnapshot(at: number) {
 }
 
 export function useTrackAppActivity(enabled: boolean) {
+  // oxlint-disable-next-line mines/react-effect-budget -- Persist activity from browser focus, visibility, storage, and page-lifecycle events.
   useEffect(() => {
     if (!enabled) return;
     ledger = readLedger();

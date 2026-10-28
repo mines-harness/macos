@@ -15,6 +15,7 @@ import { SidebarMenuButton } from "../ui/sidebar";
 
 /** Pauses durable metadata on process exit, without tying requests to a view lifetime. */
 export function BackgroundImportCoordinator() {
+  // oxlint-disable-next-line mines/react-effect-budget -- Pause durable import metadata when the browser emits its unload event.
   useEffect(() => {
     const beforeUnload = () => {
       try {

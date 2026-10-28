@@ -786,16 +786,28 @@ describe("V2 history materialization", () => {
   it.effect("enforces fallback item and byte limits and always admits an oversized row", () =>
     Effect.gen(function* () {
       const projection = yield* setup;
-      yield* putItems(
-        Array.from({ length: 80 }, (_, ordinal) =>
-          item(`row:${ordinal}`, ordinal, ordinal < 78 ? "small" : "large ".repeat(200_000)),
-        ),
+      const items = Array.from({ length: 80 }, (_, ordinal) =>
+        ordinal < 78
+          ? item(`row:${ordinal}`, ordinal, "small")
+          : {
+              ...item(`row:${ordinal}`, ordinal, ""),
+              type: "command_execution" as const,
+              input: "large ".repeat(200_000),
+              exitCode: 0,
+            },
       );
+      yield* putItems(items);
       const snapshot = yield* projection.getThreadSnapshot(threadId);
       const rows = snapshot.projection.visibleTurnItems.map((row) => ({
         ...row,
         item: projectTurnItemForWire(row.item),
       }));
+      for (const row of rows.slice(-2)) {
+        assert.isAbove(
+          Buffer.byteLength(JSON.stringify(row), "utf8"),
+          THREAD_HISTORY_PAGE_POLICY.maxEncodedBytes,
+        );
+      }
       let cursor: string | null = encodeThreadHistoryCursor({
         snapshotSequence: snapshot.snapshotSequence,
         sourceThreadId: threadId,
@@ -803,6 +815,7 @@ describe("V2 history materialization", () => {
         position: rows.length,
       });
       const sizes: number[] = [];
+      const collected: string[] = [];
       while (cursor !== null) {
         const page: OrchestrationV2ThreadHistoryPage = yield* projection.getThreadHistoryPage(
           threadId,
@@ -816,10 +829,21 @@ describe("V2 history materialization", () => {
             snapshotSequence: snapshot.snapshotSequence,
           }),
         });
+        assert.isAtMost(page.items.length, THREAD_HISTORY_PAGE_POLICY.maxItems);
+        assert.isTrue(
+          page.items.length === 1 ||
+            Buffer.byteLength(JSON.stringify(page.items), "utf8") <=
+              THREAD_HISTORY_PAGE_POLICY.maxEncodedBytes,
+        );
         sizes.push(page.items.length);
+        collected.unshift(...page.items.map((row) => String(row.sourceItemId)));
         cursor = page.nextCursor;
       }
       assert.deepEqual(sizes, [1, 1, 75, 3]);
+      assert.deepEqual(
+        collected,
+        items.map((entry) => String(entry.id)),
+      );
     }).pipe(Effect.provide(layerTest)),
   );
 });

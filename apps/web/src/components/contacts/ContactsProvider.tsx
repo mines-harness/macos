@@ -40,6 +40,7 @@ export function ContactsProvider({ children }: { readonly children: ReactNode })
   const refreshOnFocus = useEffectEvent(() => {
     if (!state?.busy) setRevision((value) => value + 1);
   });
+  // oxlint-disable-next-line mines/react-effect-budget -- Load account contacts from the control service and refresh them on window focus.
   useEffect(() => {
     if (!accountId || !controlUrl) return;
     let active = true;

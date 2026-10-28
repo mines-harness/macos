@@ -121,16 +121,20 @@ describe("resolveProjectSettings", () => {
 
   it("moves text generation off an instance the project turned off", () => {
     const codex = ProviderInstanceId.make("codex");
+    const claude = ProviderInstanceId.make("claudeAgent");
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,
       textGenerationModelSelection: createModelSelection(codex, "gpt-5"),
+      providerInstances: {
+        [claude]: { driver: ProviderDriverKind.make("claudeAgent"), enabled: true },
+      },
       projectSettingsOverrides: {
         [projectId]: { providerInstances: { [codex]: { enabled: false } } },
       },
     };
     expect(
       resolveProjectSettings(settings, projectId).settings.textGenerationModelSelection.instanceId,
-    ).toBe(ProviderInstanceId.make("claudeAgent"));
+    ).toBe(claude);
     expect(
       resolveProjectSettings(settings, otherProjectId).settings.textGenerationModelSelection,
     ).toEqual(settings.textGenerationModelSelection);

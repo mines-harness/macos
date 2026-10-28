@@ -48,14 +48,14 @@ export function AuthorizedClientsSettings() {
     if (!readEnvironmentScope(environmentId, AuthAccessWriteScope) || pending) return;
     setPending(true);
     setError(null);
-    try {
+    await (async () => {
       await action();
       access.refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not revoke access.");
-    } finally {
-      setPending(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "Could not revoke access.");
+      })
+      .finally(() => setPending(false));
   };
   return (
     <SettingsSection

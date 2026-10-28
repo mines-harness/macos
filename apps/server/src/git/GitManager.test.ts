@@ -2419,6 +2419,13 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
 
       const { manager } = yield* makeManager({
         serverSettings: {
+          providerInstances: {
+            [ProviderInstanceId.make("claudeAgent")]: {
+              driver: ProviderDriverKind.make("claudeAgent"),
+              enabled: true,
+              config: {},
+            },
+          },
           textGenerationModelSelection: {
             instanceId: ProviderInstanceId.make("claudeAgent"),
             model: "claude-sonnet-4-5",

@@ -21,6 +21,21 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
+function reviewGroupHostPairing(
+  code: string,
+  environmentId: EnvironmentId,
+  controlUrl: string | null | undefined,
+) {
+  const decoded = decodePeerPairing(code, Math.floor(Date.now() / 1000));
+  if (decoded.environmentId === environmentId)
+    throw new Error("Use a pairing code from another computer.");
+  if (new URL(decoded.controlUrl).origin !== (controlUrl ? new URL(controlUrl).origin : null))
+    throw new Error(
+      "Both computers must use the same account server. Configure direct access above first.",
+    );
+  return decoded;
+}
+
 export function GroupHostRoutesSettings() {
   const primary = usePrimaryEnvironment();
   const id = primary?.environmentId ?? null;
@@ -49,16 +64,7 @@ function GroupHostRoutesContent({ environmentId }: { readonly environmentId: Env
     );
   const review = () => {
     try {
-      const decoded = decodePeerPairing(code, Math.floor(Date.now() / 1000));
-      if (decoded.environmentId === environmentId)
-        throw new Error("Use a pairing code from another computer.");
-      if (
-        new URL(decoded.controlUrl).origin !==
-        (signaling.data?.controlUrl ? new URL(signaling.data.controlUrl).origin : null)
-      )
-        throw new Error(
-          "Both computers must use the same account server. Configure direct access above first.",
-        );
+      const decoded = reviewGroupHostPairing(code, environmentId, signaling.data?.controlUrl);
       setCandidate(decoded);
       setError(null);
       setConnected(null);
@@ -71,7 +77,7 @@ function GroupHostRoutesContent({ environmentId }: { readonly environmentId: Env
     if (!candidate) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const approval = await approve({ environmentId, input: { device: candidate.host } });
       if (approval._tag !== "Success") throw squashAtomCommandFailure(approval);
       const result = await connect({
@@ -88,27 +94,23 @@ function GroupHostRoutesContent({ environmentId }: { readonly environmentId: Env
       setCode("");
       routes.refresh();
       trust.refresh();
-    } catch (cause) {
-      report(cause);
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch(report)
+      .finally(() => setBusy(false));
   };
   const remove = async (remoteEnvironmentId: EnvironmentId) => {
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const result = await disconnect({
         environmentId,
         input: { environmentId: remoteEnvironmentId },
       });
       if (result._tag !== "Success") throw squashAtomCommandFailure(result);
       routes.refresh();
-    } catch (cause) {
-      report(cause);
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch(report)
+      .finally(() => setBusy(false));
   };
   return (
     <SettingsSection id="group-host-routes" title="Groups across computers">

@@ -76,6 +76,7 @@ function ThisComputerAccessContent({
   const updating =
     useAtomValue(serverEnvironment.updateStateAtom(environmentId)).status === "running";
   const currentAccount = useRef(userId);
+  // oxlint-disable-next-line mines/react-effect-budget -- Pending host configuration requests must reject a switched account.
   useEffect(() => {
     currentAccount.current = userId;
   }, [userId]);
@@ -91,6 +92,7 @@ function ThisComputerAccessContent({
   const [error, setError] = useState<string | null>(null);
   const reportIdentity = useEffectEvent((deviceId: string) => onIdentity?.(deviceId));
   const deviceId = trust.data?.device.deviceId;
+  // oxlint-disable-next-line mines/react-effect-budget -- Publish authenticated host identity changes to the surrounding settings device list.
   useEffect(() => {
     if (deviceId) reportIdentity(deviceId);
   }, [deviceId]);
@@ -106,6 +108,7 @@ function ThisComputerAccessContent({
     trust.refresh();
     connection.refresh();
   });
+  // oxlint-disable-next-line mines/react-effect-budget -- Refresh host trust and pairing requests while this settings view is visible.
   useEffect(() => {
     if (!configured || !isSignedIn) return;
     const interval = setInterval(refreshVisible, 10_000);
@@ -120,7 +123,7 @@ function ThisComputerAccessContent({
     if (busy) return;
     setBusy("access");
     setError(null);
-    try {
+    await (async () => {
       if (enabled) {
         const controlUrl = minesControlUrl();
         const accountId = userId;
@@ -159,18 +162,18 @@ function ThisComputerAccessContent({
           );
       }
       refresh();
-    } catch {
-      setError("Device access could not be updated. Try again.");
-      refresh();
-    } finally {
-      setBusy(null);
-    }
+    })()
+      .catch(() => {
+        setError("Device access could not be updated. Try again.");
+        refresh();
+      })
+      .finally(() => setBusy(null));
   };
   const answerRequest = async (code: string, accept: boolean) => {
     if (busy) return;
     setBusy(code);
     setError(null);
-    try {
+    await (async () => {
       const scopes = AuthStandardClientScopes.filter((scope) =>
         readEnvironmentScope(environmentId, scope),
       );
@@ -180,26 +183,24 @@ function ThisComputerAccessContent({
         : await deny({ environmentId, input: { code } });
       if (result._tag !== "Success") throw squashAtomCommandFailure(result);
       refresh();
-    } catch {
-      setError("This request could not be updated. Refresh and try again.");
-      requests.refresh();
-    } finally {
-      setBusy(null);
-    }
+    })()
+      .catch(() => {
+        setError("This request could not be updated. Refresh and try again.");
+        requests.refresh();
+      })
+      .finally(() => setBusy(null));
   };
   const revokeAccess = async (deviceId: string) => {
     if (busy) return;
     setBusy(deviceId);
     setError(null);
-    try {
+    await (async () => {
       const result = await revoke({ environmentId, input: { deviceId } });
       if (result._tag !== "Success") throw squashAtomCommandFailure(result);
       refresh();
-    } catch {
-      setError("Access could not be revoked. Try again.");
-    } finally {
-      setBusy(null);
-    }
+    })()
+      .catch(() => setError("Access could not be revoked. Try again."))
+      .finally(() => setBusy(null));
   };
   const accountMatches = connection.data?.accountId === userId;
   const approved = trust.data?.approvedDevices ?? [];

@@ -26,6 +26,7 @@ export function PeerAccountBridge({ children }: { readonly children: ReactNode }
   const { isLoaded, isSignedIn, userId, getToken } = useMinesAccount();
   const restore = useAtomCommand(restorePeerRoutes, { reportFailure: false });
   const accountId = isLoaded && isSignedIn ? (userId ?? null) : null;
+  // oxlint-disable-next-line mines/react-effect-budget -- Account changes must rebind peer routes and reset the external catalog identity registry.
   useLayoutEffect(() => {
     let active = true;
     appAtomRegistry.set(minesAccountEnvironmentIdsAtom, new Set());
@@ -89,6 +90,7 @@ function PeerPairingAccount({ scannedCode }: { readonly scannedCode: string }) {
   const [previewAt] = useState(() => Date.now() / 1000);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // oxlint-disable-next-line mines/react-effect-budget -- This screen loads the account's approval identity from device secure storage.
   useEffect(() => {
     let active = true;
     if (!isSignedIn || !userId) return;

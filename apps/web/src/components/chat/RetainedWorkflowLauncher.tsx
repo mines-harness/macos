@@ -79,6 +79,7 @@ export function RetainedWorkflowLauncher({
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
   const mounted = useRef(true);
+  // oxlint-disable-next-line mines/react-effect-budget -- Pending host-launch callbacks must stop updating this view after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -147,6 +148,7 @@ export function RetainedWorkflowLauncher({
     }
     setOpen(true);
   };
+  // oxlint-disable-next-line mines/react-effect-budget -- Register this composer's launcher in the shared command registry for keyboard actions.
   useEffect(() => {
     const atom = workflowLauncherHandlerAtom(routeThreadKey);
     const handler = { open: openLauncher };
@@ -161,7 +163,7 @@ export function RetainedWorkflowLauncher({
     sending.current = true;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const original = useComposerDraftStore.getState().getComposerDraft(composerTarget);
       if (!original?.prompt.trim()) throw new Error("Write your message in the composer first.");
       if (original.images.length || original.files.length || original.persistedAttachments.length)
@@ -315,13 +317,15 @@ export function RetainedWorkflowLauncher({
           title: "Your group is ready",
           actionProps: { children: "Open group", onClick: () => void openGroup() },
         });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      sending.current = false;
-      setBusy(false);
-      setProgress("");
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        sending.current = false;
+        setBusy(false);
+        setProgress("");
+      });
   };
   return (
     <>

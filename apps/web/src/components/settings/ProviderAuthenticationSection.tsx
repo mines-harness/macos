@@ -196,6 +196,7 @@ export function ProviderAuthenticationSection({
     void openBrowser(tab);
   });
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Close the external sign-in tab when its owning settings view unmounts.
   useEffect(() => {
     return () => {
       browserRequest.current?.tab?.close();
@@ -203,6 +204,7 @@ export function ProviderAuthenticationSection({
     };
   }, []);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Synchronize the external browser tab with the provider's asynchronous auth-flow state.
   useEffect(() => {
     const request = browserRequest.current;
     if (!request) return;

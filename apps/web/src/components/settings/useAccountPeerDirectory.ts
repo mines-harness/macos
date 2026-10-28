@@ -23,6 +23,7 @@ export function useAccountPeerDirectory() {
   });
   const requestKey = JSON.stringify([accountId, controlUrl, revision]);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Fetch control-service device presence for the current account and refresh revision.
   useEffect(() => {
     if (!accountId || !controlUrl) return;
     let active = true;

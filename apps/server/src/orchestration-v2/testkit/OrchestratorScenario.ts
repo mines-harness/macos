@@ -321,39 +321,17 @@ export function runOrchestratorV2Scenario(
           return yield* waitForPendingRuntimeRequest(threadId, attemptsRemaining - 1, deadlineAt);
         });
 
-      const waitForThreadIdle = (
+      const waitForThreadIdle = Effect.fn("OrchestratorScenario.waitForThreadIdle")(function* (
         threadId: ThreadId,
-        attemptsRemaining = SCENARIO_WAIT_ATTEMPTS,
-        deadlineAt = scenarioWaitDeadline(),
-      ): Effect.Effect<
-        void,
-        Orchestrator.OrchestratorV2Error | OrchestratorV2ScenarioStepError,
-        never
-      > =>
-        Effect.gen(function* () {
-          const projection = yield* orchestrator.getThreadProjection(threadId);
-          if (!hasActiveRun(projection)) {
-            return;
-          }
-          if (scenarioWaitExhausted(attemptsRemaining, deadlineAt)) {
-            const activeRuns = projection.runs
-              .filter((run) =>
-                ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
-              )
-              .map((run) => `${run.id}:${run.status}`)
-              .join(",");
-            const pendingRequests = projection.runtimeRequests
-              .filter((request) => request.status === "pending")
-              .map((request) => `${request.id}:${request.kind}`)
-              .join(",");
-            return yield* new OrchestratorV2ScenarioStepError({
-              scenario: scenario.name,
-              step: `await_thread_idle:${threadId}:runs=${activeRuns}:requests=${pendingRequests}`,
-            });
-          }
-          yield* yieldToRuntime;
-          return yield* waitForThreadIdle(threadId, attemptsRemaining - 1, deadlineAt);
-        });
+      ) {
+        const afterSequence = yield* orchestrator.getThreadEventSequence(threadId);
+        if (!hasActiveRun(yield* orchestrator.getThreadProjection(threadId))) return;
+        yield* orchestrator.streamStoredEventsFrom({ afterSequence, threadId }).pipe(
+          Stream.mapEffect(() => orchestrator.getThreadProjection(threadId)),
+          Stream.takeUntil((projection) => !hasActiveRun(projection)),
+          Stream.runDrain,
+        );
+      });
 
       const waitForNoBackgroundWork = (
         threadId: ThreadId,

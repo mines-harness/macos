@@ -54,18 +54,18 @@ function AccountForm({ onClose }: { readonly onClose: () => void }) {
     setBusy(true);
     setError(null);
     setMessage(null);
-    try {
+    await (async () => {
       await operation();
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "The account request could not be completed.",
-      );
-      setVerificationNeeded(
-        cause instanceof MinesAccountError && cause.code === "EMAIL_NOT_VERIFIED",
-      );
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(
+          cause instanceof Error ? cause.message : "The account request could not be completed.",
+        );
+        setVerificationNeeded(
+          cause instanceof MinesAccountError && cause.code === "EMAIL_NOT_VERIFIED",
+        );
+      })
+      .finally(() => setBusy(false));
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

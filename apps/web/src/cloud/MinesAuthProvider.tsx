@@ -117,6 +117,7 @@ export function MinesAuthProvider({ children }: { readonly children: ReactNode }
     setLoaded(true);
   });
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Restore the persisted control-service session and watch cross-window account changes.
   useEffect(() => {
     let active = true;
     const restore = async () => {

@@ -42,14 +42,19 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       channel: ${{ steps.meta.outputs.channel }}
     steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          persist-credentials: false
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
+      # Action credential cleanup traverses orphaned gitlinks even with sparse checkout.
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
       - name: Resolve version and require successful CI
         id: meta
         uses: actions/github-script@v8
@@ -133,14 +138,18 @@ jobs:
     needs: source
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.source.outputs.commit }}
-          persist-credentials: false
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ needs.source.outputs.commit }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
       - uses: ./.github/actions/setup-ci-deps
       - uses: ./.github/actions/setup-apt-mirrors
       - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
@@ -268,14 +277,18 @@ jobs:
       contents: write
       actions: read
     steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.source.outputs.commit }}
-          persist-credentials: false
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
+      - name: Checkout
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ needs.source.outputs.commit }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
       - uses: ./.github/actions/setup-ci-deps
       - uses: actions/download-artifact@v8
         with:

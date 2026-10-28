@@ -89,6 +89,7 @@ function MobileCatalogContextEditor({
     reportDefect: false,
   });
   const selectionGeneration = useRef(0);
+  // oxlint-disable-next-line mines/react-effect-budget -- Unmounting must invalidate outstanding device metadata requests before they update the draft.
   useEffect(
     () => () => {
       selectionGeneration.current += 1;

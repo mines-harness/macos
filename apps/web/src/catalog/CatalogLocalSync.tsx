@@ -31,6 +31,35 @@ const subscription = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRu
   tag: WS_METHODS.catalogSubscribe,
   idleTtlMs: 0,
 });
+
+function createCatalogPump(
+  isClosed: () => boolean,
+  synchronize: () => Promise<void>,
+  reportError: () => void,
+) {
+  let running = false;
+  let dirty = false;
+  return async () => {
+    dirty = true;
+    if (running) return;
+    running = true;
+    try {
+      while (dirty) {
+        if (isClosed()) return;
+        dirty = false;
+        try {
+          await synchronize();
+        } catch {
+          if (!isClosed()) reportError();
+          return;
+        }
+      }
+    } finally {
+      running = false;
+    }
+  };
+}
+
 /** The RPC bridge is restricted to the renderer's loopback host. Remote copies use DTLS. */
 export function CatalogLocalSync({
   catalog,
@@ -80,11 +109,10 @@ function LocalHostSync({
   const runExchange = useStableCallback(exchange);
   const reconcile = useRef<(() => void) | null>(null);
   const [error, setError] = useState(false);
+  // oxlint-disable-next-line mines/react-effect-budget -- Replicate catalog updates over the bound host RPC and register its execution barrier.
   useEffect(() => {
     if (!allowed) return;
     let closed = false;
-    let running = false;
-    let dirty = false;
     let remoteVector: Uint8Array | undefined;
     let bound = false;
     let queue = Promise.resolve();
@@ -155,25 +183,11 @@ function LocalHostSync({
         }
       },
     );
-    const pump = async () => {
-      dirty = true;
-      if (running) return;
-      running = true;
-      try {
-        while (dirty) {
-          if (closed) return;
-          dirty = false;
-          try {
-            await synchronize(catalog.encodeStateVector().slice());
-          } catch {
-            if (!closed) setError(true);
-            return;
-          }
-        }
-      } finally {
-        running = false;
-      }
-    };
+    const pump = createCatalogPump(
+      () => closed,
+      () => synchronize(catalog.encodeStateVector().slice()),
+      () => setError(true),
+    );
     reconcile.current = () => {
       void pump();
     };
@@ -188,6 +202,7 @@ function LocalHostSync({
       reconcile.current = null;
     };
   }, [allowed, catalog, accountId, environmentId, identity, runBind, runExchange]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Host subscription notifications trigger reconciliation with the local catalog replica.
   useEffect(() => {
     if (updates.data) reconcile.current?.();
   }, [updates.data]);

@@ -31,6 +31,7 @@ export function HistoryPrefetchCoordinator() {
   const { snapshot, accountId } = useMinesCatalog();
   const threads = useAtomValue(threadsAtom);
   const prefetch = useAtomCommand(threadEnvironment.prefetchHistory, { reportFailure: false });
+  // oxlint-disable-next-line mines/react-effect-budget -- Warm remote history caches for catalog changes and cancel obsolete account requests.
   useEffect(() => {
     let cancelled = false;
     const candidates = historyPrefetchCandidates(snapshot, threads);

@@ -28,11 +28,13 @@ export function useContacts(tab: "contacts" | "threads" = "contacts") {
         : null,
     [controlUrl, getToken, isSignedIn, userId],
   );
+  // oxlint-disable-next-line mines/react-effect-budget -- Unmounting must invalidate outstanding contacts requests and their external subscribers.
   useEffect(() => {
     if (!state) return;
     state.activate();
     return () => state.dispose();
   }, [state]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Activating the contacts tab must refresh the remote account directory.
   useEffect(() => {
     if (active && state) void state.refresh();
   }, [active, state]);

@@ -25,14 +25,14 @@ export function CatalogSectionArchiveDialog({
     if (busy) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       await onArchive(includeContents);
       onClose();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The section could not be archived.");
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "The section could not be archived.");
+      })
+      .finally(() => setBusy(false));
   };
   return (
     <Dialog

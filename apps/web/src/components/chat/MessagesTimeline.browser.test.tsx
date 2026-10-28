@@ -56,6 +56,26 @@ vi.mock(import("~/assets/assetUrls"), async (original) => {
   };
 });
 
+const listLifecycle = vi.hoisted(() => ({
+  deferLoad: false,
+  pendingLoads: [] as Array<() => void>,
+}));
+vi.mock(import("@legendapp/list/react"), async (original) => {
+  const actual = await original();
+  const LegendList = (props: ComponentProps<typeof actual.LegendList>) => (
+    <actual.LegendList
+      {...props}
+      onLoad={(event) => {
+        if (!("elapsedTimeInMs" in event)) return;
+        const deliver = () => props.onLoad?.(event);
+        if (listLifecycle.deferLoad) listLifecycle.pendingLoads.push(deliver);
+        else deliver();
+      }}
+    />
+  );
+  return { ...actual, LegendList: LegendList as typeof actual.LegendList };
+});
+
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const CREATED_AT = "2026-03-17T19:12:28.000Z";
 
@@ -150,6 +170,43 @@ async function click(element: HTMLElement) {
 
 function setup({ scheduledTasks = [] as ReadonlyArray<{ id: string; title: string }> } = {}) {
   environmentQuery.data = { tasks: scheduledTasks };
+  listLifecycle.deferLoad = false;
+  listLifecycle.pendingLoads = [];
+}
+
+function deferListLoad() {
+  listLifecycle.deferLoad = true;
+  return {
+    deliver: () => {
+      const pending = listLifecycle.pendingLoads.splice(0);
+      expect(pending).not.toHaveLength(0);
+      for (const load of pending) load();
+    },
+    [Symbol.dispose]() {
+      listLifecycle.deferLoad = false;
+      listLifecycle.pendingLoads = [];
+    },
+  };
+}
+
+function observeTimelinePositioning() {
+  const held = new Set<symbol>();
+  let started = false;
+  const attach: NonNullable<TimelineProps["onViewportAttach"]> = (viewport) => {
+    const hold = viewport.holdProgrammaticScroll.bind(viewport);
+    const spy = vi.spyOn(viewport, "holdProgrammaticScroll").mockImplementation(() => {
+      const token = Symbol();
+      const release = hold();
+      started = true;
+      held.add(token);
+      return () => {
+        held.delete(token);
+        release();
+      };
+    });
+    return () => spy.mockRestore();
+  };
+  return { attach, held, hasStarted: () => started };
 }
 
 const TASK_ID = ScheduledTaskId.make("task-1");
@@ -224,6 +281,8 @@ describe("MessagesTimeline messages", () => {
 
   it("keeps the first and last message headings reachable from either end", async () => {
     setup();
+    using load = deferListLoad();
+    const positioning = observeTimelinePositioning();
     const props = baseProps();
     // Folded messages at both ends: their headings must not live inside the fold.
     const entries = Array.from({ length: 120 }, (_, index) =>
@@ -242,7 +301,11 @@ describe("MessagesTimeline messages", () => {
             ),
     );
     await using screen = await renderElement(
-      <MessagesTimeline {...props} timelineEntries={entries} />,
+      <MessagesTimeline
+        {...props}
+        timelineEntries={entries}
+        onViewportAttach={positioning.attach}
+      />,
     );
     const headings = () => [...screen.container.querySelectorAll("h3")];
     const headingFor = (text: string) =>
@@ -259,6 +322,7 @@ describe("MessagesTimeline messages", () => {
     };
 
     await vi.waitFor(() => expect(screen.text()).toContain("Turn 118:"));
+    await vi.waitFor(() => expect(listLifecycle.pendingLoads.length).toBeGreaterThan(0));
     expect(screen.text()).not.toContain("Turn 60:");
     // Wrapping follows DOM order, so the ends must also sit first and last.
     await vi.waitFor(() => {
@@ -267,6 +331,13 @@ describe("MessagesTimeline messages", () => {
     });
 
     await expectHeadingInView("First turn", "Turn 1:");
+    await act(() => load.deliver());
+    await vi.waitFor(() => expect(positioning.held.size).toBe(0));
+    expect(screen.text()).toContain("Turn 1:");
+    const firstRow = headingFor("First turn")!.parentElement!.getBoundingClientRect();
+    const view = viewport.getBoundingClientRect();
+    expect(firstRow.top).toBeLessThan(view.bottom);
+    expect(firstRow.bottom).toBeGreaterThan(view.top);
     expect(headingFor("Last turn")).toBeDefined();
     await expectHeadingInView("Last turn", "Turn 118:");
   });
@@ -839,8 +910,28 @@ describe("MessagesTimeline thread find", () => {
 
   it("releases follow once when it mounts on a thread whose find is open", async () => {
     setup();
+    using load = deferListLoad();
+    const positioning = observeTimelinePositioning();
     const { navigations, element } = renderObserved();
-    await using screen = await renderElement(element({ findOpen: true }));
+    await using screen = await renderElement(
+      element({
+        findOpen: true,
+        onViewportAttach: (viewport) => {
+          const stopPositioning = positioning.attach(viewport);
+          const unsubscribe = viewport.subscribe((navigation) => navigations.push(navigation));
+          return () => {
+            unsubscribe();
+            stopPositioning?.();
+          };
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(positioning.hasStarted()).toBe(true);
+      expect(positioning.held.size).toBe(0);
+      expect(listLifecycle.pendingLoads.length).toBeGreaterThan(0);
+    });
+    await act(() => load.deliver());
     await screen.rerender(element({ findOpen: true }));
     expect(navigations).toEqual([released]);
   });

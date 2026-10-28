@@ -29,6 +29,7 @@ export function HistoryPrefetchCoordinator() {
   const { snapshot, accountId } = useMinesCatalog();
   const threads = useAtomValue(threadsAtom);
   const prefetch = useAtomCommand(threadEnvironment.prefetchHistory, { reportFailure: false });
+  // oxlint-disable-next-line mines/react-effect-budget -- Catalog and thread changes schedule bounded history downloads outside render.
   useEffect(() => {
     let cancelled = false;
     const candidates = historyPrefetchCandidates(snapshot, threads);

@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { DEFAULT_MINES_RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -653,7 +654,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         `--property=StandardOutput=append:${plan.logPath}`,
         `--property=StandardError=append:${plan.logPath}`,
         "--setenv=MINES_BOOT_SERVICE_UNIT=",
-        "--setenv=MINES_CLI_RELEASE_BASE_URL=https://github.com/mines-harness/cli/releases/download",
+        `--setenv=MINES_CLI_RELEASE_BASE_URL=https://github.com/${DEFAULT_MINES_RELEASE_REPOSITORY}/releases/download`,
         pinnedRuntimePaths(path, baseDir, "1.2.4", "linux").entryPath,
         "service",
         "install",

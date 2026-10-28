@@ -58,6 +58,20 @@ const collisionDetection: CollisionDetection = (args) => {
     .slice(0, 1);
 };
 
+function finishCatalogDrop(
+  commit: () => void,
+  onError: (message: string | null) => void,
+  clearDrag: () => void,
+) {
+  try {
+    commit();
+  } catch (cause) {
+    onError(cause instanceof Error ? cause.message : "Could not move this item.");
+  } finally {
+    clearDrag();
+  }
+}
+
 export function CatalogDragProvider({
   catalog,
   accountId,
@@ -123,24 +137,24 @@ export function CatalogDragProvider({
       }}
       onDragCancel={() => setDrag(null)}
       onDragEnd={({ over }) => {
-        try {
-          const target = over?.data.current?.target as CatalogDropTarget | undefined;
-          if (drag && target) {
-            if (drag.catalog !== catalog)
-              throw new Error("Your library changed. Start this move again.");
-            commitCatalogDrop(
-              catalog,
-              drag.source,
-              target,
-              registry.get(minesAccountIdAtom) ?? "local-device",
-            );
-            onError(null);
-          }
-        } catch (cause) {
-          onError(cause instanceof Error ? cause.message : "Could not move this item.");
-        } finally {
-          setDrag(null);
-        }
+        finishCatalogDrop(
+          () => {
+            const target = over?.data.current?.target as CatalogDropTarget | undefined;
+            if (drag && target) {
+              if (drag.catalog !== catalog)
+                throw new Error("Your library changed. Start this move again.");
+              commitCatalogDrop(
+                catalog,
+                drag.source,
+                target,
+                registry.get(minesAccountIdAtom) ?? "local-device",
+              );
+              onError(null);
+            }
+          },
+          onError,
+          () => setDrag(null),
+        );
       }}
     >
       <DragState value={{ accountId, entityId: drag?.source.entityId ?? null, allowed }}>
@@ -181,6 +195,7 @@ export function CatalogDraggableRow({
     data: { source: { entityId, accountId: state?.accountId ?? "" } },
     disabled: disabled ?? false,
   });
+  // oxlint-disable-next-line mines/react-effect-budget -- A dnd-kit drag must suppress the browser's subsequent click for every input method.
   useEffect(() => {
     if (isDragging) suppressClick.current = true;
   }, [isDragging]);

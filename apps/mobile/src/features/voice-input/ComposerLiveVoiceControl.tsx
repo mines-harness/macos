@@ -79,6 +79,7 @@ export function ComposerLiveVoiceControl(props: {
     },
     [onActiveChange, stopRun],
   );
+  // oxlint-disable-next-line mines/react-effect-budget -- Unmounting must close the native media peer and stop its provider run.
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -87,15 +88,18 @@ export function ComposerLiveVoiceControl(props: {
     };
   }, [end]);
   useFocusEffect(useCallback(() => () => end(), [end]));
+  // oxlint-disable-next-line mines/react-effect-budget -- The OS background event must release the live microphone session.
   useEffect(() => {
     const listener = AppState.addEventListener("change", (state) => {
       if (state === "background") end();
     });
     return () => listener.remove();
   }, [end]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Connection, permission, and dictation changes must stop the native voice peer.
   useEffect(() => {
     if (!connected || !permitted || localDictation.isBusy) end();
   }, [connected, permitted, localDictation.isBusy, end]);
+  // oxlint-disable-next-line mines/react-effect-budget -- Server session updates must drive the native WebRTC answer and closure.
   useEffect(() => {
     const current = active.current;
     if (!current?.media || !runId) return;

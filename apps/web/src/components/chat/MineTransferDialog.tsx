@@ -103,7 +103,7 @@ function MineTransferDialog({
     if (!selected || !modelSelection || busy) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const request: MineTransferRequest = pending ?? {
         transferId: randomUUID(),
         threadId: threadRef.threadId,
@@ -123,17 +123,15 @@ function MineTransferDialog({
       setReceipt(result);
       clearPendingMineTransfer(request);
       setPending(null);
-    } catch (cause) {
-      report(cause);
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch(report)
+      .finally(() => setBusy(false));
   };
   const returnToSource = async () => {
     if (!pending || busy) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       await cancelMineTransfer(
         mineTransferClient(pending.sourceEnvironmentId),
         mineTransferClient(pending.destinationEnvironmentId),
@@ -142,11 +140,9 @@ function MineTransferDialog({
       clearPendingMineTransfer(pending);
       setPending(null);
       setProgress(null);
-    } catch (cause) {
-      report(cause);
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch(report)
+      .finally(() => setBusy(false));
   };
   return (
     <Dialog

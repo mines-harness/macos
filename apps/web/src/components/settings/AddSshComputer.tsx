@@ -13,6 +13,7 @@ export function AddSshComputer({ onConnected }: { readonly onConnected: () => vo
   const [hosts, setHosts] = useState<readonly DesktopDiscoveredSshHost[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // oxlint-disable-next-line mines/react-effect-budget -- Discover local SSH configuration through Electron and ignore completion after unmount.
   useEffect(() => {
     let active = true;
     void window.desktopBridge?.discoverSshHosts().then(

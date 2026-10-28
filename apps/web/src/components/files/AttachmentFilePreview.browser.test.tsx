@@ -1915,13 +1915,15 @@ it("reloads a workspace Word file after a preview remount", async () => {
 
 it("clears an Office metadata error when the same URL becomes previewable", async () => {
   const src = "data:application/octet-stream,invalid-office-file";
-  let resolveResponse!: (response: Response) => void;
-  const response = new Promise<Response>((resolve) => {
-    resolveResponse = resolve;
+  let resolveContent!: (content: string) => void;
+  const content = new Promise<string>((resolve) => {
+    resolveContent = resolve;
   });
   using _fetch = stubGlobal(
     "fetch",
-    vi.fn(() => response),
+    vi.fn(async (input: RequestInfo | URL) =>
+      input === src ? new Response(await content) : Response.json({}),
+    ),
   );
   await using screen = await render(
     <OfficeFilePreview src={src} name="report.docx" kind="docx" sizeBytes={51 * 1024 * 1024} />,
@@ -1934,7 +1936,7 @@ it("clears an Office metadata error when the same URL becomes previewable", asyn
     expect(screen.container.querySelector('[aria-label="Loading file"]')).not.toBeNull(),
   );
   expect(screen.container.textContent).not.toContain("under 50 MB");
-  resolveResponse(new Response("invalid-office-file"));
+  resolveContent("invalid-office-file");
   await vi.waitFor(() => expect(screen.container.textContent).toContain("not a readable ZIP"), {
     timeout: 10_000,
   });

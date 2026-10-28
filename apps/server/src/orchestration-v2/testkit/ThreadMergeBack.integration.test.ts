@@ -141,8 +141,8 @@ function forkDeltaSummary(input: {
 }): string {
   return [
     "Merge-back context from forked conversation.",
-    `Source thread: ${input.sourceThreadId}`,
-    `Target thread: ${input.targetThreadId}`,
+    `Source mine: ${input.sourceThreadId}`,
+    `Target mine: ${input.targetThreadId}`,
     "Covered fork runs: 1-1",
     "",
     "Fork delta:",

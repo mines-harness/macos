@@ -127,6 +127,7 @@ export function MinesPushBridge({ children }: { children: ReactNode }) {
   const { userId, isLoaded, isSignedIn, getToken } = useMinesAccount();
   const account = isLoaded && isSignedIn ? (userId ?? null) : null;
   const current = useRef(account);
+  // oxlint-disable-next-line mines/react-effect-budget -- Async push registration must observe the committed account before native callbacks run.
   useLayoutEffect(() => {
     current.current = account;
   }, [account]);
@@ -221,6 +222,7 @@ export function MinesPushBridge({ children }: { children: ReactNode }) {
       }),
     [account, getToken, remove],
   );
+  // oxlint-disable-next-line mines/react-effect-budget -- Push tokens and OS foreground events require account-scoped native listeners and cleanup.
   useEffect(() => {
     if (!account) {
       void enqueue(() => remove(account).then(drainPendingRemovals)).catch(() => {});

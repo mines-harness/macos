@@ -24,6 +24,7 @@ function UltraReasoningSurfaceFeedback({ onComplete }: { readonly onComplete: ()
   const sheen = useRef<HTMLDivElement>(null);
   const border = useRef<HTMLDivElement>(null);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Imperative DOM animation and reduced-motion listeners require teardown on unmount.
   useEffect(() => {
     const envelopeElement = envelope.current;
     const auraElement = aura.current;
@@ -57,7 +58,7 @@ function UltraReasoningSurfaceFeedback({ onComplete }: { readonly onComplete: ()
     };
     const tick = (timestamp: number) => {
       frame = null;
-      startedAt ??= timestamp;
+      if (startedAt === undefined) startedAt = timestamp;
       const elapsed = timestamp - startedAt;
       if (elapsed >= duration) {
         onComplete();

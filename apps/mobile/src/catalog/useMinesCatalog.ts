@@ -54,6 +54,7 @@ export function useMinesCatalog() {
     handle?: Handle;
     error: string | null;
   }>({ accountId, catalog: null, error: null });
+  // oxlint-disable-next-line mines/react-effect-budget -- The account's encrypted catalog loads asynchronously from device storage.
   useEffect(() => {
     let cancelled = false;
     void openMobileCatalog(accountId)
@@ -73,6 +74,7 @@ export function useMinesCatalog() {
     };
   }, [accountId]);
   const catalog = state.accountId === accountId ? state.catalog : null;
+  // oxlint-disable-next-line mines/react-effect-budget -- Active peer sessions require catalog synchronization subscriptions and cleanup.
   useEffect(() => {
     if (!catalog || !peers || accountId === "local-device") return;
     const stops = new Set<() => void>();
@@ -90,6 +92,7 @@ export function useMinesCatalog() {
     };
   }, [catalog, peers, accountId]);
   const handle = state.accountId === accountId ? state.handle : undefined;
+  // oxlint-disable-next-line mines/react-effect-budget -- Provider commands read this catalog through an external execution-source registry.
   useEffect(() => {
     if (!catalog || !handle) return;
     return registerCatalogExecutionSource(appAtomRegistry, accountId, catalog, handle.flush);

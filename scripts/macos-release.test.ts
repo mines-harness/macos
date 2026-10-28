@@ -8,31 +8,102 @@ import * as Schema from "effect/Schema";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 
-async function readDesktopReleaseSteps() {
+async function readDesktopReleaseSteps(file = "release-desktop.yml") {
   const workflow = Schema.decodeSync(
     fromYaml(
       Schema.Struct({
         jobs: Schema.Record(
           Schema.String,
           Schema.Struct({
-            steps: Schema.Array(
-              Schema.Struct({
-                name: Schema.optional(Schema.String),
-                run: Schema.optional(Schema.String),
-              }),
+            steps: Schema.optional(
+              Schema.Array(
+                Schema.Struct({
+                  name: Schema.optional(Schema.String),
+                  run: Schema.optional(Schema.String),
+                  uses: Schema.optional(Schema.String),
+                }),
+              ),
             ),
           }),
         ),
       }),
     ),
-  )(
-    await NodeFSP.readFile(
-      new URL("../.github/workflows/release-desktop.yml", import.meta.url),
-      "utf8",
-    ),
-  );
-  return Object.values(workflow.jobs).flatMap((job) => job.steps);
+  )(await NodeFSP.readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8"));
+  return Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
 }
+
+it("checks out the exact public release source without traversing orphaned vendored gitlinks", async () => {
+  await using temp = await NodeFSP.mkdtempDisposable(
+    NodePath.join(NodeOS.tmpdir(), "mines-checkout-"),
+  );
+  const remote = NodePath.join(temp.path, "remote.git");
+  const fixture = NodePath.join(temp.path, "fixture");
+  await NodeFSP.mkdir(fixture);
+  const git = (args: string[], cwd = fixture) =>
+    NodeChildProcess.execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  git(["init", "--bare", remote]);
+  git(["init"]);
+  await NodeFSP.writeFile(NodePath.join(fixture, "README.md"), "release source fixture");
+  git(["add", "README.md"]);
+  git([
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    `160000,${"1".repeat(40)},.repos/orphaned/submodule`,
+  ]);
+  git([
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "-m",
+    "fixture",
+  ]);
+  const commit = git(["rev-parse", "HEAD"]);
+  git(["remote", "add", "origin", remote]);
+  git(["push", "origin", "HEAD:refs/heads/main"]);
+  for (const file of ["release-desktop.yml", "mines-release.yml", "mines-source-parity.yml"]) {
+    const checkouts = (await readDesktopReleaseSteps(file)).filter(
+      (step) => step.name === "Checkout" || step.uses?.startsWith("actions/checkout@"),
+    );
+    for (const [index, checkout] of checkouts.entries()) {
+      assert.isString(
+        checkout.run,
+        `${file}: checkout must avoid action credential cleanup over orphaned gitlinks`,
+      );
+      const cwd = NodePath.join(temp.path, `${file}-${index}`);
+      await NodeFSP.mkdir(cwd);
+      const result = NodeChildProcess.spawnSync("bash", ["-euo", "pipefail", "-c", checkout.run!], {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_SERVER_URL: temp.path,
+          GITHUB_REPOSITORY: "remote",
+          CHECKOUT_REF: commit,
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      });
+      assert.equal(result.status, 0, `${file}: ${result.stderr}`);
+      assert.equal(git(["rev-parse", "HEAD"], cwd), commit);
+      assert.equal(
+        await NodeFSP.readFile(NodePath.join(cwd, "README.md"), "utf8"),
+        "release source fixture",
+      );
+      assert.isFalse(
+        await NodeFSP.stat(NodePath.join(cwd, ".repos")).then(
+          () => true,
+          () => false,
+        ),
+      );
+    }
+  }
+});
 
 it("routes server changes to the dedicated build and server test jobs", () => {
   const packages = readWorkspace();

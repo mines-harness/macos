@@ -44,6 +44,7 @@ function useAccountState() {
     setSession(next);
   }, []);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Account restoration reads device secure storage and subscribes to OS foreground events.
   useEffect(() => {
     let active = true;
     const restore = async () => {

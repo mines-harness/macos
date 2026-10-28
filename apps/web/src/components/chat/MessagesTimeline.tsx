@@ -702,6 +702,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   if (nextOpening !== listOpening) setListOpening(nextOpening);
   const listOpenedOn = nextOpening.mounted ? nextOpening.identity : null;
   const viewportRef = useRef<TimelineViewport | null>(null);
+  const navigatedThreadKeyRef = useRef<string | null>(null);
   const navigateTimeline = () => viewportRef.current?.navigate({ releasesFollow: true });
   const restoreReady = restoringThreadPosition && rows.length > 0;
   // Z: syncs LegendList's scroll position with which thread it shows. The list
@@ -756,7 +757,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
   const [findListReady, setFindListReady] = useState(false);
   const handleListLoad = () => {
-    setPositionedThreadKey(null);
+    if (
+      listOpenedOn === listIdentityKey &&
+      rememberedPosition?.atEnd !== false &&
+      !findOpenAtOpening &&
+      navigatedThreadKeyRef.current !== listIdentityKey
+    ) {
+      setPositionedThreadKey(null);
+    }
     onCitationListLoad();
     setFindListReady(true);
   };
@@ -1126,6 +1134,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     registerTimeline?.(scrollNode);
     const viewport = scrollNode ? attachTimelineViewport(scrollNode) : null;
     viewportRef.current = viewport;
+    const stopTrackingNavigation = viewport?.subscribe(() => {
+      navigatedThreadKeyRef.current = listIdentityKey;
+    });
     const detachViewport = viewport ? onViewportAttach?.(viewport) : undefined;
     const stopRememberingRelease = viewport?.onFollowReleased(rememberReleasedPosition);
     let contentSizeFrame: number | null = null;
@@ -1150,6 +1161,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     scheduleContentSizeChanged();
     return () => {
       stopListeningToContentSize?.();
+      stopTrackingNavigation?.();
       stopRememberingRelease?.();
       onContentOverflowChange?.(false);
       if (contentSizeFrame !== null) cancelAnimationFrame(contentSizeFrame);

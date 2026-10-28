@@ -117,6 +117,7 @@ export function ThreadMineTransferControl(props: {
     (pending: boolean) => setSavedTransfer({ key: journalKey, pending }),
     [journalKey],
   );
+  // oxlint-disable-next-line mines/react-effect-budget -- Transfer availability must load the account's persisted recovery journal.
   useEffect(() => {
     let closed = false;
     void openMobilePrivateStore(accountId)
@@ -192,6 +193,7 @@ function MineTransferModal(props: {
     (sourceSupported || pending !== null);
   const candidates = environments.filter((environment) => environment.environmentId !== sourceId);
 
+  // oxlint-disable-next-line mines/react-effect-budget -- Opening the modal must restore its encrypted transfer journal and pending request.
   useEffect(() => {
     let closed = false;
     void openMobilePrivateStore(accountId)

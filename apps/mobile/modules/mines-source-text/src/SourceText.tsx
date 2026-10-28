@@ -33,6 +33,7 @@ export function SourceText({ style, children, nativeTextRef, ...props }: SourceT
     if (typeof child !== "string" && typeof child !== "number") return null;
     return (
       <MinesSourceTextRunNativeComponent
+        // oxlint-disable-next-line react/no-array-index-key -- Primitive text runs have no IDs; positional keys avoid remounting native runs as their text streams.
         key={index}
         style={flattenedStyle}
         {...flattenedStyle}

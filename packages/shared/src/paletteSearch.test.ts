@@ -161,11 +161,16 @@ describe("scoreThreadSearch", () => {
     expect(rankTitles("lakebed", named)).toEqual(["Lakebed", "Lakebed perf audit"]);
   });
 
-  it("finds a branch pasted with the app's worktree prefix", () => {
-    const subject = thread("Cmd+K search", { branch: "t3/cmdk-search-v2" });
-    expect(scoreThreadSearch(foldSearchQuery("t3/cmdk-search-v2"), subject, NOW)).not.toBeNull();
-    expect(scoreThreadSearch(foldSearchQuery("t3/cmdk"), subject, NOW)).not.toBeNull();
-  });
+  it.each(["mines", "t3", "t3code"])(
+    "finds a branch pasted with the %s worktree prefix",
+    (prefix) => {
+      const subject = thread("Cmd+K search", { branch: `${prefix}/cmdk-search-v2` });
+      expect(
+        scoreThreadSearch(foldSearchQuery(`${prefix}/cmdk-search-v2`), subject, NOW),
+      ).not.toBeNull();
+      expect(scoreThreadSearch(foldSearchQuery(`${prefix}/cmdk`), subject, NOW)).not.toBeNull();
+    },
+  );
 
   it("ranks a title holding the words above the app's own branch prefix and project name", () => {
     const busy = { activityAt: NOW, opens: { openedAt: NOW, score: 6, picks: [] } };
@@ -277,9 +282,9 @@ describe("scoreThreadSearch beyond Latin text and titles", () => {
     });
   });
 
-  it("says which field matched when the title does not", () => {
+  it.each(["mines", "t3", "t3code"])("explains branch matches without the %s prefix", (prefix) => {
     const subject = thread("Trim model lists", {
-      branch: "t3/cleanup-payloads",
+      branch: `${prefix}/cleanup-payloads`,
       pullRequests: [{ number: 22889, title: "Smaller MCP payloads" }],
     });
     for (const query of ["#22889", "pr 22889", "pr22889", "pull request #22889"]) {
