@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { Command } from "effect/cli";
+import { parseUpdateManifest, serializeUpdateManifest } from "./lib/update-manifest.ts";
 
 import {
   mergePlatformUpdateManifests,
@@ -15,6 +16,29 @@ import {
 const runCli = Command.runWith(mergeUpdateManifestsCommand, { version: "0.0.0" });
 
 describe("merge-update-manifests", () => {
+  it("preserves Electron's embedded Linux blockmap size when reading and writing feeds", () => {
+    const raw = `version: 0.1.19
+files:
+  - url: mines-0.1.19-arm64.AppImage
+    sha512: linuxsha
+    size: 200000000
+    blockMapSize: 196628
+path: mines-0.1.19-arm64.AppImage
+sha512: linuxsha
+releaseDate: '2026-10-28T21:20:28.000Z'
+`;
+    const manifest = parseUpdateManifest(raw, "latest-linux-arm64.yml", "Linux");
+    assert.equal(manifest.files[0]?.blockMapSize, 196628);
+    assert.deepStrictEqual(
+      parseUpdateManifest(
+        serializeUpdateManifest(manifest, { platformLabel: "Linux" }),
+        "latest-linux-arm64.yml",
+        "Linux",
+      ),
+      manifest,
+    );
+  });
+
   it("merges arm64 and x64 macOS update manifests into one multi-arch manifest", () => {
     const arm64 = parsePlatformUpdateManifest(
       "mac",

@@ -81,7 +81,7 @@ it("verifies every target and detects a replaced archive or a different source c
     const updaterHash = NodeCrypto.createHash("sha512").update(updaterBytes).digest("base64");
     await NodeFSP.writeFile(
       NodePath.join(stage, `latest-${platform}-${arch}.yml`),
-      `version: 0.1.19\nfiles:\n  - url: ${updaterFile}\n    sha512: ${updaterHash}\n    size: ${Buffer.byteLength(updaterBytes)}\nreleaseDate: '2026-10-29T00:00:00.000Z'\n`,
+      `version: 0.1.19\nfiles:\n  - url: ${updaterFile}\n    sha512: ${updaterHash}\n    size: ${Buffer.byteLength(updaterBytes)}\n${platform === "linux" ? "    blockMapSize: 7\n" : ""}releaseDate: '2026-10-29T00:00:00.000Z'\n`,
     );
     const record = await recordReleaseTarget(source, target, [stage]);
     await NodeFSP.writeFile(
