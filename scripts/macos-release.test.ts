@@ -30,6 +30,7 @@ async function readDesktopReleaseSteps(file = "release-desktop.yml") {
                       name: Schema.optional(Schema.String),
                       "run-id": Schema.optional(Schema.String),
                       "github-token": Schema.optional(Schema.String),
+                      retries: Schema.optional(Schema.Number),
                     }),
                   ),
                 }),
@@ -104,7 +105,7 @@ it("allocates the next personal patch from the exact CI-tested source", async ()
 });
 
 async function runPersonalPublication(
-  step: "resolve" | "source" | "publish",
+  step: "resolve" | "source" | "prepare" | "publish",
   input: {
     repository?: string;
     ref?: string;
@@ -112,6 +113,11 @@ async function runPersonalPublication(
     run?: Record<string, unknown>;
     failedJob?: string;
     reuseNonmac?: boolean;
+    reuseRunId?: string;
+    reuseRun?: Record<string, unknown>;
+    failedReuseJob?: string;
+    missingReuseJob?: string;
+    unfinishedReuseJob?: string;
     checks?: ReadonlyArray<{ id: number; name: string; app: { slug: string }; conclusion: string }>;
     comparison?: {
       status: string;
@@ -123,14 +129,15 @@ async function runPersonalPublication(
     signing?: Record<string, unknown>;
     mainMoved?: boolean;
     badDigest?: boolean;
+    simulateStaleClient?: boolean;
     missingDraft?: boolean;
     duplicateDraft?: boolean;
+    uploadHeader?: Record<string, unknown>;
+    afterUploadRelease?: Record<string, unknown>;
+    afterUploadMainMoved?: boolean;
   } = {},
 ) {
-  const script = (await readDesktopReleaseSteps("mines-personal-publish.yml")).find(
-    (candidate) => candidate.id === step,
-  )?.with?.script;
-  assert.isString(script);
+  const steps = await readDesktopReleaseSteps("mines-personal-publish.yml");
   const commit = "1".repeat(40);
   const tree = "2".repeat(40);
   const main = "3".repeat(40);
@@ -204,166 +211,226 @@ async function runPersonalPublication(
   const uploads: ReadonlyArray<string>[] = [];
   const publications: Record<string, unknown>[] = [];
   const compareRefs: { base: string; head: string }[] = [];
-  await (NodeVM.runInNewContext(`(async () => {\n${script!}\n})()`, {
-    context: {
-      repo: input.repository
-        ? { owner: input.repository.split("/")[0], repo: input.repository.split("/")[1] }
-        : { owner: "mines-harness", repo: "macos" },
-      ref: input.ref ?? "refs/heads/main",
-      runId: 456,
-    },
-    process: {
-      env: {
-        BUILD_RUN_ID: input.runId ?? "123",
-        BUILD_RUN_URL: runUrl,
-        BUILD_CONCLUSION: "failure",
-        NONMAC_RUN_ID: input.reuseNonmac ? "123" : "456",
-        SOURCE_COMMIT: commit,
-        MAIN_COMMIT: main,
-        VERSION: "0.1.19",
-        TAG: "v0.1.19",
-        RELEASE_ID: "789",
+  const clients: string[] = [];
+  const executeStage = async (stage: "resolve" | "source" | "prepare" | "publish") => {
+    const script = steps.find((candidate) => candidate.id === stage)?.with?.script;
+    assert.isString(script);
+    clients.push(stage);
+    let stale = false;
+    await (NodeVM.runInNewContext(`(async () => {\n${script!}\n})()`, {
+      context: {
+        repo: input.repository
+          ? { owner: input.repository.split("/")[0], repo: input.repository.split("/")[1] }
+          : { owner: "mines-harness", repo: "macos" },
+        ref: input.ref ?? "refs/heads/main",
+        runId: 456,
       },
-    },
-    core: {
-      setOutput: (name: string, value: string) => outputs.set(name, value),
-      summary: {
-        addHeading() {
-          return this;
+      process: {
+        env: {
+          BUILD_RUN_ID: input.runId ?? "123",
+          REUSE_NONMAC_RUN_ID: input.reuseRunId ?? "",
+          BUILD_RUN_URL: runUrl,
+          BUILD_CONCLUSION: "failure",
+          NONMAC_RUN_ID: input.reuseRunId ?? (input.reuseNonmac ? "123" : "456"),
+          SOURCE_COMMIT: commit,
+          MAIN_COMMIT: main,
+          VERSION: "0.1.19",
+          TAG: "v0.1.19",
+          RELEASE_ID: "789",
         },
-        addRaw() {
-          return this;
-        },
-        write: async () => {},
       },
-    },
-    github: {
-      rest: {
-        actions: {
-          getWorkflowRun: async () => ({
-            data: {
-              status: "completed",
-              conclusion: "failure",
-              path: ".github/workflows/mines-personal-release.yml",
-              head_branch: "main",
-              repository: { full_name: repository },
-              head_repository: { full_name: repository },
-              head_sha: commit,
-              html_url: runUrl,
-              ...input.run,
-            },
-          }),
-          listJobsForWorkflowRun: methods.jobs,
+      core: {
+        setOutput: (name: string, value: string) => outputs.set(name, value),
+        summary: {
+          addHeading() {
+            return this;
+          },
+          addRaw() {
+            return this;
+          },
+          write: async () => {},
         },
-        checks: { listForRef: methods.checks },
-        repos: {
-          getBranch: async () => ({
-            data: { commit: { sha: input.mainMoved ? "4".repeat(40) : main } },
-          }),
-          compareCommits: async (options: { base: string; head: string }) => {
-            compareRefs.push({ base: options.base, head: options.head });
-            return {
-              data: input.comparison ?? {
-                status: "ahead",
-                files: [{ filename: ".github/workflows/mines-personal-publish.yml" }],
+      },
+      github: {
+        rest: {
+          actions: {
+            getWorkflowRun: async (options: { run_id: number }) => ({
+              data: {
+                status: "completed",
+                conclusion: "failure",
+                path: ".github/workflows/mines-personal-release.yml",
+                head_branch: "main",
+                repository: { full_name: repository },
+                head_repository: { full_name: repository },
+                head_sha: commit,
+                html_url: runUrl,
+                ...(options.run_id === 123
+                  ? input.run
+                  : {
+                      path: ".github/workflows/mines-personal-publish.yml",
+                      head_sha: main,
+                      html_url: `https://github.com/${repository}/actions/runs/${options.run_id}`,
+                      ...input.reuseRun,
+                    }),
               },
-            };
+            }),
+            listJobsForWorkflowRun: methods.jobs,
           },
-          getReleaseByTag: async () => {
-            throw new Error("GitHub returns 404 for unpublished draft tags");
-          },
-          listReleases: methods.releases,
-          getRelease: async () => ({ data: draft }),
-          listReleaseAssets: methods.assets,
-          updateRelease: async (options: Record<string, unknown>) => {
-            publications.push(options);
-            return { data: { html_url: `https://github.com/${repository}/releases/tag/v0.1.19` } };
+          checks: { listForRef: methods.checks },
+          repos: {
+            getBranch: async () => ({
+              data: {
+                commit: {
+                  sha:
+                    input.mainMoved || (stage === "publish" && input.afterUploadMainMoved)
+                      ? "4".repeat(40)
+                      : main,
+                },
+              },
+            }),
+            compareCommits: async (options: { base: string; head: string }) => {
+              compareRefs.push({ base: options.base, head: options.head });
+              return {
+                data: input.comparison ?? {
+                  status: "ahead",
+                  files: [{ filename: ".github/workflows/mines-personal-publish.yml" }],
+                },
+              };
+            },
+            getReleaseByTag: async () => {
+              throw new Error("GitHub returns 404 for unpublished draft tags");
+            },
+            listReleases: methods.releases,
+            getRelease: async () => {
+              if (input.simulateStaleClient && stale)
+                throw new Error("fetch failed after synchronous upload");
+              return {
+                data: stage === "publish" ? { ...draft, ...input.afterUploadRelease } : draft,
+              };
+            },
+            listReleaseAssets: methods.assets,
+            updateRelease: async (options: Record<string, unknown>) => {
+              publications.push(options);
+              return {
+                data: { html_url: `https://github.com/${repository}/releases/tag/v0.1.19` },
+              };
+            },
           },
         },
-      },
-      paginate: async (method: unknown, options: { ref: string; run_id: number }) => {
-        if (method === methods.releases) {
-          return input.missingDraft
-            ? []
-            : input.duplicateDraft
-              ? [draft, { ...draft, id: 790 }]
-              : [draft];
-        }
-        if (method === methods.jobs) {
-          assert.equal(options.run_id, 123);
-          return [
-            "Resolve one tested personal release source",
-            "Build shared server, composer, and desktop shell once",
-            "Desktop Linux x64 / Build Linux x64",
-            "Desktop Linux arm64 / Build Linux arm64",
-            ...(input.reuseNonmac
-              ? [
-                  "Desktop Windows x64 / Build Windows x64",
-                  "Desktop Windows arm64 / Build Windows arm64",
-                ]
-              : []),
-          ].map((name) => ({
-            name,
-            status: "completed",
-            conclusion: name === input.failedJob ? "failure" : "success",
-          }));
-        }
-        if (method === methods.checks) {
-          checkedRefs.push(options.ref);
-          return (
-            input.checks ?? [
-              { id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" },
-            ]
-          );
-        }
-        if (method === methods.assets) {
-          if (step === "source")
-            return macNames
-              .filter((name) => name !== input.missingMac)
-              .map((name) => ({ name, state: "uploaded", size: 1 }));
-          return [...files]
-            .filter(([name]) => name.startsWith("release-assets/"))
-            .map(([path, value]) => ({
-              name: path.slice("release-assets/".length),
-              state: "uploaded",
-              size: Buffer.byteLength(value),
-              digest: input.badDigest
-                ? "sha256:wrong"
-                : `sha256:${NodeCrypto.createHash("sha256").update(value).digest("hex")}`,
+        paginate: async (method: unknown, options: { ref: string; run_id: number }) => {
+          if (method === methods.releases) {
+            return input.missingDraft
+              ? []
+              : input.duplicateDraft
+                ? [draft, { ...draft, id: 790 }]
+                : [draft];
+          }
+          if (method === methods.jobs) {
+            if (options.run_id !== 123) {
+              assert.equal(options.run_id, Number(input.reuseRunId));
+              return [
+                "Desktop Linux x64 / Build Linux x64",
+                "Desktop Linux arm64 / Build Linux arm64",
+                "Desktop Windows x64 / Build Windows x64",
+                "Desktop Windows arm64 / Build Windows arm64",
+              ]
+                .filter((name) => name !== input.missingReuseJob)
+                .map((name) => ({
+                  name,
+                  status: name === input.unfinishedReuseJob ? "in_progress" : "completed",
+                  conclusion: name === input.failedReuseJob ? "failure" : "success",
+                }));
+            }
+            assert.equal(options.run_id, 123);
+            return [
+              "Resolve one tested personal release source",
+              "Build shared server, composer, and desktop shell once",
+              "Desktop Linux x64 / Build Linux x64",
+              "Desktop Linux arm64 / Build Linux arm64",
+              ...(input.reuseNonmac
+                ? [
+                    "Desktop Windows x64 / Build Windows x64",
+                    "Desktop Windows arm64 / Build Windows arm64",
+                  ]
+                : []),
+            ].map((name) => ({
+              name,
+              status: "completed",
+              conclusion: name === input.failedJob ? "failure" : "success",
             }));
-        }
-        throw new Error("Unexpected publication GitHub request");
+          }
+          if (method === methods.checks) {
+            checkedRefs.push(options.ref);
+            return (
+              input.checks ?? [
+                { id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" },
+              ]
+            );
+          }
+          if (method === methods.assets) {
+            if (stage === "source")
+              return macNames
+                .filter((name) => name !== input.missingMac)
+                .map((name) => ({ name, state: "uploaded", size: 1 }));
+            return [...files]
+              .filter(([name]) => name.startsWith("release-assets/"))
+              .map(([path, value]) => ({
+                name: path.slice("release-assets/".length),
+                state: "uploaded",
+                size: Buffer.byteLength(value),
+                digest: input.badDigest
+                  ? "sha256:wrong"
+                  : `sha256:${NodeCrypto.createHash("sha256").update(value).digest("hex")}`,
+              }));
+          }
+          throw new Error("Unexpected publication GitHub request");
+        },
       },
-    },
-    require: (name: string) => {
-      if (name === "node:crypto") return NodeCrypto;
-      if (name === "node:fs")
-        return {
-          readFileSync: (path: string) => {
-            const file = files.get(path);
-            if (file === undefined) throw new Error(`Unexpected publication file: ${path}`);
-            return file;
-          },
-          writeFileSync: (path: string, value: string) => files.set(path, value),
-          readdirSync: () =>
-            [...files.keys()]
-              .filter((name) => name.startsWith("release-assets/"))
-              .map((name) => name.slice("release-assets/".length)),
-          statSync: (path: string) => ({ size: Buffer.byteLength(files.get(path)!) }),
-        };
-      if (name === "node:child_process")
-        return {
-          execFileSync: (command: string, args: string[]) => {
-            if (command === "git") return args[1] === "HEAD" ? commit : tree;
-            assert.equal(command, "gh");
-            uploads.push(args);
-            return "";
-          },
-        };
-      throw new Error(`Unexpected publication require: ${name}`);
-    },
-  }) as Promise<void>);
-  return { outputs, checkedRefs, compareRefs, uploads, publications, files };
+      require: (name: string) => {
+        if (name === "node:crypto") return NodeCrypto;
+        if (name === "node:fs")
+          return {
+            readFileSync: (path: string) => {
+              const file = files.get(path);
+              if (file === undefined) throw new Error(`Unexpected publication file: ${path}`);
+              return file;
+            },
+            writeFileSync: (path: string, value: string) => files.set(path, value),
+            readdirSync: () =>
+              [...files.keys()]
+                .filter((name) => name.startsWith("release-assets/"))
+                .map((name) => name.slice("release-assets/".length)),
+            statSync: (path: string) => ({ size: Buffer.byteLength(files.get(path)!) }),
+          };
+        if (name === "node:child_process")
+          return {
+            execFileSync: (command: string, args: string[]) => {
+              if (command === "git") return args[1] === "HEAD" ? commit : tree;
+              assert.equal(command, "gh");
+              uploads.push(args);
+              stale = true;
+              return "";
+            },
+          };
+        throw new Error(`Unexpected publication require: ${name}`);
+      },
+    }) as Promise<void>);
+    return () => {
+      stale = true;
+    };
+  };
+  if (step === "publish") {
+    const invalidatePreviousClient = await executeStage("prepare");
+    invalidatePreviousClient();
+    if (input.uploadHeader) {
+      files.set(
+        "release-upload.json",
+        JSON.stringify({ ...JSON.parse(files.get("release-upload.json")!), ...input.uploadHeader }),
+      );
+    }
+    await executeStage("publish");
+  } else await executeStage(step);
+  return { outputs, checkedRefs, compareRefs, uploads, publications, files, clients };
 }
 
 it("rebuilds failed nonMac packaging from the original tested bundle and reuses complete successful builds", async () => {
@@ -411,6 +478,40 @@ it("rejects untrusted, unfinished, untested, or failed shared release inputs", a
     { checks: [{ id: 2, name: "Check", app: { slug: "github-actions" }, conclusion: "failure" }] },
   ]) {
     await expect(runPersonalPublication("resolve", input)).rejects.toThrow();
+  }
+});
+
+it("reuses a completed publication's four successful native targets without rebuilding the shared bundle", async () => {
+  const result = await runPersonalPublication("resolve", { reuseRunId: "789" });
+  assert.equal(result.outputs.get("build-run-id"), "123");
+  assert.equal(result.outputs.get("nonmac-run-id"), "789");
+  assert.equal(result.outputs.get("rebuild-nonmac"), "false");
+  await runPersonalPublication("resolve", {
+    reuseRunId: "789",
+    reuseRun: { path: ".github/workflows/mines-personal-release.yml", conclusion: "success" },
+  });
+});
+
+it("rejects invalid or untrusted reused native artifact runs and every incomplete target", async () => {
+  for (const input of [
+    { reuseRunId: "invalid" },
+    { reuseRunId: "0" },
+    { reuseRunId: "9007199254740993" },
+    { reuseRun: { status: "in_progress" } },
+    { reuseRun: { head_branch: "feature" } },
+    { reuseRun: { repository: { full_name: "someone/fork" } } },
+    { reuseRun: { head_repository: { full_name: "someone/fork" } } },
+    { reuseRun: { path: ".github/workflows/untrusted.yml" } },
+    { failedReuseJob: "Desktop Linux x64 / Build Linux x64" },
+    { failedReuseJob: "Desktop Linux arm64 / Build Linux arm64" },
+    { failedReuseJob: "Desktop Windows x64 / Build Windows x64" },
+    { failedReuseJob: "Desktop Windows arm64 / Build Windows arm64" },
+    { missingReuseJob: "Desktop Windows arm64 / Build Windows arm64" },
+    { unfinishedReuseJob: "Desktop Linux arm64 / Build Linux arm64" },
+  ]) {
+    await expect(
+      runPersonalPublication("resolve", { reuseRunId: "789", ...input }),
+    ).rejects.toThrow();
   }
 });
 
@@ -487,15 +588,7 @@ it("requires exact stable source provenance and all fourteen Mac assets on the s
 
 it("publishes only after uploaded digest verification and preserves maintainer release notes", async () => {
   const result = await runPersonalPublication("publish");
-  assert.equal(result.uploads.length, 1);
-  assert.deepEqual(result.uploads[0]?.slice(0, 6), [
-    "release",
-    "upload",
-    "v0.1.19",
-    "--repo",
-    "mines-harness/macos",
-    "--clobber",
-  ]);
+  assert.isEmpty(result.uploads);
   assert.deepEqual(result.publications, [
     {
       owner: "mines-harness",
@@ -520,8 +613,110 @@ it("publishes only after uploaded digest verification and preserves maintainer r
     { release: { draft: false } },
     { release: { target_commitish: "main" } },
     { badDigest: true },
+    { uploadHeader: { sourceCommit: "9".repeat(40) } },
+    { uploadHeader: { repository: "someone/fork" } },
+    { uploadHeader: { releaseId: 999 } },
+    { afterUploadRelease: { draft: false } },
+    { afterUploadRelease: { target_commitish: "main" } },
+    { afterUploadMainMoved: true },
   ]) {
     await expect(runPersonalPublication("publish", input)).rejects.toThrow();
+  }
+});
+
+it("publishes with a fresh API client when the pre-upload client's transport becomes stale", async () => {
+  const result = await runPersonalPublication("publish", { simulateStaleClient: true });
+  assert.equal(result.publications.length, 1);
+  assert.deepEqual(result.clients, ["prepare", "publish"]);
+  assert.isEmpty(result.uploads);
+  const reused = await runPersonalPublication("publish", { reuseRunId: "789" });
+  const runs = JSON.parse(reused.files.get("release-assets/build-runs.json")!);
+  assert.equal(runs.sharedBundle.runId, 123);
+  assert.equal(runs.nonMac.runId, 789);
+  assert.equal(runs.publication.runId, 456);
+});
+
+it("uploads outside the API client between preparation and fresh verification with transport retries enabled", async () => {
+  const steps = await readDesktopReleaseSteps("mines-personal-publish.yml");
+  const uploadIndex = steps.findIndex(
+    (step) => step.name === "Upload complete verified assets to the existing draft",
+  );
+  assert.equal(steps[uploadIndex - 1]?.id, "prepare");
+  assert.equal(steps[uploadIndex + 1]?.id, "publish");
+  for (const step of steps.filter((step) => step.uses?.startsWith("actions/github-script@")))
+    assert.equal(step.with?.retries, 3);
+  const run = steps[uploadIndex]?.run;
+  assert.isString(run);
+  await using temp = await NodeFSP.mkdtempDisposable(
+    NodePath.join(NodeOS.tmpdir(), "mines-upload-"),
+  );
+  await NodeFSP.mkdir(NodePath.join(temp.path, "release-assets"));
+  await NodeFSP.writeFile(NodePath.join(temp.path, "release-assets", "SIGNING.json"), "{}");
+  await NodeFSP.writeFile(
+    NodePath.join(temp.path, "release-assets", "mines-0.1.19-arm64.dmg"),
+    "fixture",
+  );
+  await NodeFSP.writeFile(
+    NodePath.join(temp.path, "release-upload.json"),
+    "private upload manifest",
+  );
+  const capture = NodePath.join(temp.path, "upload.args");
+  const header = {
+    id: 789,
+    draft: true,
+    prerelease: false,
+    tag_name: "v0.1.19",
+    target_commitish: "1".repeat(40),
+  };
+  const command = `gh() { if [[ "$1" == api ]]; then printf '%s\\n' "$DRAFT_JSON"; else printf '%s\\n' "$@" > "$CAPTURE"; fi; }\n${run}`;
+  const env = {
+    ...process.env,
+    TAG: "v0.1.19",
+    GITHUB_REPOSITORY: "mines-harness/macos",
+    SOURCE_COMMIT: "1".repeat(40),
+    RELEASE_ID: "789",
+    CAPTURE: capture,
+  };
+  const result = NodeChildProcess.spawnSync("bash", ["-euo", "pipefail", "-c", command], {
+    cwd: temp.path,
+    encoding: "utf8",
+    env: { ...env, DRAFT_JSON: JSON.stringify(header) },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual((await NodeFSP.readFile(capture, "utf8")).trim().split("\n"), [
+    "release",
+    "upload",
+    "v0.1.19",
+    "--repo",
+    "mines-harness/macos",
+    "--clobber",
+    "release-assets/SIGNING.json",
+    "release-assets/mines-0.1.19-arm64.dmg",
+  ]);
+  for (const [index, patch] of [
+    { draft: false },
+    { prerelease: true },
+    { target_commitish: "main" },
+    { id: 790 },
+    { tag_name: "v0.1.20" },
+  ].entries()) {
+    const rejectedCapture = NodePath.join(temp.path, `rejected-${index}.args`);
+    const rejected = NodeChildProcess.spawnSync("bash", ["-euo", "pipefail", "-c", command], {
+      cwd: temp.path,
+      encoding: "utf8",
+      env: {
+        ...env,
+        CAPTURE: rejectedCapture,
+        DRAFT_JSON: JSON.stringify({ ...header, ...patch }),
+      },
+    });
+    assert.equal(rejected.status, 1, rejected.stderr);
+    assert.isFalse(
+      await NodeFSP.stat(rejectedCapture).then(
+        () => true,
+        () => false,
+      ),
+    );
   }
 });
 

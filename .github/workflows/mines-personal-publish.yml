@@ -7,6 +7,10 @@ on:
         description: Completed personal build run containing the tested shared bundle.
         required: true
         type: string
+      nonmac_run_id:
+        description: Optional completed personal build or publication run with four successful native targets.
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -41,7 +45,9 @@ jobs:
         uses: actions/github-script@v8
         env:
           BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          REUSE_NONMAC_RUN_ID: ${{ inputs.nonmac_run_id }}
         with:
+          retries: 3
           script: |
             const repository = context.repo.owner + '/' + context.repo.repo;
             if (repository !== 'mines-harness/macos' || context.ref !== 'refs/heads/main') {
@@ -84,8 +90,31 @@ jobs:
             core.setOutput('build-run-id', String(runId));
             core.setOutput('build-run-url', runUrl);
             core.setOutput('build-conclusion', run.conclusion);
-            core.setOutput('rebuild-nonmac', String(run.conclusion !== 'success'));
-            core.setOutput('nonmac-run-id', String(run.conclusion === 'success' ? runId : context.runId));
+            let nonmacRunId = run.conclusion === 'success' ? runId : context.runId;
+            let rebuildNonmac = run.conclusion !== 'success';
+            if (process.env.REUSE_NONMAC_RUN_ID) {
+              const reuseId = Number(process.env.REUSE_NONMAC_RUN_ID);
+              if (!/^\d+$/.test(process.env.REUSE_NONMAC_RUN_ID) || !Number.isSafeInteger(reuseId) || reuseId <= 0) {
+                throw new Error('nonmac_run_id must be a positive GitHub Actions run ID.');
+              }
+              const { data: reuse } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: reuseId });
+              if (reuse.status !== 'completed' || reuse.head_branch !== 'main' ||
+                  !['.github/workflows/mines-personal-release.yml', '.github/workflows/mines-personal-publish.yml'].includes(reuse.path) ||
+                  reuse.repository?.full_name !== repository || reuse.head_repository?.full_name !== repository ||
+                  !/^[a-f0-9]{40}$/.test(reuse.head_sha || '') || reuse.html_url !== `https://github.com/${repository}/actions/runs/${reuseId}`) {
+                throw new Error('Reused native artifacts must come from a completed canonical main personal build or publication.');
+              }
+              const reuseJobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: reuseId, filter: 'latest', per_page: 100 });
+              for (const name of ['Desktop Linux x64 / Build Linux x64', 'Desktop Linux arm64 / Build Linux arm64', 'Desktop Windows x64 / Build Windows x64', 'Desktop Windows arm64 / Build Windows arm64']) {
+                if (!reuseJobs.some(job => job.name === name && job.status === 'completed' && job.conclusion === 'success')) {
+                  throw new Error(`Reused native build job did not succeed: ${name}`);
+                }
+              }
+              nonmacRunId = reuseId;
+              rebuildNonmac = false;
+            }
+            core.setOutput('rebuild-nonmac', String(rebuildNonmac));
+            core.setOutput('nonmac-run-id', String(nonmacRunId));
       - name: Checkout
         shell: bash
         env:
@@ -112,6 +141,7 @@ jobs:
           SOURCE_COMMIT: ${{ steps.resolve.outputs.commit }}
           BUILD_RUN_URL: ${{ steps.resolve.outputs.build-run-url }}
         with:
+          retries: 3
           script: |
             const fs = require('node:fs');
             const { createHash } = require('node:crypto');
@@ -312,11 +342,10 @@ jobs:
         run: |
           node scripts/merge-update-manifests.ts --platform mac release-assets/latest-mac-arm64.yml release-assets/latest-mac-x64.yml release-assets/latest-mac.yml
           node scripts/merge-update-manifests.ts --platform win release-assets/latest-win-x64.yml release-assets/latest-win-arm64.yml release-assets/latest.yml
-      - name: Verify signing handoff, upload, and publish stable latest
-        id: publish
+      - name: Prepare verified release assets and upload hashes
+        id: prepare
         uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
           SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
           MAIN_COMMIT: ${{ needs.source.outputs.main_commit }}
           VERSION: ${{ needs.source.outputs.version }}
@@ -327,10 +356,10 @@ jobs:
           BUILD_CONCLUSION: ${{ needs.source.outputs.build_conclusion }}
           NONMAC_RUN_ID: ${{ needs.source.outputs.nonmac_run_id }}
         with:
+          retries: 3
           script: |
             const fs = require('node:fs');
             const { createHash } = require('node:crypto');
-            const { execFileSync } = require('node:child_process');
             const signing = JSON.parse(fs.readFileSync('release-assets/SIGNING.json', 'utf8'));
             if (signing.schemaVersion !== 1 || signing.profile !== 'personal' || signing.version !== process.env.VERSION ||
                 signing.sourceCommit !== process.env.SOURCE_COMMIT || signing.macos?.identityKind !== 'Apple Development' ||
@@ -361,9 +390,53 @@ jobs:
             fs.writeFileSync('release-assets/SHA256SUMS', names.map(name => `${hash(name)}  ${name}\n`).join(''));
             names.push('SHA256SUMS');
             const expected = names.map(name => ({ name, size: fs.statSync(`release-assets/${name}`).size, digest: `sha256:${hash(name)}` }));
-            execFileSync('gh', ['release', 'upload', process.env.TAG, '--repo', `${context.repo.owner}/${context.repo.repo}`, '--clobber', ...names.map(name => `release-assets/${name}`)], { stdio: 'inherit' });
+            fs.writeFileSync('release-upload.json', JSON.stringify({
+              schemaVersion: 1, repository: `${context.repo.owner}/${context.repo.repo}`,
+              releaseId, tag: process.env.TAG, sourceCommit: process.env.SOURCE_COMMIT,
+              mainCommit: process.env.MAIN_COMMIT, version: process.env.VERSION, files: expected,
+            }, null, 2) + '\n');
+      - name: Upload complete verified assets to the existing draft
+        shell: bash
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_ID: ${{ needs.source.outputs.release_id }}
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" |
+            jq -e --arg tag "$TAG" --arg commit "$SOURCE_COMMIT" --argjson id "$RELEASE_ID" \
+              '.id == $id and .draft == true and .prerelease == false and .tag_name == $tag and .target_commitish == $commit' >/dev/null
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber release-assets/*
+      - name: Verify uploaded hashes and publish stable latest
+        id: publish
+        uses: actions/github-script@v8
+        env:
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+          MAIN_COMMIT: ${{ needs.source.outputs.main_commit }}
+          VERSION: ${{ needs.source.outputs.version }}
+          TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_ID: ${{ needs.source.outputs.release_id }}
+        with:
+          retries: 3
+          script: |
+            const fs = require('node:fs');
+            const manifest = JSON.parse(fs.readFileSync('release-upload.json', 'utf8'));
+            const releaseId = Number(process.env.RELEASE_ID);
+            if (manifest.schemaVersion !== 1 || manifest.repository !== `${context.repo.owner}/${context.repo.repo}` ||
+                manifest.releaseId !== releaseId || manifest.tag !== process.env.TAG || manifest.version !== process.env.VERSION ||
+                manifest.sourceCommit !== process.env.SOURCE_COMMIT || manifest.mainCommit !== process.env.MAIN_COMMIT || !Array.isArray(manifest.files) || !manifest.files.length) {
+              throw new Error('Upload manifest does not match the exact validated release header and source.');
+            }
+            const requireDraft = release => {
+              if (!release.draft || release.prerelease || release.tag_name !== process.env.TAG || release.target_commitish !== process.env.SOURCE_COMMIT) {
+                throw new Error('The release is no longer the exact non-prerelease draft validated for this source.');
+              }
+            };
             requireDraft((await github.rest.repos.getRelease({ ...context.repo, release_id: releaseId })).data);
             const assets = await github.paginate(github.rest.repos.listReleaseAssets, { ...context.repo, release_id: releaseId, per_page: 100 });
+            const expected = manifest.files;
             if (assets.length !== expected.length || expected.some(file => !assets.some(asset => asset.name === file.name && asset.state === 'uploaded' && asset.size === file.size && asset.digest === file.digest))) {
               throw new Error('Uploaded release assets differ from the verified local names, sizes, or SHA-256 digests. The release remains a draft.');
             }
