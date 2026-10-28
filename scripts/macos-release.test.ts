@@ -123,6 +123,8 @@ async function runPersonalPublication(
     signing?: Record<string, unknown>;
     mainMoved?: boolean;
     badDigest?: boolean;
+    missingDraft?: boolean;
+    duplicateDraft?: boolean;
   } = {},
 ) {
   const script = (await readDesktopReleaseSteps("mines-personal-publish.yml")).find(
@@ -191,7 +193,12 @@ async function runPersonalPublication(
     target_commitish: commit,
     ...input.release,
   };
-  const methods = { jobs: Symbol("jobs"), checks: Symbol("checks"), assets: Symbol("assets") };
+  const methods = {
+    jobs: Symbol("jobs"),
+    checks: Symbol("checks"),
+    assets: Symbol("assets"),
+    releases: Symbol("releases"),
+  };
   const outputs = new Map<string, string>();
   const checkedRefs: string[] = [];
   const uploads: ReadonlyArray<string>[] = [];
@@ -262,7 +269,10 @@ async function runPersonalPublication(
               },
             };
           },
-          getReleaseByTag: async () => ({ data: draft }),
+          getReleaseByTag: async () => {
+            throw new Error("GitHub returns 404 for unpublished draft tags");
+          },
+          listReleases: methods.releases,
           getRelease: async () => ({ data: draft }),
           listReleaseAssets: methods.assets,
           updateRelease: async (options: Record<string, unknown>) => {
@@ -272,6 +282,13 @@ async function runPersonalPublication(
         },
       },
       paginate: async (method: unknown, options: { ref: string; run_id: number }) => {
+        if (method === methods.releases) {
+          return input.missingDraft
+            ? []
+            : input.duplicateDraft
+              ? [draft, { ...draft, id: 790 }]
+              : [draft];
+        }
         if (method === methods.jobs) {
           assert.equal(options.run_id, 123);
           return [
@@ -432,6 +449,17 @@ it("allows only complete publication infrastructure changes ahead of the origina
       "application drift",
     );
   }
+});
+
+it("finds unpublished drafts without relying on GitHub's published-tag lookup", async () => {
+  const result = await runPersonalPublication("source");
+  assert.equal(result.outputs.get("release-id"), "789");
+  await expect(runPersonalPublication("source", { missingDraft: true })).rejects.toThrow(
+    "exactly one",
+  );
+  await expect(runPersonalPublication("source", { duplicateDraft: true })).rejects.toThrow(
+    "exactly one",
+  );
 });
 
 it("requires exact stable source provenance and all fourteen Mac assets on the same exact draft", async () => {

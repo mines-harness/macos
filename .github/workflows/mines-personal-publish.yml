@@ -128,7 +128,10 @@ jobs:
               throw new Error('Source provenance differs from the exact tested commit, tree, lockfile, stable version, or build run.');
             }
             const tag = `v${source.version}`;
-            const { data: release } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag });
+            const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
+            const matching = releases.filter(release => release.tag_name === tag);
+            if (matching.length !== 1) throw new Error(`Expected exactly one release handoff for ${tag}.`);
+            const release = matching[0];
             if (!release.draft || release.prerelease || release.tag_name !== tag || release.target_commitish !== source.commit) {
               throw new Error('The Mac handoff must be a non-prerelease draft targeting the exact source commit.');
             }
