@@ -127,6 +127,61 @@ it("rejects an occupied personal release version and dispatches outside main", a
   ).rejects.toThrow("Personal releases must be dispatched from main");
 });
 
+it("waits for Linux CLI artifacts across transient failures and stops for missing or finished producers", async () => {
+  const run = (await readDesktopReleaseSteps()).find(
+    (step) => step.name === "Wait for Linux CLI archive",
+  )?.run;
+  const script = run?.match(/node --input-type=module <<'EOF'\n([\s\S]+)\nEOF/u)?.[1];
+  assert.isString(script);
+  const empty = { total_count: 0 };
+  const ready = { total_count: 1 };
+  const failed = { jobs: [{ name: "Desktop Linux x64 / Build Linux x64", conclusion: "failure" }] };
+  for (const scenario of [
+    { replies: [ready], failure: undefined },
+    { replies: [{ status: 503 }, ready], failure: undefined },
+    { replies: [empty, failed, ready], failure: undefined },
+    { replies: [empty, failed, empty], failure: "ended (failure)" },
+    { replies: [empty, { jobs: [] }, empty, { jobs: [] }], failure: "No job named" },
+  ]) {
+    const replies = [...scenario.replies];
+    const messages: string[] = [];
+    const process = {
+      env: {
+        GITHUB_API_URL: "https://api.example.test",
+        GITHUB_REPOSITORY: "mines-harness/macos",
+        GITHUB_RUN_ID: "123",
+        GITHUB_RUN_ATTEMPT: "1",
+        GITHUB_TOKEN: "fixture-token",
+        ARTIFACT: "cli-linux-x64",
+        LINUX_JOB: "Build Linux x64",
+      },
+      exitCode: undefined as number | undefined,
+    };
+    let clock = 0;
+    let scheduled = 0;
+    await (NodeVM.runInNewContext(`(async () => {\n${script!}\n})()`, {
+      process,
+      console: Object.fromEntries(
+        ["log", "warn", "error"].map((name) => [name, (message: string) => messages.push(message)]),
+      ),
+      fetch: async () => {
+        const response = replies.shift();
+        if (!response) throw new Error("Unexpected GitHub request");
+        const status = "status" in response ? response.status : 200;
+        return { ok: status === 200, status, json: async () => response };
+      },
+      Date: { now: () => (clock += 300_000) },
+      setTimeout: (callback: () => void) => {
+        if (++scheduled > 2) throw new Error("Unexpected artifact wait");
+        callback();
+      },
+    }) as Promise<void>);
+    assert.equal(process.exitCode, scenario.failure ? 1 : undefined);
+    assert.isEmpty(replies);
+    assert.include(messages.join("\n"), scenario.failure ?? "cli-linux-x64 is ready");
+  }
+});
+
 it("checks out the exact public release source without traversing orphaned vendored gitlinks", async () => {
   await using temp = await NodeFSP.mkdtempDisposable(
     NodePath.join(NodeOS.tmpdir(), "mines-checkout-"),

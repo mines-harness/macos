@@ -127,6 +127,9 @@ jobs:
   build:
     name: Build ${{ inputs.label }}
     runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: bash
     outputs:
       signed: ${{ steps.artifact.outputs.signed }}
     # Windows waits for the Linux CLI archive inside its own budget (see
@@ -250,7 +253,7 @@ jobs:
           path: apps
 
       - name: Install cargo-xwin
-        if: inputs.platform == 'win' && steps.resource_monitor_cache.outputs.cache-hit != 'true'
+        if: inputs.platform == 'win' && runner.os != 'Windows' && steps.resource_monitor_cache.outputs.cache-hit != 'true'
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           tool: cargo-xwin@0.23.1
@@ -260,12 +263,20 @@ jobs:
       - name: Build resource monitor
         if: steps.resource_monitor_cache.outputs.cache-hit != 'true'
         shell: bash
-        run: cargo ${{ inputs.platform == 'win' && 'xwin build' || 'build' }} --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ inputs.rust_target }}"
+        run: cargo ${{ inputs.platform == 'win' && runner.os != 'Windows' && 'xwin build' || 'build' }} --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ inputs.rust_target }}"
+
+      - name: Smoke-test native resource monitor
+        if: inputs.platform == 'win' && runner.os == 'Windows'
+        timeout-minutes: 2
+        env:
+          MONITOR: native/resource-monitor/target/${{ inputs.rust_target }}/release/mines-resource-monitor.exe
+          EXPECTED_ARCH: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+        run: node scripts/smoke-resource-monitor.mjs
 
       # Off Windows, scripts/lib/windows-jsign.ts signs through jsign instead of
       # the TrustedSigning PowerShell module.
       - name: Install jsign
-        if: inputs.platform == 'win'
+        if: inputs.platform == 'win' && runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -411,51 +422,55 @@ jobs:
       # uploading the archive.
       - name: Wait for Linux CLI archive
         if: inputs.platform == 'win'
-        shell: pwsh
+        shell: bash
         timeout-minutes: 40
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ARTIFACT: cli-linux-${{ inputs.arch }}
           LINUX_JOB: Build Linux ${{ inputs.arch }}
         run: |
-          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json" }
-          $run = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-          function Test-Archive {
-            (Invoke-RestMethod -Headers $headers -Uri "$run/artifacts?name=$env:ARTIFACT").total_count -gt 0
-          }
-          $missingSince = $null
-          while ($true) {
+          node --input-type=module <<'EOF'
+          const env = process.env;
+          const run = `${env.GITHUB_API_URL}/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+          const headers = { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' };
+          const request = async (path) => {
+            const response = await fetch(`${run}${path}`, { headers });
+            if (!response.ok) throw new Error(`GitHub returned HTTP ${response.status}`);
+            return response.json();
+          };
+          const hasArchive = async () => (await request(`/artifacts?name=${encodeURIComponent(env.ARTIFACT)}`)).total_count > 0;
+          let missingSince = null;
+          for (;;) {
             try {
-              if (Test-Archive) {
-                Write-Host "$env:ARTIFACT is ready."
-                exit 0
+              if (await hasArchive()) {
+                console.log(`${env.ARTIFACT} is ready.`);
+                break;
               }
-              $jobs = Invoke-RestMethod -Headers $headers -Uri "$run/attempts/$env:GITHUB_RUN_ATTEMPT/jobs?per_page=100"
-              $linux = $jobs.jobs | Where-Object { $_.name.EndsWith($env:LINUX_JOB) } | Select-Object -First 1
-              if (-not $linux) {
-                # Both jobs start together, so a Linux job still missing after a
-                # few minutes means a renamed or skipped job, not a slow one.
-                if (-not $missingSince) {
-                  $missingSince = Get-Date
-                } elseif (((Get-Date) - $missingSince).TotalMinutes -ge 5) {
-                  Write-Host "::error::No job named '$env:LINUX_JOB' in this run, so $env:ARTIFACT will not arrive."
-                  exit 1
+              const jobs = await request(`/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`);
+              const linux = jobs.jobs.find((job) => job.name.endsWith(env.LINUX_JOB));
+              if (!linux) {
+                if (missingSince === null) missingSince = Date.now();
+                else if (Date.now() - missingSince >= 5 * 60 * 1000) {
+                  console.error(`::error::No job named '${env.LINUX_JOB}' in this run, so ${env.ARTIFACT} will not arrive.`);
+                  process.exitCode = 1;
+                  break;
                 }
-              } elseif ($linux.conclusion) {
-                # The upload may have landed between the two requests above.
-                if (Test-Archive) {
-                  Write-Host "$env:ARTIFACT is ready."
-                  exit 0
+              } else if (linux.conclusion) {
+                if (await hasArchive()) {
+                  console.log(`${env.ARTIFACT} is ready.`);
+                  break;
                 }
-                Write-Host "::error::$env:LINUX_JOB ended ($($linux.conclusion)) without uploading $env:ARTIFACT."
-                exit 1
+                console.error(`::error::${env.LINUX_JOB} ended (${linux.conclusion}) without uploading ${env.ARTIFACT}.`);
+                process.exitCode = 1;
+                break;
               }
-            } catch {
-              Write-Warning "Could not read this run's artifacts or jobs: $($_.Exception.Message)"
+            } catch (error) {
+              console.warn(`::warning::Could not read this run's artifacts or jobs: ${error.message}`);
             }
-            Write-Host "Waiting for $env:ARTIFACT..."
-            Start-Sleep -Seconds 10
+            console.log(`Waiting for ${env.ARTIFACT}...`);
+            await new Promise((resolve) => setTimeout(resolve, 10_000));
           }
+          EOF
 
       - name: Download Linux CLI archive for WSL
         if: inputs.platform == 'win'
@@ -581,6 +596,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verify
+          cp scripts/smoke-resource-monitor.mjs verify/
           unpacked=$(ls -d "${TMPDIR:-/tmp}"/mines-desktop-${{ inputs.platform }}-stage-*/app/dist/"$UNPACKED_DIR")
           tar -C "$(dirname "$unpacked")" -cf verify/unpacked.tar "$(basename "$unpacked")"
           esbuild=scripts/node_modules/.bin/esbuild
@@ -724,46 +740,11 @@ jobs:
         shell: bash
         run: node verify/smoke-cli-archive.mjs --archive release-cli/* --expect-version "${{ inputs.version }}"
 
-      # cargo-xwin links this binary on Linux, and nothing else runs it before users do.
-      # Node rather than pwsh: PowerShell on Windows ARM crashes intermittently
-      # (https://github.com/dotnet/runtime/issues/131636), which is why this
-      # target stopped building on Windows.
+      # Cross-built helpers are exercised here on their target architecture.
       - name: Smoke-test resource monitor
         shell: bash
+        timeout-minutes: 2
         env:
           MONITOR: verify/${{ env.UNPACKED_DIR }}/resources/resource-monitor/mines-resource-monitor.exe
           EXPECTED_ARCH: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x86_64' }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { spawn } from "node:child_process";
-          const monitor = spawn(process.env.MONITOR, { stdio: ["pipe", "pipe", "inherit"] });
-          monitor.stdout.setEncoding("utf8");
-          let output = "";
-          const exited = new Promise((resolve) => monitor.on("close", resolve));
-          const hello = await new Promise((resolve, reject) => {
-            monitor.on("error", reject);
-            monitor.on("close", () => reject(new Error(`Resource monitor exited before hello: ${output}`)));
-            monitor.stdout.on("data", (chunk) => {
-              output += chunk;
-              const end = output.indexOf("\n");
-              if (end !== -1) resolve(JSON.parse(output.slice(0, end)));
-            });
-          });
-          if (hello.type !== "hello" || hello.arch !== process.env.EXPECTED_ARCH) {
-            throw new Error(`Unexpected hello: ${JSON.stringify(hello)}`);
-          }
-          const send = (message) => monitor.stdin.write(`${JSON.stringify({ version: hello.version, ...message })}\n`);
-          send({ type: "configure", rootPid: process.pid, sampleIntervalMs: 1000 });
-          send({ type: "sampleNow", requestId: "verify" });
-          monitor.stdin.end();
-          const exitCode = await exited;
-          const sample = output
-            .split("\n")
-            .filter((line) => line.trim())
-            .map((line) => JSON.parse(line))
-            .find((message) => message.requestId === "verify");
-          if (exitCode !== 0 || sample?.type !== "snapshot" || !sample.processes.some((p) => p.pid === process.pid)) {
-            throw new Error(`Resource monitor exited ${exitCode} with: ${output}`);
-          }
-          console.log(`Resource monitor sampled ${sample.scannedProcessCount} processes.`);
-          EOF
+        run: node verify/smoke-resource-monitor.mjs

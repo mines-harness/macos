@@ -169,23 +169,23 @@ jobs:
               label: Windows x64,
               platform: win,
               arch: x64,
-              runner: ubuntu-24.04,
+              runner: windows-2025,
               target: nsis,
               rust: x86_64-pc-windows-msvc,
               resource: win32-x64,
               cli: true,
-              verify: windows-2025,
+              verify: "",
             }
           - {
               label: Windows arm64,
               platform: win,
               arch: arm64,
-              runner: ubuntu-24.04-arm,
+              runner: windows-11-arm,
               target: nsis,
               rust: aarch64-pc-windows-msvc,
               resource: win32-arm64,
               cli: true,
-              verify: windows-11-arm,
+              verify: "",
             }
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
