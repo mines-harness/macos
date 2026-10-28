@@ -13,12 +13,14 @@ import * as Schema from "effect/Schema";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
+import { useState } from "react";
 import "~/index.css";
 import { render } from "../../../test/render";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useContacts } from "./ContactsProvider";
 import { SharedGroupConversation } from "./SharedGroupConversation";
+import { GroupMessageComposer } from "../groups/GroupMessageComposer";
 
 vi.mock("../../cloud/MinesAuthProvider", () => ({ useMinesAuth: () => ({ userId: "alice" }) }));
 vi.mock("./sharedGroupHost", () => ({ checkSharedGroupHost: async () => {} }));
@@ -222,4 +224,38 @@ it("keeps a failed message retry id but gives edited text a new id", async () =>
   await screen.getByRole("button", { name: "Send message", exact: true }).click();
   await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
   expect(decode(run.mock.calls[2]?.[0]).input.clientRequestId).not.toBe(originalId);
+});
+
+it("preserves a group retry after moving the caret without editing", async () => {
+  setup();
+  const attempts: { text: string; id: number }[] = [];
+  function RetryableGroup() {
+    const [draft, setDraft] = useState({ text: "", id: 0 });
+    return (
+      <GroupMessageComposer
+        draftKey="retryable-group"
+        value={draft.text}
+        onChange={(text) => setDraft((current) => ({ text, id: current.id + 1 }))}
+        onSubmit={() => attempts.push(draft)}
+        ariaLabel="Retryable group message"
+        placeholder="Message the group"
+        disabled={false}
+      >
+        <button type="submit">Send group note</button>
+      </GroupMessageComposer>
+    );
+  }
+  await using screen = await render(<RetryableGroup />);
+  const editor = screen.getByRole("textbox", { name: "Retryable group message" });
+  await editor.fill("Original note");
+  await screen.getByRole("button", { name: "Send group note" }).click();
+  await editor.click();
+  await userEvent.keyboard("{ArrowLeft}");
+  await screen.getByRole("button", { name: "Send group note" }).click();
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+  await editor.fill("Edited note");
+  await screen.getByRole("button", { name: "Send group note" }).click();
+  expect(attempts[2]?.text).toBe("Edited note");
+  expect(attempts[2]?.id).not.toBe(attempts[0]?.id);
 });

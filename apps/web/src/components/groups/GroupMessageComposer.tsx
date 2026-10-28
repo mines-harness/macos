@@ -52,7 +52,7 @@ export function GroupMessageComposer({
                 editorRef={editorRef}
                 onChange={(text, cursor) => {
                   setSelection({ value: text, cursor });
-                  onChange(text);
+                  if (text !== value) onChange(text);
                 }}
                 onCommandKeyDown={(key, event) => {
                   if (
