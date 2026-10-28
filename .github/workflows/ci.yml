@@ -193,6 +193,10 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: node apps/desktop/scripts/verify-preload-bundle.mjs
 
+      - name: Verify standalone CLI bundle
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
       - name: Typecheck
         if: ${{ !cancelled() && steps.typecheck.outcome == 'success' }}
         timeout-minutes: 5

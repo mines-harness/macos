@@ -13,24 +13,26 @@ import * as Path from "effect/Path";
 import { vi } from "vite-plus/test";
 
 const windowsCredentials = vi.hoisted(() => new Map<string, string>());
-vi.mock("@napi-rs/keyring", () => ({
-  Entry: class {
-    readonly service: string;
-    readonly account: string;
-    constructor(service: string, account: string) {
-      this.service = service;
-      this.account = account;
-    }
-    getPassword() {
-      return windowsCredentials.get(`${this.service}/${this.account}`) ?? null;
-    }
-    setPassword(value: string) {
-      windowsCredentials.set(`${this.service}/${this.account}`, value);
-    }
-    deletePassword() {
-      windowsCredentials.delete(`${this.service}/${this.account}`);
-    }
-  },
+vi.mock("./WindowsKeyring.ts", () => ({
+  loadWindowsKeyring: () => ({
+    Entry: class {
+      readonly service: string;
+      readonly account: string;
+      constructor(service: string, account: string) {
+        this.service = service;
+        this.account = account;
+      }
+      getPassword() {
+        return windowsCredentials.get(`${this.service}/${this.account}`) ?? null;
+      }
+      setPassword(value: string) {
+        windowsCredentials.set(`${this.service}/${this.account}`, value);
+      }
+      deletePassword() {
+        windowsCredentials.delete(`${this.service}/${this.account}`);
+      }
+    },
+  }),
 }));
 
 import * as ServerConfig from "../config.ts";

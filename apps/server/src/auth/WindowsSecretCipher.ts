@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ServerConfig from "../config.ts";
+import { loadWindowsKeyring } from "./WindowsKeyring.ts";
 
 class WindowsSecretProtectionError extends Schema.TaggedError<WindowsSecretProtectionError>()(
   "WindowsSecretProtectionError",
@@ -50,7 +51,7 @@ export const make = Effect.gen(function* () {
   const getKey = Effect.fn("WindowsSecretCipher.getKey")(
     function* (create: boolean) {
       if (cachedKey) return cachedKey;
-      const { Entry } = yield* Effect.tryPromise(() => import("@napi-rs/keyring"));
+      const { Entry } = yield* Effect.try(loadWindowsKeyring);
       let reference = yield* readReference;
       if (Option.isNone(reference)) {
         if (!create) return yield* new WindowsCredentialKeyError({ reason: "missing-reference" });
