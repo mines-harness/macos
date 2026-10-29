@@ -10,7 +10,7 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
-vi.mock("../layout/AdaptiveWorkspaceLayout", () => ({
+vi.mock("../layout/adaptive-workspace-context", () => ({
   useAdaptiveWorkspaceLayout: () => ({ fileInspector: { supported: true } }),
 }));
 vi.mock("@react-navigation/native", async () => {

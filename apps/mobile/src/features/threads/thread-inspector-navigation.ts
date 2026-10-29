@@ -2,7 +2,7 @@ import { StackActions, useNavigation } from "@react-navigation/native";
 import { createContext, use } from "react";
 import { Platform } from "react-native";
 
-import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 
 export type ThreadInspectorTarget = {
   readonly type: "thread" | "device";

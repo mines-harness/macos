@@ -132,7 +132,7 @@ function Question({
     answering.current = true;
     setPreparing(true);
     setError(null);
-    try {
+    return (async () => {
       const draft = composerRef.current?.getSendContext();
       const payload =
         submitted ?? (draft ? await prepareGroupComposerPayload(environmentId, draft) : null);
@@ -178,13 +178,15 @@ function Question({
           ? { attachmentsByQuestionId: nextAttachments }
           : {}),
       });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The answer could not be prepared.");
-      return false;
-    } finally {
-      answering.current = false;
-      setPreparing(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "The answer could not be prepared.");
+        return false;
+      })
+      .finally(() => {
+        answering.current = false;
+        setPreparing(false);
+      });
   };
   return (
     <div
@@ -324,7 +326,7 @@ function RunRequests({
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    try {
+    return (async () => {
       const fields = { deliveryId: projection.deliveryId, requestId, clientRequestId, ...response };
       const result = sharedAddress
         ? await sharedRespond({ environmentId, input: { ...sharedAddress, ...fields } })
@@ -335,13 +337,15 @@ function RunRequests({
         return false;
       }
       return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "This request could not be answered.");
-      return false;
-    } finally {
-      inFlight.current = false;
-      setBusy(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "This request could not be answered.");
+        return false;
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setBusy(false);
+      });
   };
   if (requests.approvals.length + requests.userInputs.length + requests.incomplete.length === 0)
     return null;

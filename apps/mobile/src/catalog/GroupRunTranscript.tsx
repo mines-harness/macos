@@ -213,53 +213,57 @@ export function useGroupRunProjections({
       inFlight.current = request;
       setPending(request);
       setFailure(null);
-      try {
-        const result =
-          "groupId" in address
-            ? await privatePage({
-                environmentId,
-                input: { ...address, deliveryId: target.deliveryId },
-              })
-            : await sharedPage({
-                environmentId,
-                input: { ...address, deliveryId: target.deliveryId },
-              });
-        const current = latest.current;
-        if (
-          !current ||
-          current.scopeKey !== scopeKey ||
-          !current.targets.some(
-            (candidate) => groupRunTargetKey(candidate) === groupRunTargetKey(target),
+      await Promise.resolve()
+        .then(async () => {
+          const result =
+            "groupId" in address
+              ? await privatePage({
+                  environmentId,
+                  input: { ...address, deliveryId: target.deliveryId },
+                })
+              : await sharedPage({
+                  environmentId,
+                  input: { ...address, deliveryId: target.deliveryId },
+                });
+          const current = latest.current;
+          if (
+            !current ||
+            current.scopeKey !== scopeKey ||
+            !current.targets.some(
+              (candidate) => groupRunTargetKey(candidate) === groupRunTargetKey(target),
+            )
           )
-        )
-          return;
-        if (result._tag !== "Success") throw squashAtomCommandFailure(result);
-        const projection = result.value;
-        if (!projection || !eligibleGroupRunProjections([target], [projection]).length)
-          throw new Error("This mine’s activity is no longer available.");
-        setCache((previous) => ({
-          scopeKey,
-          accessKey: current.accessKey,
-          pages: [
-            ...eligibleGroupRunProjections(
-              current.targets,
-              previous.scopeKey === scopeKey ? previous.pages : [],
-            ).filter((page) => page.deliveryId !== projection.deliveryId),
-            projection,
-          ],
-        }));
-      } catch (cause) {
-        if (latest.current?.scopeKey === scopeKey)
-          setFailure({
+            return;
+          if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+          const projection = result.value;
+          if (!projection || !eligibleGroupRunProjections([target], [projection]).length)
+            throw new Error("This mine’s activity is no longer available.");
+          setCache((previous) => ({
             scopeKey,
-            message: cause instanceof Error ? cause.message : "Agent activity could not be loaded.",
-          });
-      } finally {
-        if (inFlight.current === request) {
-          inFlight.current = null;
-          if (latest.current) setPending((previous) => (previous === request ? null : previous));
-        }
-      }
+            accessKey: current.accessKey,
+            pages: [
+              ...eligibleGroupRunProjections(
+                current.targets,
+                previous.scopeKey === scopeKey ? previous.pages : [],
+              ).filter((page) => page.deliveryId !== projection.deliveryId),
+              projection,
+            ],
+          }));
+        })
+        .catch((cause: unknown) => {
+          if (latest.current?.scopeKey === scopeKey)
+            setFailure({
+              scopeKey,
+              message:
+                cause instanceof Error ? cause.message : "Agent activity could not be loaded.",
+            });
+        })
+        .finally(() => {
+          if (inFlight.current === request) {
+            inFlight.current = null;
+            if (latest.current) setPending((previous) => (previous === request ? null : previous));
+          }
+        });
     },
   };
 }
@@ -337,13 +341,10 @@ export function GroupRunTranscript({
     if (loading) return;
     setLoading(key);
     setError(null);
-    try {
-      await operation();
-    } catch (cause) {
-      setError(fail(cause).message);
-    } finally {
-      setLoading(null);
-    }
+    await Promise.resolve()
+      .then(operation)
+      .catch((cause: unknown) => setError(fail(cause).message))
+      .finally(() => setLoading(null));
   };
   const ownsRow = (row: OrchestrationV2ProjectedTurnItem) =>
     row.sourceThreadId === projection.threadId && row.item.runId === projection.runId;
@@ -472,32 +473,35 @@ export function GroupRunTranscript({
     responseIds.set(input.requestId, { fingerprint, id: clientRequestId });
     setRespondingRequestId(input.requestId);
     setError(null);
-    try {
-      const payload = { ...input, deliveryId: projection.deliveryId, clientRequestId };
-      const result =
-        "groupId" in address
-          ? await respondPrivate({ environmentId, input: { ...address, ...payload } })
-          : await respondShared({ environmentId, input: { ...address, ...payload } });
-      if (result._tag !== "Success") throw fail(squashAtomCommandFailure(result));
-      setHistory((previousProjection) => {
-        const latest =
-          previousProjection?.deliveryId === projection.deliveryId
-            ? mergeGroupRunProjections(previousProjection, projection)
-            : projection;
-        return {
-          ...latest,
-          runtimeRequests: latest.runtimeRequests.map((request) =>
-            request.id === input.requestId ? { ...request, status: "resolved" } : request,
-          ),
-        };
+    return Promise.resolve()
+      .then(async () => {
+        const payload = { ...input, deliveryId: projection.deliveryId, clientRequestId };
+        const result =
+          "groupId" in address
+            ? await respondPrivate({ environmentId, input: { ...address, ...payload } })
+            : await respondShared({ environmentId, input: { ...address, ...payload } });
+        if (result._tag !== "Success") throw fail(squashAtomCommandFailure(result));
+        setHistory((previousProjection) => {
+          const latest =
+            previousProjection?.deliveryId === projection.deliveryId
+              ? mergeGroupRunProjections(previousProjection, projection)
+              : projection;
+          return {
+            ...latest,
+            runtimeRequests: latest.runtimeRequests.map((request) =>
+              request.id === input.requestId ? { ...request, status: "resolved" } : request,
+            ),
+          };
+        });
+        return true;
+      })
+      .catch((cause: unknown) => {
+        setError(fail(cause).message);
+        return false;
+      })
+      .finally(() => {
+        setRespondingRequestId(null);
       });
-      return true;
-    } catch (cause) {
-      setError(fail(cause).message);
-      return false;
-    } finally {
-      setRespondingRequestId(null);
-    }
   };
   return (
     <ConversationTurnItemAccess value={readAccess}>
@@ -681,55 +685,57 @@ function GroupRuntimeUserInput({
   const submit = async () => {
     if (!answers) return;
     setError(null);
-    try {
-      const attachmentsByQuestionId: Record<string, UserInputAttachments[string]> = {};
-      for (const question of pending.questions) {
-        const key = groupQuestionAttachmentDraftKey(
-          environmentId,
-          namespace,
-          pending.requestId,
-          question.id,
-        );
-        const draft = getComposerDraftSnapshot(key);
-        if (!draft.attachments.length) continue;
-        const prepared = await prepareTurnAttachments({
-          environmentId,
-          attachments: draft.attachments,
-          supportsImageUploads: true,
-          persistUploadedReferences: async (attachments) => {
-            replaceComposerDraftAttachments(key, attachments);
-            await flushComposerDrafts();
-            return "persisted";
-          },
-        });
-        if (prepared.status !== "ready")
-          throw new Error("Attachments changed while preparing your answer.");
-        attachmentsByQuestionId[question.id] = prepared.attachments.map((attachment) => {
-          if (attachment.id === undefined)
-            throw new Error("Reconnect to finish uploading your answer attachments.");
-          return { ...attachment, id: attachment.id };
-        });
-      }
-      if (
-        await onRespond({
-          requestId: pending.requestId,
-          answers,
-          ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}),
-        })
-      ) {
-        for (const question of pending.questions)
-          clearComposerDraftContent(
-            groupQuestionAttachmentDraftKey(
-              environmentId,
-              namespace,
-              pending.requestId,
-              question.id,
-            ),
+    await Promise.resolve()
+      .then(async () => {
+        const attachmentsByQuestionId: Record<string, UserInputAttachments[string]> = {};
+        for (const question of pending.questions) {
+          const key = groupQuestionAttachmentDraftKey(
+            environmentId,
+            namespace,
+            pending.requestId,
+            question.id,
           );
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Your answer could not be sent.");
-    }
+          const draft = getComposerDraftSnapshot(key);
+          if (!draft.attachments.length) continue;
+          const prepared = await prepareTurnAttachments({
+            environmentId,
+            attachments: draft.attachments,
+            supportsImageUploads: true,
+            persistUploadedReferences: async (attachments) => {
+              replaceComposerDraftAttachments(key, attachments);
+              await flushComposerDrafts();
+              return "persisted";
+            },
+          });
+          if (prepared.status !== "ready")
+            throw new Error("Attachments changed while preparing your answer.");
+          attachmentsByQuestionId[question.id] = prepared.attachments.map((attachment) => {
+            if (attachment.id === undefined)
+              throw new Error("Reconnect to finish uploading your answer attachments.");
+            return { ...attachment, id: attachment.id };
+          });
+        }
+        if (
+          await onRespond({
+            requestId: pending.requestId,
+            answers,
+            ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}),
+          })
+        ) {
+          for (const question of pending.questions)
+            clearComposerDraftContent(
+              groupQuestionAttachmentDraftKey(
+                environmentId,
+                namespace,
+                pending.requestId,
+                question.id,
+              ),
+            );
+        }
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "Your answer could not be sent.");
+      });
   };
   return (
     <View className="gap-2">

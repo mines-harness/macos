@@ -122,41 +122,49 @@ export function useGroupMessageHistory({
     }),
   };
   const readSnapshot = useStableCallback(() => complete);
-  const loadEarlier = async () => {
+  const loadEarlier = () => {
     const scope = lifetime.current;
     const request = `${identity}:history`;
     if (scope.pending.has(request)) return;
     scope.pending.add(request);
     update((current) => ({ ...current, loading: current.loading + 1, error: null }));
-    try {
-      const beforeMessageId = readSnapshot().messages[0]?.id;
-      const result = sharedAddress
-        ? await readSharedHistory({
-            environmentId,
-            input: { ...sharedAddress, ...(beforeMessageId ? { beforeMessageId } : {}) },
-          })
-        : await readHistory({
-            environmentId,
-            input: { groupId: snapshot.group.id, ...(beforeMessageId ? { beforeMessageId } : {}) },
-          });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-      const page = "snapshot" in result.value ? result.value.snapshot : result.value;
-      if (!page || page.group.id !== snapshot.group.id)
-        throw new Error("The group history is unavailable.");
-      update((current) => ({
-        ...current,
-        pages: pruneGroupHistoryProjections(readSnapshot(), [page, ...current.pages]),
-        hasMore: page.hasMoreMessages,
-      }));
-    } catch (cause) {
-      update((current) => ({
-        ...current,
-        error: cause instanceof Error ? cause.message : "Could not load earlier group messages.",
-      }));
-    } finally {
-      scope.pending.delete(request);
-      update((current) => ({ ...current, loading: Math.max(0, current.loading - 1) }));
-    }
+    return Promise.resolve()
+      .then(async () => {
+        const beforeMessageId = readSnapshot().messages[0]?.id;
+        return sharedAddress
+          ? await readSharedHistory({
+              environmentId,
+              input: { ...sharedAddress, ...(beforeMessageId ? { beforeMessageId } : {}) },
+            })
+          : await readHistory({
+              environmentId,
+              input: {
+                groupId: snapshot.group.id,
+                ...(beforeMessageId ? { beforeMessageId } : {}),
+              },
+            });
+      })
+      .then((result) => {
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        const page = "snapshot" in result.value ? result.value.snapshot : result.value;
+        if (!page || page.group.id !== snapshot.group.id)
+          throw new Error("The group history is unavailable.");
+        update((current) => ({
+          ...current,
+          pages: pruneGroupHistoryProjections(readSnapshot(), [page, ...current.pages]),
+          hasMore: page.hasMoreMessages,
+        }));
+      })
+      .catch((cause: unknown) => {
+        update((current) => ({
+          ...current,
+          error: cause instanceof Error ? cause.message : "Could not load earlier group messages.",
+        }));
+      })
+      .finally(() => {
+        scope.pending.delete(request);
+        update((current) => ({ ...current, loading: Math.max(0, current.loading - 1) }));
+      });
   };
   const deferred = merged.messages.filter(
     (message) =>
@@ -174,38 +182,41 @@ export function useGroupMessageHistory({
       scope.attempted.add(request);
       scope.pending.add(request);
       update((current) => ({ ...current, loading: current.loading + 1 }));
-      try {
-        const loaded = await readCompleteGroupMessage(
-          message,
-          async (offset) => {
-            const result = sharedAddress
-              ? await readSharedChunk({
-                  environmentId,
-                  input: { ...sharedAddress, messageId: message.id, offset },
-                })
-              : await readChunk({
-                  environmentId,
-                  input: { groupId: snapshot.group.id, messageId: message.id, offset },
-                });
-            if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-            return result.value;
-          },
-          () => scope.live,
-          !!sharedAddress,
-        );
-        update((current) => ({
-          ...current,
-          resolved: new Map([...current.resolved, [message.id, { source, message: loaded }]]),
-        }));
-      } catch (cause) {
-        update((current) => ({
-          ...current,
-          error: cause instanceof Error ? cause.message : "Could not load the full group message.",
-        }));
-      } finally {
-        scope.pending.delete(request);
-        update((current) => ({ ...current, loading: Math.max(0, current.loading - 1) }));
-      }
+      await readCompleteGroupMessage(
+        message,
+        async (offset) => {
+          const result = sharedAddress
+            ? await readSharedChunk({
+                environmentId,
+                input: { ...sharedAddress, messageId: message.id, offset },
+              })
+            : await readChunk({
+                environmentId,
+                input: { groupId: snapshot.group.id, messageId: message.id, offset },
+              });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          return result.value;
+        },
+        () => scope.live,
+        !!sharedAddress,
+      )
+        .then((loaded) => {
+          update((current) => ({
+            ...current,
+            resolved: new Map([...current.resolved, [message.id, { source, message: loaded }]]),
+          }));
+        })
+        .catch((cause: unknown) => {
+          update((current) => ({
+            ...current,
+            error:
+              cause instanceof Error ? cause.message : "Could not load the full group message.",
+          }));
+        })
+        .finally(() => {
+          scope.pending.delete(request);
+          update((current) => ({ ...current, loading: Math.max(0, current.loading - 1) }));
+        });
     }
   });
   // oxlint-disable-next-line mines/react-effect-budget -- hydrates only deferred rows in the currently loaded bounded history window

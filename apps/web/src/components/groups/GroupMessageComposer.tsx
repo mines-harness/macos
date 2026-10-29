@@ -233,7 +233,7 @@ export function GroupMessageComposer({
     inFlight.current = true;
     setSending(true);
     setError(null);
-    try {
+    return (async () => {
       const payload = await prepareGroupComposerPayload(environmentId, context);
       const accepted = await onSubmit(alternate, {
         ...payload,
@@ -248,16 +248,18 @@ export function GroupMessageComposer({
         onDraftActivity?.("idle");
         focus();
       }
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Your message could not be sent. Your draft is saved.",
-      );
-    } finally {
-      inFlight.current = false;
-      setSending(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Your message could not be sent. Your draft is saved.",
+        );
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setSending(false);
+      });
   };
   const history: ChatMessage[] =
     snapshot?.messages
