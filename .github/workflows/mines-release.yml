@@ -31,6 +31,11 @@ concurrency:
 jobs:
   source:
     name: Resolve one tested source
+    # Draft release versions are visible only with push access.
+    permissions:
+      contents: write
+      actions: read
+      checks: read
     if: >-
       github.repository == 'mines-harness/macos' &&
       vars.MINES_RELEASE_MODE != 'personal' &&

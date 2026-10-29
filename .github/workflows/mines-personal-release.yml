@@ -24,6 +24,11 @@ concurrency:
 jobs:
   source:
     name: Resolve one tested personal release source
+    # Draft release versions are visible only with push access.
+    permissions:
+      contents: write
+      actions: read
+      checks: read
     if: >-
       github.repository == 'mines-harness/macos' &&
       (github.event_name == 'workflow_dispatch' ||

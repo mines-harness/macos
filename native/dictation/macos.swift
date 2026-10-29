@@ -5,6 +5,37 @@ import Speech
 private var current: DictationSession?
 private var response: UnsafeMutablePointer<CChar>?
 
+func selectDictationLocale(
+    requested: String,
+    supported: [String],
+    supportsOnDevice: (String) -> Bool
+) -> String? {
+    func normalize(_ identifier: String) -> String {
+        Locale.identifier(.bcp47, from: identifier)
+    }
+    let normalized = normalize(requested)
+    let candidates = Set(supported.map(normalize)).sorted()
+    if candidates.contains(normalized), supportsOnDevice(normalized) { return normalized }
+    guard let language = Locale(identifier: normalized).language.languageCode else { return nil }
+    let defaultLanguage = Locale.Language(identifier: language.identifier)
+    let defaultRegion = Locale(identifier: defaultLanguage.maximalIdentifier).region
+    let preferred = normalize(Locale(languageCode: language, languageRegion: defaultRegion).identifier)
+    if candidates.contains(preferred), supportsOnDevice(preferred) { return preferred }
+    return candidates.first {
+        $0 != preferred && Locale(identifier: $0).language.languageCode == language && supportsOnDevice($0)
+    }
+}
+
+private func resolveDictationLocale(_ requested: String) -> String? {
+    selectDictationLocale(
+        requested: requested,
+        supported: SFSpeechRecognizer.supportedLocales().map(\.identifier),
+        supportsOnDevice: {
+            SFSpeechRecognizer(locale: Locale(identifier: $0))?.supportsOnDeviceRecognition == true
+        }
+    )
+}
+
 private func encode(_ value: [String: Any]) -> UnsafePointer<CChar>? {
     if let previous = response { free(previous) }
     let data = (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])) ?? Data()
@@ -25,7 +56,9 @@ private final class DictationSession {
 
     init(id: String, locale: String) {
         self.id = id
-        recognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
+        recognizer = resolveDictationLocale(locale).flatMap {
+            SFSpeechRecognizer(locale: Locale(identifier: $0))
+        }
     }
 
     var terminal: Bool { ["finished", "cancelled", "error"].contains(phase) }
@@ -147,10 +180,11 @@ private final class DictationSession {
 @_cdecl("mines_dictation_capability")
 public func capability(_ locale: UnsafePointer<CChar>) -> UnsafePointer<CChar>? {
     let language = String(cString: locale)
-    let available = SFSpeechRecognizer(locale: Locale(identifier: language))?.supportsOnDeviceRecognition == true
+    let resolved = resolveDictationLocale(language)
+    let available = resolved != nil
     return encode([
         "available": available,
-        "locale": language,
+        "locale": resolved ?? language,
         "reason": available ? NSNull() : "On-device speech recognition is not installed for this language." as Any,
     ])
 }

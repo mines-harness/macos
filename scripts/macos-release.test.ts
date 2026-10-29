@@ -10,49 +10,65 @@ import * as Schema from "effect/Schema";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 
-async function readDesktopReleaseSteps(file = "release-desktop.yml") {
-  const workflow = Schema.decodeSync(
-    fromYaml(
-      Schema.Struct({
-        jobs: Schema.Record(
-          Schema.String,
-          Schema.Struct({
-            steps: Schema.optional(
-              Schema.Array(
-                Schema.Struct({
-                  name: Schema.optional(Schema.String),
-                  run: Schema.optional(Schema.String),
-                  uses: Schema.optional(Schema.String),
-                  id: Schema.optional(Schema.String),
-                  with: Schema.optional(
-                    Schema.Struct({
-                      script: Schema.optional(Schema.String),
-                      name: Schema.optional(Schema.String),
-                      "run-id": Schema.optional(Schema.String),
-                      "github-token": Schema.optional(Schema.String),
-                      retries: Schema.optional(Schema.Number),
-                    }),
-                  ),
-                }),
-              ),
+const WorkflowPermissions = Schema.Record(
+  Schema.String,
+  Schema.Literals(["read", "write", "none"]),
+);
+const decodeReleaseWorkflow = Schema.decodeSync(
+  fromYaml(
+    Schema.Struct({
+      permissions: Schema.optional(WorkflowPermissions),
+      jobs: Schema.Record(
+        Schema.String,
+        Schema.Struct({
+          permissions: Schema.optional(WorkflowPermissions),
+          steps: Schema.optional(
+            Schema.Array(
+              Schema.Struct({
+                name: Schema.optional(Schema.String),
+                run: Schema.optional(Schema.String),
+                uses: Schema.optional(Schema.String),
+                id: Schema.optional(Schema.String),
+                with: Schema.optional(
+                  Schema.Struct({
+                    script: Schema.optional(Schema.String),
+                    name: Schema.optional(Schema.String),
+                    "run-id": Schema.optional(Schema.String),
+                    "github-token": Schema.optional(Schema.String),
+                    retries: Schema.optional(Schema.Number),
+                  }),
+                ),
+              }),
             ),
-          }),
-        ),
-      }),
-    ),
-  )(await NodeFSP.readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8"));
+          ),
+        }),
+      ),
+    }),
+  ),
+);
+
+async function readReleaseWorkflow(file = "release-desktop.yml") {
+  return decodeReleaseWorkflow(
+    await NodeFSP.readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8"),
+  );
+}
+
+async function readDesktopReleaseSteps(file = "release-desktop.yml") {
+  const workflow = await readReleaseWorkflow(file);
   return Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
 }
 
 async function runPersonalReleaseMetadata(input: {
   checks: ReadonlyArray<{ id: number; name: string; app: { slug: string }; conclusion: string }>;
   tags?: readonly string[];
+  draftTags?: readonly string[];
+  workflowFile?: string;
   requestedVersion?: string;
   dispatchRef?: string;
 }) {
-  const script = (await readDesktopReleaseSteps("mines-personal-release.yml")).find(
-    (step) => step.id === "meta",
-  )?.with?.script;
+  const workflow = await readReleaseWorkflow(input.workflowFile ?? "mines-personal-release.yml");
+  const permissions = workflow.jobs.source?.permissions ?? workflow.permissions;
+  const script = workflow.jobs.source?.steps?.find((step) => step.id === "meta")?.with?.script;
   assert.isString(script);
   const checkedRefs: string[] = [];
   const outputs = new Map<string, string>();
@@ -69,7 +85,13 @@ async function runPersonalReleaseMetadata(input: {
           checkedRefs.push(options.ref);
           return input.checks;
         }
-        if (method === listReleases) return (input.tags ?? []).map((tag_name) => ({ tag_name }));
+        if (method === listReleases)
+          return [
+            ...(input.tags ?? []).map((tag_name) => ({ tag_name, draft: false })),
+            ...(permissions?.contents === "write" ? (input.draftTags ?? []) : []).map(
+              (tag_name) => ({ tag_name, draft: true }),
+            ),
+          ];
         throw new Error("Unexpected GitHub method");
       },
     },
@@ -103,6 +125,47 @@ it("allocates the next personal patch from the exact CI-tested source", async ()
   assert.equal(result.outputs.get("commit"), "1".repeat(40));
   assert.equal(result.outputs.get("version"), "1.2.5");
 });
+
+it.each(["mines-personal-release.yml", "mines-release.yml"])(
+  "reserves draft versions without granting build jobs writes in %s",
+  async (workflowFile) => {
+    const checks = [
+      { id: 1, name: "Check", app: { slug: "github-actions" }, conclusion: "success" },
+    ];
+    const result = await runPersonalReleaseMetadata({
+      workflowFile,
+      checks,
+      tags: ["v1.2.3"],
+      draftTags: ["v1.2.4"],
+    });
+    assert.equal(result.outputs.get("version"), "1.2.5");
+    await expect(
+      runPersonalReleaseMetadata({
+        workflowFile,
+        checks,
+        tags: ["v1.2.3"],
+        draftTags: ["v1.2.4"],
+        requestedVersion: "1.2.4",
+      }),
+    ).rejects.toThrow("already published");
+    const workflow = await readReleaseWorkflow(workflowFile);
+    assert.equal(workflow.permissions?.contents, "read");
+    assert.deepEqual(workflow.jobs.source?.permissions, {
+      contents: "write",
+      actions: "read",
+      checks: "read",
+    });
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      const writable =
+        name === "source" || (workflowFile === "mines-release.yml" && name === "publish");
+      assert.equal(
+        (job.permissions ?? workflow.permissions)?.contents,
+        writable ? "write" : "read",
+        name,
+      );
+    }
+  },
+);
 
 async function runPersonalPublication(
   step: "resolve" | "source" | "prepare" | "publish",
@@ -521,6 +584,8 @@ it("allows only complete publication infrastructure changes ahead of the origina
       status: "ahead",
       files: [
         { filename: ".github/workflows/mines-personal-publish.yml" },
+        { filename: ".github/workflows/mines-personal-release.yml" },
+        { filename: ".github/workflows/mines-release.yml" },
         { filename: ".github/workflows/release-desktop.yml" },
         { filename: "scripts/macos-release.test.ts" },
         { filename: "docs/operations/mines-release.md" },
@@ -532,6 +597,8 @@ it("allows only complete publication infrastructure changes ahead of the origina
     { status: "diverged", files: [] },
     { status: "ahead" },
     { status: "ahead", files: [{ filename: "apps/web/src/composer.tsx" }] },
+    { status: "ahead", files: [{ filename: "packages/contracts/src/groupChat.ts" }] },
+    { status: "ahead", files: [{ filename: "scripts/build-desktop-artifact.ts" }] },
     {
       status: "ahead",
       files: [
