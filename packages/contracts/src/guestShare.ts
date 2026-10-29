@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { ChatAttachment } from "./chatAttachment.ts";
+import { ConversationActivity, ConversationActivityKind } from "./conversationActivity.ts";
 import {
   GuestMessageId,
   GuestShareId,
@@ -186,6 +187,42 @@ export const GuestEditRequest = Schema.Struct({
   expectedRevision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 export type GuestEditRequest = typeof GuestEditRequest.Type;
+
+export const GuestActivityRequest = Schema.Struct({
+  shareId: GuestShareId,
+  kind: ConversationActivityKind,
+});
+export type GuestActivityRequest = typeof GuestActivityRequest.Type;
+
+export const GuestOwnerActivityInput = Schema.Struct({
+  threadId: ThreadId,
+  kind: ConversationActivityKind,
+});
+export type GuestOwnerActivityInput = typeof GuestOwnerActivityInput.Type;
+
+export const GuestActivitySubscribeInput = Schema.Struct({ threadId: ThreadId });
+export type GuestActivitySubscribeInput = typeof GuestActivitySubscribeInput.Type;
+
+export const GuestShareActivityView = Schema.Struct({
+  shareId: Schema.NullOr(GuestShareId),
+  guests: Schema.Array(
+    Schema.Struct({ guestId: GuestSessionId, ...ConversationActivity.fields }),
+  ).check(Schema.isMaxLength(GUEST_SHARE_MAX_GUESTS)),
+});
+export type GuestShareActivityView = typeof GuestShareActivityView.Type;
+
+export class GuestActivityError extends Schema.TaggedError<GuestActivityError>()(
+  "GuestActivityError",
+  {
+    reason: Schema.Literals(["inactive", "unavailable"]),
+  },
+) {
+  override get message(): string {
+    return this.reason === "inactive"
+      ? "This guest link is no longer active."
+      : "Conversation activity is unavailable.";
+  }
+}
 
 export const GUEST_ROUTE_PREFIX = "/api/guest";
 /** The guest page and guest routes name the share they mean with this query parameter. */

@@ -12,8 +12,8 @@ import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
-import { useState } from "react";
+import { page, userEvent } from "vite-plus/test/browser";
+import { useState, type ReactNode } from "react";
 import "~/index.css";
 import { render } from "../../../test/render";
 import { useEnvironmentQuery } from "../../state/query";
@@ -21,12 +21,45 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useContacts } from "./ContactsProvider";
 import { SharedGroupConversation } from "./SharedGroupConversation";
 import { GroupMessageComposer } from "../groups/GroupMessageComposer";
+import { sharedGroupPublishActivity } from "../../state/sharedGroups";
 
 vi.mock("../../cloud/MinesAuthProvider", () => ({ useMinesAuth: () => ({ userId: "alice" }) }));
 vi.mock("./sharedGroupHost", () => ({ checkSharedGroupHost: async () => {} }));
 vi.mock("../../state/peers", () => ({ readPeerConnectionState: {} }));
-vi.mock("../../state/entities", () => ({ useQuietThreadShells: () => [] }));
-vi.mock("../../state/query", () => ({ useEnvironmentQuery: vi.fn() }));
+vi.mock("../../state/entities", async (original) => ({
+  ...(await original<typeof import("../../state/entities")>()),
+  useQuietThreadShells: () => [],
+  useProjects: () => [],
+  useThreadShells: () => [],
+}));
+vi.mock("../../state/environments", async (original) => ({
+  ...(await original<typeof import("../../state/environments")>()),
+  useEnvironment: () => ({ connection: { phase: "connected" } }),
+}));
+vi.mock("../../state/server", async (original) => {
+  const real = await original<typeof import("../../state/server")>();
+  const { Atom } = await import("effect/reactivity");
+  const config = Atom.make({
+    cwd: "/workspace",
+    providers: [],
+    environment: {
+      capabilities: {
+        attachmentUploads: true,
+        groupRichMessages: true,
+        questionAttachments: true,
+        fileAttachments: { maxUploadBytes: 20_000_000 },
+      },
+    },
+  });
+  return {
+    ...real,
+    serverEnvironment: { ...real.serverEnvironment, configValueAtom: () => config },
+  };
+});
+vi.mock("../../state/query", async (original) => ({
+  ...(await original<typeof import("../../state/query")>()),
+  useEnvironmentQuery: vi.fn(),
+}));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: vi.fn() }));
 vi.mock("./ContactsProvider", () => ({ useContacts: vi.fn() }));
 vi.mock("../composerContextPresentation", async () => {
@@ -35,19 +68,28 @@ vi.mock("../composerContextPresentation", async () => {
     ComposerContextActionsContext: createContext(null),
     ComposerContextRecordsContext: createContext(new Map()),
     ComposerContextReferenceChip: () => null,
+    composerContextRecordsFromDraft: () => new Map(),
+    uploadedContextRecordFromDraft: () => undefined,
+    EMPTY_COMPOSER_CONTEXT_RECORDS: new Map(),
   };
 });
 vi.mock("../chat/SkillInlineText", () => ({
   SkillChipPopover: () => null,
   skillPopoverDescription: () => null,
+  renderSkillInlineMarkdownChildren: (children: ReactNode) => children,
+  skillInstructionsOpener: () => () => {},
 }));
 vi.mock("../chat/AssistantCitationChip", () => ({ AssistantCitationChip: () => null }));
 vi.mock("../chat/ComposerCodeBlockNodeView", () => ({ ComposerCodeBlockNodeView: () => null }));
-vi.mock("../../state/sharedGroups", async () => {
+vi.mock("../../state/sharedGroups", async (original) => {
+  const real = await original<typeof import("../../state/sharedGroups")>();
   const { Atom } = await import("effect/reactivity");
   const allowed = Atom.make(true);
   return {
-    sharedGroupSubscription: () => null,
+    ...real,
+    sharedGroupSubscription: () => ({ test: "conversation" }),
+    sharedGroupActivitySubscription: () => ({ test: "activity" }),
+    sharedGroupPublishActivity: { permissionAtom: () => allowed },
     sharedGroupSend: { permissionAtom: () => allowed },
     sharedGroupAddChats: { permissionAtom: () => allowed },
     sharedGroupRemoveChats: { permissionAtom: () => allowed },
@@ -119,16 +161,24 @@ function setup(hasChats = true) {
   const run = vi
     .fn<(_input: unknown) => Promise<AtomCommandResult<SharedGroupView, Error>>>()
     .mockResolvedValue(AsyncResult.success(view));
-  vi.mocked(useAtomCommand).mockReturnValue(run);
-  vi.mocked(useEnvironmentQuery).mockReturnValue({
-    data: view,
+  const publish = vi.fn(async () => AsyncResult.success(undefined));
+  vi.mocked(useAtomCommand).mockImplementation((command) =>
+    command === sharedGroupPublishActivity ? publish : run,
+  );
+  vi.mocked(useEnvironmentQuery).mockImplementation((target) => ({
+    data:
+      target && "test" in target && target.test === "conversation"
+        ? view
+        : target && "test" in target && target.test === "activity"
+          ? { participants: [] }
+          : null,
     dataUpdatedAt: 0,
     error: null,
     failure: null,
     isPending: false,
     isSuccess: true,
     refresh: vi.fn(),
-  });
+  }));
   vi.mocked(useContacts).mockReturnValue({
     data: { profile, contacts: [friend], invitations: [], groups: [group] },
     error: null,
@@ -144,11 +194,11 @@ function setup(hasChats = true) {
 it("sends mentions as human notes until Ask AI is explicitly enabled and resets that choice after sending", async () => {
   const run = setup();
   await using screen = await render(
-    <SharedGroupConversation group={group} environmentId={environmentId} />,
+    <div className="flex h-[720px] flex-col">
+      <SharedGroupConversation group={group} environmentId={environmentId} />
+    </div>,
   );
-  await expect
-    .element(screen.getByRole("log", { name: "Group messages" }).getByText("Bob", { exact: true }))
-    .toBeVisible();
+  await expect.element(screen.getByText("Hello Alice", { exact: true })).toBeVisible();
   await screen.getByRole("textbox", { name: "Message your group" }).fill("@everyone hello");
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() =>
@@ -166,7 +216,7 @@ it("sends mentions as human notes until Ask AI is explicitly enabled and resets 
   await screen
     .getByRole("textbox", { name: "Message your group" })
     .fill("Please compare these ideas");
-  await screen.getByRole("button", { name: "Send and ask AI" }).click();
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
   await vi.waitFor(() =>
     expect(run).toHaveBeenLastCalledWith({
       environmentId,
@@ -177,7 +227,7 @@ it("sends mentions as human notes until Ask AI is explicitly enabled and resets 
     .element(screen.getByRole("button", { name: "Ask AI", exact: true }))
     .toHaveAttribute("aria-pressed", "false");
   await screen.getByRole("textbox", { name: "Message your group" }).fill("A follow-up note");
-  await screen.getByRole("button", { name: "Send message", exact: true }).click();
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
   await vi.waitFor(() =>
     expect(run).toHaveBeenLastCalledWith({
       environmentId,
@@ -189,12 +239,14 @@ it("sends mentions as human notes until Ask AI is explicitly enabled and resets 
 it("allows human conversation with no AI chats and explains why Ask AI is disabled", async () => {
   const run = setup(false);
   await using screen = await render(
-    <SharedGroupConversation group={group} environmentId={environmentId} />,
+    <div className="flex h-[720px] flex-col">
+      <SharedGroupConversation group={group} environmentId={environmentId} />
+    </div>,
   );
   await expect.element(screen.getByRole("button", { name: "Ask AI", exact: true })).toBeDisabled();
   await expect.element(screen.getByText("Bring a chat to enable Ask AI.")).toBeVisible();
   await screen.getByRole("textbox", { name: "Message your group" }).fill("Just us for now");
-  await screen.getByRole("button", { name: "Send message", exact: true }).click();
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
   await vi.waitFor(() =>
     expect(run).toHaveBeenCalledWith({
       environmentId,
@@ -213,32 +265,38 @@ it("keeps a failed message retry id but gives edited text a new id", async () =>
     Schema.Struct({ input: Schema.Struct({ clientRequestId: Schema.String }) }),
   );
   await using screen = await render(
-    <SharedGroupConversation group={group} environmentId={environmentId} />,
+    <div className="flex h-[720px] flex-col">
+      <SharedGroupConversation group={group} environmentId={environmentId} />
+    </div>,
   );
   await screen.getByRole("textbox", { name: "Message your group" }).fill("Original note");
-  await screen.getByRole("button", { name: "Send message", exact: true }).click();
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
   await expect.element(screen.getByRole("alert")).toHaveTextContent("Message not confirmed");
   const originalId = decode(run.mock.calls[0]?.[0]).input.clientRequestId;
-  await screen.getByRole("button", { name: "Send message", exact: true }).click();
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
   await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
   expect(decode(run.mock.calls[1]?.[0]).input.clientRequestId).toBe(originalId);
   await screen.getByRole("textbox", { name: "Message your group" }).fill("Edited note");
-  await screen.getByRole("button", { name: "Send message", exact: true }).click();
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
   await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
   expect(decode(run.mock.calls[2]?.[0]).input.clientRequestId).not.toBe(originalId);
 });
 
 it("preserves a group retry after moving the caret without editing", async () => {
   setup();
-  const attempts: { text: string; id: number }[] = [];
+  const attempts: { text: string; id: string }[] = [];
   function RetryableGroup() {
     const [draft, setDraft] = useState({ text: "", id: 0 });
     return (
       <GroupMessageComposer
         draftKey="retryable-group"
+        environmentId={environmentId}
         value={draft.text}
         onChange={(text) => setDraft((current) => ({ text, id: current.id + 1 }))}
-        onSubmit={() => attempts.push(draft)}
+        onSubmit={async (_alternate, message) => {
+          attempts.push({ text: message.message, id: message.clientRequestId });
+          return false;
+        }}
         ariaLabel="Retryable group message"
         placeholder="Message the group"
         disabled={false}
@@ -260,4 +318,47 @@ it("preserves a group retry after moving the caret without editing", async () =>
   await screen.getByRole("button", { name: "Send group note" }).click();
   expect(attempts[2]?.text).toBe("Edited note");
   expect(attempts[2]?.id).not.toBe(attempts[0]?.id);
+});
+
+it("submits an explicit Plan override through the real shared composer and asks its mines", async () => {
+  const run = setup();
+  await using screen = await render(
+    <div className="flex h-[720px] flex-col">
+      <SharedGroupConversation group={group} environmentId={environmentId} />
+    </div>,
+  );
+  await screen.getByRole("button", { name: "Plan the next group message", exact: true }).click();
+  await expect
+    .element(screen.getByRole("button", { name: "Ask AI", exact: true }))
+    .toHaveAttribute("aria-pressed", "true");
+  await screen.getByRole("textbox", { name: "Message your group" }).fill("Plan this change");
+  await screen.getByRole("button", { name: "Submit message", exact: true }).click();
+  await vi.waitFor(() =>
+    expect(run).toHaveBeenCalledWith({
+      environmentId,
+      input: expect.objectContaining({
+        message: "Plan this change",
+        interactionMode: "plan",
+        requestAiResponse: true,
+      }),
+    }),
+  );
+});
+
+it("offers group mentions in the normal context menu without enabling AI for a human note", async () => {
+  const run = setup();
+  await using screen = await render(
+    <div className="flex h-[720px] flex-col">
+      <SharedGroupConversation group={group} environmentId={environmentId} />
+    </div>,
+  );
+  await screen.getByRole("textbox", { name: "Message your group" }).fill("@");
+  await page.getByText("@helper", { exact: true }).click();
+  await userEvent.keyboard("hello{Enter}");
+  await vi.waitFor(() =>
+    expect(run).toHaveBeenCalledWith({
+      environmentId,
+      input: expect.objectContaining({ message: "@helper hello", requestAiResponse: false }),
+    }),
+  );
 });

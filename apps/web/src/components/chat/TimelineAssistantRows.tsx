@@ -28,33 +28,48 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
 
+  const body = (
+    <ChatMarkdown
+      text={messageText}
+      cwd={ctx.markdownCwd}
+      threadRef={ctx.threadRef ?? undefined}
+      isStreaming={Boolean(row.message.streaming)}
+      lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
+      skills={ctx.skills}
+      headingLevelOffset={MESSAGE_HEADING_LEVEL}
+      onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+      onRunShellCommand={ctx.onRunShellCommand}
+      onImageExpand={ctx.onImageExpand}
+    />
+  );
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <MessageAuthorHeading>mines</MessageAuthorHeading>
+        {ctx.messageAuthorLabel ? (
+          <p className="mb-2 text-xs font-medium text-muted-foreground">{ctx.messageAuthorLabel}</p>
+        ) : null}
+        <MessageAuthorHeading>{ctx.messageAuthorLabel ?? "mines"}</MessageAuthorHeading>
         <BodyRangeNotice row={row.projectedItem} threadRef={ctx.threadRef} />
         <div data-thread-find-text="true">
-          <AssistantCitationSource
-            messageId={row.message.id}
-            {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
-            itemKey={row.id}
-            request={ctx.citationRequest}
-            listRef={ctx.listRef}
-          >
-            <ChatMarkdown
-              text={messageText}
-              cwd={ctx.markdownCwd}
-              threadRef={ctx.threadRef ?? undefined}
-              isStreaming={Boolean(row.message.streaming)}
-              lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
-              skills={ctx.skills}
-              headingLevelOffset={MESSAGE_HEADING_LEVEL}
-              onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-              onRunShellCommand={ctx.onRunShellCommand}
-              onImageExpand={ctx.onImageExpand}
-            />
-          </AssistantCitationSource>
+          {ctx.citationMessageId === null ? (
+            body
+          ) : (
+            <AssistantCitationSource
+              messageId={ctx.citationMessageId ?? row.message.id}
+              {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
+              itemKey={row.id}
+              request={ctx.citationRequest}
+              listRef={ctx.listRef}
+            >
+              {body}
+            </AssistantCitationSource>
+          )}
         </div>
+        {ctx.messageTruncated ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Open the original mine for the complete reply.
+          </p>
+        ) : null}
         {ctx.onOpenTurnDiff ? (
           <AssistantChangedFilesSection
             turnSummary={row.assistantTurnDiffSummary}
@@ -180,7 +195,7 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
-      {projectedItem?.item.type === "assistant_message" ? (
+      {ctx.onForkFromRun && projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
       {!message.streaming && (
@@ -226,9 +241,11 @@ export function ProposedPlanTimelineRow({
 }) {
   const ctx = use(TimelineRowCtx);
   const items = useThreadVisibleTurnItems(ctx.threadRef);
-  const projected = items.find(
-    (entry) => entry.item.type === "proposed_plan" && entry.item.planId === row.proposedPlan.id,
-  );
+  const projected =
+    ctx.sourceProjectedItem ??
+    items.find(
+      (entry) => entry.item.type === "proposed_plan" && entry.item.planId === row.proposedPlan.id,
+    );
 
   return (
     <div className="min-w-0 px-1 py-0.5">
@@ -277,6 +294,13 @@ export function HtmlRenderTimelineRow({
 export function McpAppTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mcp-app" }> }) {
   const ctx = use(TimelineRowCtx);
   const { awaitingUser } = use(TimelineRowActivityCtx);
+  if (ctx.canUseMcpApps === false) {
+    return (
+      <p className="px-1 py-2 text-sm text-muted-foreground">
+        Open this mine on its owner's device to use this app.
+      </p>
+    );
+  }
 
   return (
     <div className="min-w-0 px-1">

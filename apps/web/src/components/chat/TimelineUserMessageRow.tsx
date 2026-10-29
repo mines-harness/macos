@@ -449,6 +449,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           Sent by mines
         </p>
       ) : null}
+      {ctx.messageAuthorLabel && userMessage.guestName === undefined ? (
+        <p className="text-xs font-medium text-muted-foreground">{ctx.messageAuthorLabel}</p>
+      ) : null}
       {/* The row's heading already names the guest for screen readers. */}
       {userMessage.guestName !== undefined ? (
         <div aria-hidden>
@@ -469,11 +472,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       >
         {/* Outside the fold so a collapsed message still has a heading to navigate to. */}
         <MessageAuthorHeading>
-          {folded
-            ? senderLabel
-            : userMessage.guestName === undefined
-              ? "You"
-              : `${userMessage.guestName} (guest)`}
+          {ctx.messageAuthorLabel ??
+            (folded
+              ? senderLabel
+              : userMessage.guestName === undefined
+                ? "You"
+                : `${userMessage.guestName} (guest)`)}
         </MessageAuthorHeading>
         {folded ? (
           <FoldedMessageHeader

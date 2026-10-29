@@ -44,14 +44,18 @@ function setup() {
 describe("native live voice", () => {
   it("uses audio-only native WebRTC and releases its native stream on exit", async () => {
     const fixture = setup();
+    const onCaptureChange = vi.fn();
     const connection = await createNativeLiveVoicePeer({
       onConnected: vi.fn(),
       onFailure: vi.fn(),
+      onCaptureChange,
     });
     await expect(connection.offer).resolves.toBe("native-offer");
     expect(mocks.getUserMedia).toHaveBeenCalledWith({ audio: true, video: false });
     expect(fixture.peer.createDataChannel).toHaveBeenCalledWith("oai-events");
+    expect(onCaptureChange.mock.calls).toEqual([[true]]);
     connection.close();
+    expect(onCaptureChange.mock.calls).toEqual([[true], [false]]);
     expect(fixture.track.stop).toHaveBeenCalledOnce();
     expect(fixture.stream.release).toHaveBeenCalledOnce();
     expect(fixture.channel.close).toHaveBeenCalledOnce();
@@ -60,6 +64,7 @@ describe("native live voice", () => {
 
   it("releases native media granted after cancellation", async () => {
     const fixture = setup();
+    const onCaptureChange = vi.fn();
     let grant!: (stream: typeof fixture.stream) => void;
     mocks.getUserMedia.mockReturnValue(
       new Promise((resolve) => {
@@ -69,12 +74,14 @@ describe("native live voice", () => {
     const connection = await createNativeLiveVoicePeer({
       onConnected: vi.fn(),
       onFailure: vi.fn(),
+      onCaptureChange,
     });
     connection.close();
     grant(fixture.stream);
     await expect(connection.offer).rejects.toThrow("cancelled");
     expect(fixture.stream.release).toHaveBeenCalledOnce();
     expect(fixture.peer.addTrack).not.toHaveBeenCalled();
+    expect(onCaptureChange.mock.calls).not.toContainEqual([true]);
   });
 
   it("does not offer live voice when its native transport is missing", async () => {

@@ -1062,7 +1062,26 @@ export const DesktopMenuBarState = Schema.Struct({
 });
 export type DesktopMenuBarState = typeof DesktopMenuBarState.Type;
 
+export const DesktopDictationCapability = Schema.Struct({
+  available: Schema.Boolean,
+  reason: Schema.NullOr(Schema.String),
+  locale: Schema.String,
+});
+export type DesktopDictationCapability = typeof DesktopDictationCapability.Type;
+
+export const DesktopDictationState = Schema.Struct({
+  sessionId: Schema.String,
+  phase: Schema.Literals(["preparing", "recording", "finishing", "finished", "cancelled", "error"]),
+  transcript: Schema.String,
+  error: Schema.NullOr(Schema.String),
+});
+export type DesktopDictationState = typeof DesktopDictationState.Type;
+
 export interface DesktopBridge {
+  getDictationCapability?: (locale: string) => Promise<DesktopDictationCapability>;
+  startDictation?: (input: { sessionId: string; locale: string }) => Promise<void>;
+  stopDictation?: (input: { sessionId: string; cancel: boolean }) => Promise<void>;
+  onDictationState?: (listener: (state: DesktopDictationState) => void) => () => void;
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled?: () => boolean;
   getPathForFile?: (file: File) => string;

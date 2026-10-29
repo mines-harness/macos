@@ -35,7 +35,7 @@ export type VoiceRecorderStatus = {
 export interface VoiceRecorder {
   readonly uri: string | null;
   prepareToRecordAsync(): Promise<void>;
-  record(options: { readonly forDuration: number }): void;
+  record(options: { readonly forDuration: number }): void | Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -128,7 +128,10 @@ let activeTranscriptionOperation: Promise<unknown> | null = null;
 
 function acquireSession(): VoiceInputSession | null {
   if (activeSession) return null;
-  const { promise, resolve } = Promise.withResolvers<void>();
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
   const token = { abandoned: false, released: promise, release: resolve };
   activeSession = token;
   return token;
@@ -269,7 +272,8 @@ export class VoiceInputController {
         return;
       }
       this.capturedDraft = capturedDraft;
-      this.dependencies.recorder.record({ forDuration: VOICE_RECORDING_LIMIT_SECONDS });
+      await this.dependencies.recorder.record({ forDuration: VOICE_RECORDING_LIMIT_SECONDS });
+      if (!this.isCurrent(operationToken)) return;
       this.setState({ phase: "recording", error: null, errorAction: null });
     } catch {
       if (this.isCurrent(operationToken))

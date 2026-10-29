@@ -24,6 +24,14 @@ import {
   type OrchestrationV2GetTurnItemResult,
   ThreadId,
   TurnItemId,
+  CONVERSATION_ACTIVITY_TTL_MS,
+  type ConversationActivity,
+  type ConversationActivityKind,
+  GuestActivityError,
+  type GuestActivityRequest,
+  type GuestOwnerActivityInput,
+  type GuestActivitySubscribeInput,
+  type GuestShareActivityView,
 } from "@t3tools/contracts";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import * as Context from "effect/Context";
@@ -37,6 +45,8 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as PubSub from "effect/PubSub";
+import * as Scope from "effect/Scope";
 
 import {
   base64UrlDecodeUtf8,
@@ -201,6 +211,17 @@ export class GuestShareService extends Context.Service<
       request: GuestDeleteRequest,
       ipAddress: string,
     ) => Effect.Effect<void, GuestShareAccessError>;
+    readonly publishOwnerActivity: (
+      input: GuestOwnerActivityInput,
+    ) => Effect.Effect<void, GuestActivityError>;
+    readonly publishGuestActivity: (
+      session: string,
+      request: GuestActivityRequest,
+      ipAddress: string,
+    ) => Effect.Effect<void, GuestShareAccessError>;
+    readonly activityStream: (
+      input: GuestActivitySubscribeInput,
+    ) => Stream.Stream<GuestShareActivityView, GuestActivityError>;
     /** The file of an HTML render in the shared thread, and its title. */
     readonly render: (
       session: string,
@@ -289,6 +310,107 @@ const make = Effect.gen(function* () {
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const signingKey = yield* Effect.cached(
     secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32).pipe(Effect.orDie),
+  );
+  const activityScope = yield* Scope.Scope;
+  const activityChanges = yield* PubSub.sliding<{
+    threadId: ThreadId;
+    guestId: GuestSessionId | null;
+  }>(64);
+  yield* Effect.addFinalizer(() => PubSub.shutdown(activityChanges));
+  const activities = new Map<
+    string,
+    ConversationActivity & {
+      threadId: ThreadId;
+      shareId: GuestShareId;
+      guestId: GuestSessionId | null;
+    }
+  >();
+  const activityTimers = new Set<string>();
+  const activityKey = (shareId: GuestShareId, guestId: GuestSessionId | null) =>
+    JSON.stringify([shareId, guestId]);
+  const expireActivity = Effect.fn("GuestShareService.expireActivity")(function* (key: string) {
+    while (true) {
+      const entry = activities.get(key);
+      if (!entry) return;
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      const remaining = Date.parse(entry.expiresAt) - now;
+      if (remaining <= 0) {
+        activities.delete(key);
+        yield* PubSub.publish(activityChanges, {
+          threadId: entry.threadId,
+          guestId: entry.guestId,
+        });
+        return;
+      }
+      yield* Effect.sleep(remaining);
+    }
+  });
+  const publishActivity = Effect.fn("GuestShareService.publishActivity")(function* (
+    threadId: ThreadId,
+    shareId: GuestShareId,
+    guestId: GuestSessionId | null,
+    kind: ConversationActivityKind,
+  ) {
+    const key = activityKey(shareId, guestId);
+    if (kind === "idle") {
+      if (activities.delete(key)) yield* PubSub.publish(activityChanges, { threadId, guestId });
+      return;
+    }
+    const now = yield* DateTime.now;
+    activities.set(key, {
+      threadId,
+      shareId,
+      guestId,
+      kind,
+      expiresAt: DateTime.formatIso(
+        DateTime.add(now, { milliseconds: CONVERSATION_ACTIVITY_TTL_MS }),
+      ),
+    });
+    if (!activityTimers.has(key)) {
+      activityTimers.add(key);
+      yield* expireActivity(key).pipe(
+        Effect.ensuring(Effect.sync(() => activityTimers.delete(key))),
+        Effect.forkIn(activityScope),
+      );
+    }
+    yield* PubSub.publish(activityChanges, { threadId, guestId });
+  });
+  const hostActivity = Effect.fn("GuestShareService.hostActivity")(function* (
+    shareId: GuestShareId,
+  ) {
+    const now = yield* DateTime.now;
+    const entry = activities.get(activityKey(shareId, null));
+    return entry && Date.parse(entry.expiresAt) > DateTime.toEpochMillis(now)
+      ? { kind: entry.kind, expiresAt: entry.expiresAt }
+      : { kind: "idle" as const, expiresAt: DateTime.formatIso(now) };
+  });
+  yield* orchestrator.streamDomainEvents.pipe(
+    Stream.runForEach((event) => {
+      const thread = threadEventOf(event)?.payload;
+      if (!thread) return Effect.void;
+      const share = thread.guestShare;
+      return Effect.gen(function* () {
+        for (const [key, entry] of activities) {
+          if (entry.threadId !== thread.id) continue;
+          if (
+            thread.archivedAt !== null ||
+            thread.deletedAt !== null ||
+            share?.id !== entry.shareId ||
+            (entry.guestId !== null &&
+              (!guestShareGuests(share).some((guest) => guest.id === entry.guestId) ||
+                guestSessionPermission(share, entry.guestId) === "viewer"))
+          ) {
+            activities.delete(key);
+            yield* PubSub.publish(activityChanges, {
+              threadId: entry.threadId,
+              guestId: entry.guestId,
+            });
+          }
+        }
+      });
+    }),
+    Effect.ignore,
+    Effect.forkScoped,
   );
 
   // Tokens are derived from the share id, so nothing secret is stored and replacing or closing
@@ -411,6 +533,102 @@ const make = Effect.gen(function* () {
     }
     return { thread, share, guest };
   });
+
+  const publishOwnerActivity = Effect.fn("GuestShareService.publishOwnerActivity")(function* (
+    input: GuestOwnerActivityInput,
+  ) {
+    const { thread } = yield* orchestrator
+      .getThreadRecords(input.threadId, [])
+      .pipe(Effect.mapError(() => new GuestActivityError({ reason: "unavailable" })));
+    const share = thread.guestShare;
+    if (
+      !share ||
+      thread.archivedAt !== null ||
+      thread.deletedAt !== null ||
+      !(yield* sharingEnabled)
+    )
+      return;
+    if (Date.parse(share.expiresAt) <= DateTime.toEpochMillis(yield* DateTime.now)) return;
+    yield* publishActivity(thread.id, share.id, null, input.kind);
+  });
+  const publishGuestActivity = Effect.fn("GuestShareService.publishGuestActivity")(function* (
+    session: string,
+    request: GuestActivityRequest,
+    ipAddress: string,
+  ) {
+    const { thread, share, guest } = yield* authorize(session, "session", ipAddress, false);
+    if (request.shareId !== share.id)
+      return yield* new GuestShareAccessError({ reason: "stale_page" });
+    if (request.kind !== "idle" && guestSessionPermission(share, guest!.id) === "viewer")
+      return yield* new GuestShareAccessError({ reason: "forbidden" });
+    yield* publishActivity(thread.id, share.id, guest!.id, request.kind);
+  });
+  const readGuestActivity = Effect.fn("GuestShareService.readGuestActivity")(function* (
+    input: GuestActivitySubscribeInput,
+  ) {
+    const { thread } = yield* orchestrator
+      .getThreadRecords(input.threadId, [])
+      .pipe(Effect.mapError(() => new GuestActivityError({ reason: "unavailable" })));
+    const share = thread.guestShare;
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    if (
+      !share ||
+      thread.archivedAt !== null ||
+      thread.deletedAt !== null ||
+      Date.parse(share.expiresAt) <= now ||
+      !(yield* sharingEnabled)
+    )
+      return { shareId: null, guests: [] } satisfies GuestShareActivityView;
+    return {
+      shareId: share.id,
+      guests: guestShareGuests(share).flatMap((guest) => {
+        const key = activityKey(share.id, guest.id);
+        if (guestSessionPermission(share, guest.id) === "viewer") {
+          activities.delete(key);
+          return [];
+        }
+        const entry = activities.get(key);
+        return entry && Date.parse(entry.expiresAt) > now
+          ? [{ guestId: guest.id, kind: entry.kind, expiresAt: entry.expiresAt }]
+          : [];
+      }),
+    } satisfies GuestShareActivityView;
+  });
+  const activityStream = (input: GuestActivitySubscribeInput) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(activityChanges);
+        const afterSequence = yield* orchestrator
+          .getThreadEventSequence(input.threadId)
+          .pipe(Effect.mapError(() => new GuestActivityError({ reason: "unavailable" })));
+        const changes = Stream.fromEffectRepeat(PubSub.take(subscription)).pipe(
+          Stream.filter((event) => event.threadId === input.threadId && event.guestId !== null),
+          Stream.as(undefined),
+        );
+        const membership = orchestrator
+          .streamStoredEventsFrom({
+            threadId: input.threadId,
+            afterSequence,
+          })
+          .pipe(
+            Stream.filter(
+              ({ event }) =>
+                event.type === "thread.guest-share-updated" ||
+                event.type === "thread.archived" ||
+                event.type === "thread.deleted",
+            ),
+            Stream.as(undefined),
+            Stream.mapError(() => new GuestActivityError({ reason: "unavailable" })),
+          );
+        return Stream.fromEffect(readGuestActivity(input)).pipe(
+          Stream.concat(
+            Stream.merge(changes, membership).pipe(
+              Stream.mapEffect(() => readGuestActivity(input)),
+            ),
+          ),
+        );
+      }),
+    );
 
   const create = Effect.fn("GuestShareService.create")(function* (input: GuestShareCreateInput) {
     if (!isCreateInput(input)) {
@@ -635,6 +853,7 @@ const make = Effect.gen(function* () {
         Effect.mapError(() => new GuestShareAccessError({ reason: "rejected" })),
       );
     }
+    yield* publishActivity(thread.id, share.id, guest!.id, "idle");
   });
 
   /** Completes once the session no longer opens its share, so open reads end with it. */
@@ -731,11 +950,29 @@ const make = Effect.gen(function* () {
         }),
       },
     ];
+    const hostChanges = Stream.unwrap(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(activityChanges);
+        return Stream.fromEffect(hostActivity(share.id)).pipe(
+          Stream.concat(
+            Stream.fromEffectRepeat(PubSub.take(subscription)).pipe(
+              Stream.filter((event) => event.threadId === thread.id && event.guestId === null),
+              Stream.mapEffect(() => hostActivity(share.id)),
+            ),
+          ),
+          Stream.map((activity): GuestStreamEvent => ({ type: "activity", activity })),
+        );
+      }),
+    );
     return Stream.fromIterable(opening).pipe(
       Stream.concat(
-        Stream.merge(live, Stream.fromEffect(Effect.as(untilExpiry, ended)), {
-          haltStrategy: "either",
-        }),
+        Stream.merge(
+          Stream.merge(live, hostChanges),
+          Stream.fromEffect(Effect.as(untilExpiry, ended)),
+          {
+            haltStrategy: "either",
+          },
+        ),
       ),
       Stream.takeUntil((event) => event.type === "ended"),
       // Unlinking T3 Connect closes it quietly, so a tunnel that comes back on the same host
@@ -825,6 +1062,7 @@ const make = Effect.gen(function* () {
       text: request.text,
       expectedRevision: request.expectedRevision,
     });
+    yield* publishActivity(thread.id, share.id, guest!.id, "idle");
   });
 
   const deleteMessage = Effect.fn("GuestShareService.deleteMessage")(function* (
@@ -878,6 +1116,9 @@ const make = Effect.gen(function* () {
     redeem,
     check,
     submit,
+    publishOwnerActivity,
+    publishGuestActivity,
+    activityStream,
     edit,
     deleteMessage,
     stream,

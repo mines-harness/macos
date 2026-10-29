@@ -21,6 +21,9 @@ import { IconButton } from "../../components/ui/IconButton";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useThreadGuestBannedIps } from "./useThreadGuestShare";
+import { ConversationActivityIndicator } from "../../components/ConversationActivityIndicator";
+import { guestShareActivitySubscription } from "../../state/conversationActivity";
+import { useEnvironmentQuery } from "../../state/query";
 
 export function ThreadGuestRoster(props: {
   readonly threadRef: ScopedThreadRef;
@@ -28,6 +31,14 @@ export function ThreadGuestRoster(props: {
 }) {
   const { threadRef } = props;
   const guests = props.share === null ? [] : guestShareGuests(props.share);
+  const activity = useEnvironmentQuery(
+    props.share
+      ? guestShareActivitySubscription({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId },
+        })
+      : null,
+  );
   const bannedIps = useThreadGuestBannedIps(threadRef);
   const canKick = useAtomValue(threadEnvironment.kickGuest.permissionAtom(threadRef.environmentId));
   const canBan = useAtomValue(threadEnvironment.banGuest.permissionAtom(threadRef.environmentId));
@@ -112,9 +123,16 @@ export function ThreadGuestRoster(props: {
             </Text>
           </View>
           <View className="min-w-0 flex-1 gap-1">
-            <Text className="text-sm font-mines-medium" numberOfLines={1}>
-              {guest.name}
-            </Text>
+            <ConversationActivityIndicator
+              idleName={guest.name}
+              activities={
+                activity.data && activity.data.shareId === props.share?.id
+                  ? activity.data.guests
+                      .filter((entry) => entry.guestId === guest.id)
+                      .map((entry) => ({ ...entry, name: guest.name }))
+                  : []
+              }
+            />
             <Text className="text-xs text-foreground-muted">
               {guestSessionPermission(props.share, guest.id) === "viewer"
                 ? "View only"

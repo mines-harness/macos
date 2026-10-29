@@ -1,6 +1,8 @@
 import {
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
   MessageId,
+  EnvironmentId,
+  ThreadId,
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -25,7 +27,7 @@ export function AssistantSelectionToolbar({
   onCite,
 }: {
   viewport: HTMLElement | null;
-  threadRef: ScopedThreadRef;
+  threadRef?: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
 }) {
   const [selection, setSelection] = useState<{
@@ -52,6 +54,19 @@ export function AssistantSelectionToolbar({
       const captured = captureAssistantTextSelection(viewport, nativeSelection);
       const messageId = captured?.source.dataset.assistantCitationSource;
       if (!captured || !messageId) {
+        clear();
+        return;
+      }
+      const sourceEnvironment = captured.source.dataset.assistantCitationEnvironment;
+      const sourceThread = captured.source.dataset.assistantCitationThread;
+      const sourceRef =
+        sourceEnvironment && sourceThread
+          ? {
+              environmentId: EnvironmentId.make(sourceEnvironment),
+              threadId: ThreadId.make(sourceThread),
+            }
+          : threadRef;
+      if (!sourceRef) {
         clear();
         return;
       }
@@ -121,7 +136,7 @@ export function AssistantSelectionToolbar({
         sourceAnchor: { source: captured.source, range: captured.range, viewport },
         citation: {
           version: 1,
-          ...threadRef,
+          ...sourceRef,
           messageId: MessageId.make(messageId),
           ...captured.selector,
         },

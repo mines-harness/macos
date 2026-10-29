@@ -133,12 +133,13 @@ it("refuses every guest HTTP endpoint without an authoritative request IP", asyn
       "command-output",
       "attachment",
       "messages",
+      "activity",
       "redeem",
     ]) {
       const response = await handler(
         new Request(
           `http://localhost/api/guest/${path}?share=share&item=item&id=file`,
-          path === "messages" || path === "redeem"
+          path === "messages" || path === "redeem" || path === "activity"
             ? {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -147,6 +148,7 @@ it("refuses every guest HTTP endpoint without an authoritative request IP", asyn
                   name: "Sam",
                   shareId: "share",
                   text: "Hello",
+                  kind: "typing",
                 }),
               }
             : undefined,

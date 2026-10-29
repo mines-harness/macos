@@ -1,7 +1,8 @@
 import type { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
 import { TERMINAL_PALETTES, terminalOutputSpans } from "@t3tools/shared/terminalOutput";
 import type React from "react";
-import { useMemo, useRef } from "react";
+import { useContext, useMemo, useRef } from "react";
+import { ConversationTurnItemAccess } from "../../state/conversationTurnItemAccess";
 import { ScrollView, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -12,8 +13,10 @@ import { useEnvironmentQuery } from "../../state/query";
 const FOLLOW_SLACK = 8;
 
 export function useCommandOutputStreaming(environmentId: EnvironmentId): boolean {
+  const groupAccess = useContext(ConversationTurnItemAccess);
   return (
-    useServerConfigs().get(environmentId)?.environment.capabilities.commandOutputStreaming === true
+    useServerConfigs().get(environmentId)?.environment.capabilities.commandOutputStreaming ===
+      true && groupAccess === null
   );
 }
 

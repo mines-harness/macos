@@ -20,6 +20,7 @@ export function ProposedPlanCard(props: {
   readonly workspaceRoot: string | null | undefined;
   readonly markdown: string;
   readonly renderMarkdown: (text: string) => ReactNode;
+  readonly allowWorkspaceSave?: boolean;
 }) {
   const canWrite = useAtomValue(projectEnvironment.writeFile.permissionAtom(props.environmentId));
   const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
@@ -65,24 +66,26 @@ export function ProposedPlanCard(props: {
         <CopyTextButton accessibilityLabel="Copy plan" text={contents} />
       </View>
       {props.renderMarkdown(stripDisplayedPlanMarkdown(props.markdown))}
-      <View className="flex-row">
-        <Button
-          label={saving ? "Saving..." : "Save to workspace"}
-          tone="secondary"
-          disabled={!canWrite || !props.workspaceRoot || saving}
-          onPress={() =>
-            Dialog.prompt({
-              title: "Save plan to workspace",
-              // The write replaces an existing file, and the RPC has no create-only mode.
-              message:
-                "Enter a path relative to the mine's workspace. A file already at that path is replaced.",
-              initialValue: lastPath,
-              confirmText: "Save",
-              onConfirm: (path) => void save(path),
-            })
-          }
-        />
-      </View>
+      {props.allowWorkspaceSave !== false ? (
+        <View className="flex-row">
+          <Button
+            label={saving ? "Saving..." : "Save to workspace"}
+            tone="secondary"
+            disabled={!canWrite || !props.workspaceRoot || saving}
+            onPress={() =>
+              Dialog.prompt({
+                title: "Save plan to workspace",
+                // The write replaces an existing file, and the RPC has no create-only mode.
+                message:
+                  "Enter a path relative to the mine's workspace. A file already at that path is replaced.",
+                initialValue: lastPath,
+                confirmText: "Save",
+                onConfirm: (path) => void save(path),
+              })
+            }
+          />
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -573,7 +573,7 @@ function MessageAttachmentFile(props: {
   readonly environmentId: EnvironmentId;
   readonly attachment: ChatFileAttachment;
   readonly onPressPreview: (source: FilePreviewSource) => void;
-  readonly onPlaybackStart: () => void;
+  readonly onPlaybackStart?: () => void;
 }) {
   const sourceIdentifier = useId();
   const navigation = useNavigation();
@@ -762,11 +762,11 @@ function MessageAttachmentFile(props: {
 }
 
 /** A message's files as its bubble shows them; a guest's waiting message uses it too. */
-function MessageAttachmentList(props: {
+export function MessageAttachmentList(props: {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly environmentId: EnvironmentId;
   readonly onPressPreview: (source: FilePreviewSource) => void;
-  readonly onPlaybackStart: () => void;
+  readonly onPlaybackStart?: () => void;
 }) {
   return props.attachments.map((attachment) =>
     isImageAttachment(attachment) ? (
@@ -946,7 +946,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   });
 });
 
-function useMarkdownStyles(): MarkdownStyleSets {
+export function useMarkdownStyles(): MarkdownStyleSets {
   const { appearance } = useAppearancePreferences();
   const nativeMarkdownTypography = useMemo(
     () => resolveNativeMarkdownTypography(appearance.baseFontSize),

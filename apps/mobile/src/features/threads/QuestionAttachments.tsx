@@ -5,7 +5,12 @@ import { TextInputWrapper } from "expo-paste-input";
 import { AppTextInput as TextInput } from "../../components/ui/AppText";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { convertPastedImagesToAttachments } from "../../lib/composerImages";
-import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type UserInputQuestion } from "@t3tools/contracts";
+import {
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  type EnvironmentId,
+  type ThreadId,
+  type UserInputQuestion,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { View } from "react-native";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -30,7 +35,20 @@ import {
   questionAttachmentPreparationAtom,
 } from "../../state/question-attachments";
 
-export function QuestionAttachments(props: {
+export type QuestionAttachmentTarget =
+  | { readonly environmentId: EnvironmentId; readonly threadId: ThreadId }
+  | { readonly environmentId: EnvironmentId; readonly groupNamespace: string };
+
+export function groupQuestionAttachmentDraftKey(
+  environmentId: EnvironmentId,
+  namespace: string,
+  requestId: string,
+  questionId: string,
+) {
+  return `${environmentId}:group-question/${encodeURIComponent(JSON.stringify([namespace, requestId, questionId]))}`;
+}
+
+interface QuestionAttachmentsProps {
   requestId: string;
   question: UserInputQuestion;
   questions: ReadonlyArray<UserInputQuestion>;
@@ -38,8 +56,45 @@ export function QuestionAttachments(props: {
   value: string;
   onChangeText: (value: string) => void;
   onInputFocusChange?: ((focused: boolean) => void) | undefined;
-}) {
+  readonly target?: QuestionAttachmentTarget;
+}
+
+export function QuestionAttachments(props: QuestionAttachmentsProps) {
+  return props.target ? (
+    <QuestionAttachmentEditor {...props} target={props.target} />
+  ) : (
+    <ThreadQuestionAttachments {...props} />
+  );
+}
+
+function ThreadQuestionAttachments(props: QuestionAttachmentsProps) {
   const { selectedThread } = useThreadSelection();
+  return selectedThread ? (
+    <QuestionAttachmentEditor
+      {...props}
+      target={{ environmentId: selectedThread.environmentId, threadId: selectedThread.id }}
+    />
+  ) : null;
+}
+
+function QuestionAttachmentEditor(
+  props: QuestionAttachmentsProps & { readonly target: QuestionAttachmentTarget },
+) {
+  const { environmentId } = props.target;
+  const draftKeyForQuestion = (questionId: string) =>
+    "groupNamespace" in props.target
+      ? groupQuestionAttachmentDraftKey(
+          environmentId,
+          props.target.groupNamespace,
+          props.requestId,
+          questionId,
+        )
+      : questionAttachmentDraftKey(
+          environmentId,
+          props.target.threadId,
+          props.requestId,
+          questionId,
+        );
   const navigation = useNavigation();
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
@@ -66,15 +121,9 @@ export function QuestionAttachments(props: {
     key: string,
     attachments: Parameters<typeof appendComposerDraftAttachments>[1],
   ) => {
-    if (!selectedThread) return 0;
     const current = appAtomRegistry.get(composerDraftsAtom);
     const otherCount = props.questions.reduce((count, question) => {
-      const target = questionAttachmentDraftKey(
-        selectedThread.environmentId,
-        selectedThread.id,
-        props.requestId,
-        question.id,
-      );
+      const target = draftKeyForQuestion(question.id);
       return target === key ? count : count + (current[target]?.attachments.length ?? 0);
     }, 0);
     return appendComposerDraftAttachments(key, attachments, {
@@ -83,18 +132,9 @@ export function QuestionAttachments(props: {
   };
   const paste = useNativePaste((uris) => {
     const scope = pickerScope.current;
-    if (
-      !selectedThread ||
-      props.disabled ||
-      !configs.get(selectedThread.environmentId)?.environment.capabilities.questionAttachments
-    )
+    if (props.disabled || !configs.get(environmentId)?.environment.capabilities.questionAttachments)
       return;
-    const key = questionAttachmentDraftKey(
-      selectedThread.environmentId,
-      selectedThread.id,
-      props.requestId,
-      props.question.id,
-    );
+    const key = draftKeyForQuestion(props.question.id);
     changeQuestionAttachmentPreparation(key, 1);
     void convertPastedImagesToAttachments({
       uris,
@@ -117,16 +157,10 @@ export function QuestionAttachments(props: {
       )
       .finally(() => changeQuestionAttachmentPreparation(key, -1));
   });
-  if (!selectedThread || props.question.allowCustomAnswer === false) return null;
-  const { environmentId, id: threadId } = selectedThread;
+  if (props.question.allowCustomAnswer === false) return null;
   const capabilities = configs.get(environmentId)?.environment.capabilities;
   const canAttach = capabilities?.questionAttachments === true;
-  const key = questionAttachmentDraftKey(
-    environmentId,
-    threadId,
-    props.requestId,
-    props.question.id,
-  );
+  const key = draftKeyForQuestion(props.question.id);
   const attachments = drafts[key]?.attachments ?? [];
   const pick = async (kind: "media" | "files") => {
     const scope = pickerScope.current;
@@ -182,17 +216,26 @@ export function QuestionAttachments(props: {
         onPressVideo={(attachment, sourceIdentifier) =>
           setPreviewVideo({ type: "local", attachment, sourceIdentifier })
         }
-        onPressDocument={(attachment) =>
+        onPressDocument={(attachment) => {
+          if ("groupNamespace" in props.target) {
+            setPreviewFile({
+              kind: /pdf/i.test(attachment.mimeType) ? "pdf" : "document",
+              attachment,
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+            });
+            return;
+          }
           navigation.navigate("ThreadAttachment", {
             environmentId: String(environmentId),
-            threadId: String(threadId),
+            threadId: String(props.target.threadId),
             attachmentId: attachment.id,
             name: attachment.name,
             mimeType: attachment.mimeType,
             sizeBytes: String(attachment.sizeBytes),
             draftKey: key,
-          })
-        }
+          });
+        }}
       />
       <FilePreviewModal source={previewFile} onRequestClose={() => setPreviewFile(null)} />
       <VideoPreviewModal source={previewVideo} onRequestClose={() => setPreviewVideo(null)} />

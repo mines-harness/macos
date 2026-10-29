@@ -3,13 +3,30 @@ import { minesAccountEnvironmentIdsAtom } from "@t3tools/client-runtime/catalog"
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { contactGroupMembershipInvitationId } from "@t3tools/shared/minesContacts";
 import type { ContactProfile, SharedContactGroup } from "@t3tools/contracts/contacts";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import type { GroupMemberInput, GroupSnapshot } from "@t3tools/contracts/groupChat";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
-import { ComposerEditor } from "../../native/MinesComposerEditor";
+import {
+  GroupRunTranscript,
+  GroupRunLoadMore,
+  useGroupRunProjections,
+} from "../../catalog/GroupRunTranscript";
+import {
+  groupMessageProjection,
+  unplacedGroupProjections,
+} from "../../catalog/groupConversationRows";
+import { ConversationMessage } from "../../components/ConversationMessage";
+import { ConversationActivityIndicator } from "../../components/ConversationActivityIndicator";
+import { GroupConversationComposer } from "../../catalog/GroupConversationComposer";
+import { useGroupConversationComposer } from "../../catalog/useGroupConversationComposer";
+import {
+  sharedGroupPublishActivity,
+  sharedGroupActivitySubscription,
+} from "../../state/conversationActivity";
+import type { ConversationActivityKind } from "@t3tools/contracts";
 import { Button } from "../../components/ui/Button";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
@@ -58,7 +75,25 @@ export function SharedGroupModal({
     refresh: true,
     reportFailure: false,
   });
-  const { store, draft, error: draftError } = useGroupDraft(environmentId, `shared:${group.key}`);
+  const { store, error: draftError } = useGroupDraft(environmentId, `shared:${group.key}`);
+  const composer = useGroupConversationComposer({
+    environmentId,
+    groupId: `shared:${group.key}`,
+    store,
+  });
+  const activityQuery = useEnvironmentQuery(
+    sharedGroupActivitySubscription({ environmentId, input: address }),
+  );
+  const publish = useAtomCommand(sharedGroupPublishActivity, { reportFailure: false });
+  const publishActivity = useCallback(
+    (kind: ConversationActivityKind) => {
+      void publish({
+        environmentId,
+        input: { groupKey: group.key, coordinatorDeviceId: group.coordinatorDeviceId, kind },
+      });
+    },
+    [environmentId, group.key, group.coordinatorDeviceId, publish],
+  );
   const [askAi, setAskAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -66,6 +101,12 @@ export function SharedGroupModal({
   const [error, setError] = useState<string | null>(null);
   const view = query.data;
   const snapshot = view?.snapshot;
+  const activity = useGroupRunProjections({
+    environmentId,
+    coordinatorEnvironmentId: EnvironmentId.make(group.coordinatorEnvironmentId),
+    snapshot,
+    address,
+  });
   const online = view?.status === "online" && !!snapshot;
   const archived = snapshot?.group.archivedAt != null;
   const canAskAi = !!snapshot?.members.length;
@@ -97,24 +138,31 @@ export function SharedGroupModal({
     contacts.data?.invitations ?? [],
   );
   const submit = async () => {
-    if (busy || !online || archived || !store || !draft.text.trim() || !sendAllowed) return;
+    if (
+      busy ||
+      !online ||
+      archived ||
+      !store ||
+      !composer.ready ||
+      !composer.hasContent ||
+      !sendAllowed
+    )
+      return;
     setBusy(true);
     setError(null);
-    const sent = store.markAttempted();
     try {
-      await store.flush();
+      const prepared = await composer.prepare(askAi && canAskAi);
       await checkSharedGroupHost(environmentId, contacts.accountId, loadHostAccount);
       const result = await send({
         environmentId,
         input: {
           ...address,
-          message: sent.text,
-          clientRequestId: sent.requestId,
+          ...prepared.payload,
           requestAiResponse: askAi && canAskAi,
         },
       });
       if (result._tag !== "Success") throw squashAtomCommandFailure(result);
-      store.acknowledge(sent.requestId);
+      prepared.acknowledge();
       setAskAi(false);
       query.refresh();
     } catch (cause) {
@@ -224,9 +272,9 @@ export function SharedGroupModal({
           {archived ? (
             <Text className="px-4 pb-3 text-foreground-muted">This group is archived.</Text>
           ) : null}
-          {error || query.error || draftError || contacts.error ? (
+          {error || query.error || draftError || contacts.error || composer.error ? (
             <Text accessibilityRole="alert" className="px-4 text-danger-foreground">
-              {error ?? query.error ?? draftError ?? contacts.error}
+              {error ?? query.error ?? draftError ?? composer.error ?? contacts.error}
             </Text>
           ) : null}
           <View className="min-h-0 flex-1">
@@ -235,7 +283,28 @@ export function SharedGroupModal({
               data={snapshot?.messages ?? []}
               keyExtractor={(message) => message.id}
               contentContainerStyle={{ padding: 16, gap: 16 }}
+              ListFooterComponent={
+                <View>
+                  {unplacedGroupProjections(activity.projections, snapshot?.messages ?? []).map(
+                    (projection) => (
+                      <View key={projection.deliveryId} className="gap-2 py-3">
+                        <Text className="text-xs text-foreground-muted">
+                          {snapshot?.members.find((member) => member.id === projection.memberId)
+                            ?.alias ?? "Mine"}
+                        </Text>
+                        <GroupRunTranscript
+                          environmentId={environmentId}
+                          projection={projection}
+                          address={address}
+                        />
+                      </View>
+                    ),
+                  )}
+                  <GroupRunLoadMore loader={activity} />
+                </View>
+              }
               renderItem={({ item }) => {
+                const projection = groupMessageProjection(activity.projections, item);
                 const author =
                   item.authorFriendId === profile.friendId
                     ? profile
@@ -253,7 +322,21 @@ export function SharedGroupModal({
                           : (mine?.alias ?? "Group")}
                       </Text>
                     </View>
-                    <Text selectable>{item.text}</Text>
+                    {projection ? (
+                      <GroupRunTranscript
+                        environmentId={environmentId}
+                        projection={projection}
+                        address={address}
+                      />
+                    ) : (
+                      <ConversationMessage
+                        environmentId={environmentId}
+                        text={item.text}
+                        user={item.kind === "user"}
+                        attachments={item.attachments}
+                        context={item.context}
+                      />
+                    )}
                   </View>
                 );
               }}
@@ -266,7 +349,7 @@ export function SharedGroupModal({
                 onClose={() => setRosterOpen(false)}
                 disabled={busy || contacts.pending || archived || !store}
                 onMention={(alias) => {
-                  store?.setText(
+                  composer.setText(
                     (text) => `${text}${text && !/\s$/.test(text) ? " " : ""}@${alias} `,
                   );
                   setRosterOpen(false);
@@ -282,23 +365,32 @@ export function SharedGroupModal({
               </MobileGroupRoster>
             ) : null}
           </View>
-          <View className="shrink-0 gap-3 border-t border-border p-4">
-            <ComposerEditor
-              key={JSON.stringify([profile.friendId, environmentId, group.key])}
-              accessibilityLabel="Shared group message"
-              multiline
-              value={draft.text}
-              onChangeText={(value) => store?.setText(value)}
-              onSubmit={() => void submit()}
-              placeholder="Message the group"
-              editable={!busy && !!store}
-              maxLength={120_000}
-              contentInsetVertical={12}
-              style={{ maxHeight: 160, minHeight: 48 }}
-            />
+          <ConversationActivityIndicator
+            activities={(activityQuery.data?.participants ?? []).flatMap((activity) => {
+              if (activity.friendId === profile.friendId) return [];
+              const user = currentGroup.members.find(
+                (member) => member.friendId === activity.friendId,
+              );
+              return user ? [{ ...activity, name: user.displayName }] : [];
+            })}
+          />
+          <GroupConversationComposer
+            composer={composer}
+            members={snapshot?.members ?? []}
+            planApplies={askAi && canAskAi}
+            environmentId={environmentId}
+            label="Shared group message"
+            disabled={archived}
+            busy={busy}
+            canSend={
+              !busy && online && !archived && composer.ready && composer.hasContent && sendAllowed
+            }
+            onSend={() => void submit()}
+            publishActivity={publishActivity}
+            activityEnabled={online && sendAllowed}
+          >
             <View className="flex-row items-center gap-2">
-              <SymbolView name="brain" size={18} tintColorClassName="accent-icon" />
-              <Text className="flex-1 font-mines-medium">Ask AI</Text>
+              <Text className="font-mines-medium">Ask AI</Text>
               <ThemedSwitch
                 accessibilityLabel="Ask AI"
                 value={askAi && canAskAi}
@@ -306,18 +398,7 @@ export function SharedGroupModal({
                 onValueChange={setAskAi}
               />
             </View>
-            <Text className="text-xs text-foreground-muted">
-              {canAskAi
-                ? "Turn on Ask AI when you want a mine to respond."
-                : "Bring a mine to the group to enable Ask AI."}
-            </Text>
-            <Button
-              label="Send"
-              disabled={busy || !online || archived || !store || !draft.text.trim() || !sendAllowed}
-              loading={busy}
-              onPress={() => void submit()}
-            />
-          </View>
+          </GroupConversationComposer>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>

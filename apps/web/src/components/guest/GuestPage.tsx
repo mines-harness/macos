@@ -8,6 +8,7 @@ import {
   type GuestDeleteRequest,
   type GuestEditRequest,
   type GuestRedeemRequest,
+  type GuestActivityRequest,
   type GuestShareView,
   type GuestThreadModel,
   type MessageId,
@@ -41,12 +42,16 @@ import { useIncrementalTimelineEntries } from "~/hooks/useIncrementalTimelineEnt
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
-import { observeResize } from "~/lib/observeResize";
+import {
+  useActiveConversationActivity,
+  useConversationActivityPublisher,
+} from "~/hooks/useConversationActivity";
 import { cn, randomUUID } from "~/lib/utils";
 import { guestApiUrl } from "~/guestRouting";
 import { deriveActiveWorkStartedAt, derivePhase } from "~/session-logic";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
 import { ComposerControl, ComposerControlIcon } from "../chat/ComposerControl";
+import { ConversationActivityBubble } from "../chat/ConversationActivity";
 import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { GuestMessageAttachments } from "../chat/GuestMessageAttachments";
 import { PierreEntryIcon } from "../chat/PierreEntryIcon";
@@ -142,8 +147,13 @@ const decodeErrorBody = Schema.decodeUnknownOption(Schema.Struct({ message: Sche
 
 /** Resolves to null on success, or to a message the guest can read. */
 async function postGuest(
-  path: "redeem" | `messages?${string}`,
-  body: typeof GuestRedeemRequest.Encoded | FormData | GuestEditRequest | GuestDeleteRequest,
+  path: "redeem" | `messages?${string}` | `activity?${string}`,
+  body:
+    | typeof GuestRedeemRequest.Encoded
+    | FormData
+    | GuestEditRequest
+    | GuestDeleteRequest
+    | GuestActivityRequest,
   method: "POST" | "PATCH" | "DELETE" = "POST",
 ): Promise<string | null> {
   try {
@@ -155,6 +165,7 @@ async function postGuest(
             method,
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
+            ...(path.startsWith("activity?") ? { keepalive: true } : {}),
           },
     );
     if (response.ok) return null;
@@ -294,6 +305,7 @@ function GuestSession({ shareId }: { readonly shareId: string }) {
           view={stream.view}
           projection={stream.projection}
           awaitingRowIds={stream.awaitingRowIds}
+          hostActivity={stream.hostActivity}
         />
       </>
     );
@@ -383,14 +395,17 @@ function GuestThread({
   view: { shareId, title, expiresAt, messages, model, permission, guestId, guests },
   projection,
   awaitingRowIds,
+  hostActivity,
 }: {
   readonly view: GuestShareView;
   readonly projection: OrchestrationV2ThreadProjection;
   readonly awaitingRowIds: GuestStreamState["awaitingRowIds"];
+  readonly hostActivity: GuestStreamState["hostActivity"];
 }) {
   // No ":" so the timeline finds no environment thread behind the key.
   const threadKey = `guest-${shareId}`;
   const listRef = useRef<LegendListRef | null>(null);
+  const hostKind = useActiveConversationActivity(hostActivity);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [editing, setEditing] = useState<GuestMessageEdit | null>(null);
   const [deleting, setDeleting] = useState<GuestMessageId | null>(null);
@@ -514,15 +529,6 @@ function GuestThread({
     previousUnplacedKey.current = unplacedKey;
     if (unplacedKey.split(",").some((id) => id !== "" && !previous.has(id))) scrollToEnd(true);
   }, [follow.timelineLiveFollowEnabled, unplacedKey, scrollToEnd, following, previousUnplacedKey]);
-  const footerRef = useRef<HTMLOListElement>(null);
-  const hasFooter = unplaced.length > 0;
-  useEffect(() => {
-    const footer = footerRef.current;
-    if (!hasFooter || footer === null) return;
-    return observeResize(footer, () => {
-      if (following.current) scrollToEnd();
-    });
-  }, [hasFooter, scrollToEnd, following]);
   return (
     <>
       <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
@@ -587,20 +593,24 @@ function GuestThread({
           liveFollowEnabled={follow.timelineLiveFollowEnabled}
           onIsAtEndChange={follow.onIsAtEndChangeStable}
           onViewportAttach={follow.attachTimelineViewport}
+          onFooterGrow={follow.onTimelineFooterGrowStable}
           footer={
-            unplaced.length === 0 ? null : (
-              <ol ref={footerRef} className="chat-content-lane flex flex-col gap-4 pb-4">
-                {unplaced.map((message) => (
-                  <li key={message.id}>
-                    <UnplacedGuestMessage
-                      shareId={shareId}
-                      message={message}
-                      guestId={guestId}
-                      actions={renderMessageActions(message)}
-                    />
-                  </li>
-                ))}
-              </ol>
+            unplaced.length === 0 && hostKind === "idle" ? null : (
+              <div className="chat-content-lane pb-4">
+                <ol className="flex flex-col gap-4">
+                  {unplaced.map((message) => (
+                    <li key={message.id}>
+                      <UnplacedGuestMessage
+                        shareId={shareId}
+                        message={message}
+                        guestId={guestId}
+                        actions={renderMessageActions(message)}
+                      />
+                    </li>
+                  ))}
+                </ol>
+                <ConversationActivityBubble kind={hostKind} />
+              </div>
             )
           }
         />
@@ -787,6 +797,11 @@ function GuestComposer({
   const [files, setFiles] = useState<ReadonlyArray<StagedFile>>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activity = useConversationActivityPublisher({
+    targetKey: `guest:${shareId}`,
+    publish: (kind) =>
+      postGuest(`activity?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`, { shareId, kind }),
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nextFileKey = useRef(0);
   const submissionRef = useRef<{
@@ -810,6 +825,7 @@ function GuestComposer({
     const trimmed = text.trim();
     const attachments = editing === null ? files : (editing.message.attachments ?? []);
     if ((trimmed === "" && attachments.length === 0) || sending) return;
+    activity.clear();
     setSending(true);
     if (editing !== null) {
       const previous = editSubmissionRef.current;
@@ -984,9 +1000,12 @@ function GuestComposer({
         maxLength={GUEST_MESSAGE_MAX_LENGTH}
         value={text}
         disabled={editing !== null && sending}
-        onChange={(event) =>
-          editing === null ? setText(event.target.value) : onEditTextChange(event.target.value)
-        }
+        onChange={(event) => {
+          activity.typing();
+          if (editing === null) setText(event.target.value);
+          else onEditTextChange(event.target.value);
+        }}
+        onBlur={activity.clear}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         className="max-h-60 min-h-12 w-full resize-none bg-transparent text-sm outline-none field-sizing-content placeholder:text-placeholder"

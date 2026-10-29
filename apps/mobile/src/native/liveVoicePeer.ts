@@ -10,6 +10,7 @@ export function isNativeLiveVoiceAvailable(): boolean {
 export async function createNativeLiveVoicePeer(input: {
   readonly onConnected: () => void;
   readonly onFailure: (error: Error) => void;
+  readonly onCaptureChange?: (active: boolean) => void;
   readonly signal?: AbortSignal;
 }): Promise<LiveVoicePeer> {
   if (!isNativeLiveVoiceAvailable()) throw new Error("Live voice requires an updated native app.");
@@ -17,12 +18,19 @@ export async function createNativeLiveVoicePeer(input: {
   if (input.signal?.aborted) throw new Error("Voice conversation cancelled.");
   let captured: InstanceType<typeof rtc.MediaStream> | null = null;
   let disposed = false;
+  let captureActive = false;
+  const updateCapture = (active: boolean) => {
+    if (captureActive === active) return;
+    captureActive = active;
+    input.onCaptureChange?.(active);
+  };
   const media = createLiveVoicePeer({
     ...input,
     dependencies: {
       async getUserMedia() {
         captured = await rtc.mediaDevices.getUserMedia({ audio: true, video: false });
         if (disposed) captured.release();
+        else updateCapture(true);
         return captured as unknown as MediaStream;
       },
       createConnection: () => new rtc.RTCPeerConnection({}) as unknown as RTCPeerConnection,
@@ -37,6 +45,7 @@ export async function createNativeLiveVoicePeer(input: {
         close() {
           disposed = true;
           captured?.release();
+          updateCapture(false);
         },
       }),
       scheduleTimeout: (onTimeout, milliseconds) => {
@@ -53,6 +62,7 @@ export async function createNativeLiveVoicePeer(input: {
     close() {
       input.signal?.removeEventListener("abort", onAbort);
       media.close();
+      updateCapture(false);
     },
   };
 }

@@ -1,8 +1,11 @@
+import { useStableCallback } from "../../hooks/useStableCallback";
+import type { LegendListRef } from "@legendapp/list/react";
+import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import type { SharedContactGroup } from "@t3tools/contracts/contacts";
 import type { SharedGroupView } from "@t3tools/contracts/sharedGroups";
-import { ArrowUpIcon, PlusIcon, RefreshCwIcon, BotMessageSquareIcon, XIcon } from "lucide-react";
+import { PlusIcon, RefreshCwIcon, BotMessageSquareIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -18,8 +21,12 @@ import {
   sharedGroupRemoveChats,
   sharedGroupSend,
   sharedGroupSubscription,
+  sharedGroupPublishActivity,
+  sharedGroupActivitySubscription,
 } from "../../state/sharedGroups";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useConversationActivityPublisher } from "../../hooks/useConversationActivity";
+import { ConversationActivityIndicator } from "../chat/ConversationActivity";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -30,9 +37,11 @@ import {
   DialogPanel,
   DialogFooter,
 } from "../ui/dialog";
-import type { ComposerPromptEditorHandle } from "../ComposerPromptEditor";
-import { GroupMessageComposer } from "../groups/GroupMessageComposer";
+import type { ChatComposerHandle } from "../chat/ChatComposer";
+import { GroupMessageComposer, type GroupComposerMessage } from "../groups/GroupMessageComposer";
 import { GroupConversationSidebar } from "../groups/GroupConversationSidebar";
+import { GroupConversationTimeline } from "../groups/GroupConversationTimeline";
+import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
 import { ContactAvatar } from "./ContactsPage";
 import { useContacts } from "./ContactsProvider";
 import { sharedChatMembers } from "./SharedGroupConversation.logic";
@@ -210,26 +219,63 @@ export function SharedGroupConversation({
     initialDraft,
     SharedMessageDraft,
   );
-  const editorRef = useRef<ComposerPromptEditorHandle>(null);
+  const editorRef = useRef<ChatComposerHandle>(null);
+  const timelineRef = useRef<LegendListRef | null>(null);
+  const navigate = useNavigate();
+  const addDroppedFiles = useStableCallback((files: File[]) =>
+    editorRef.current?.addDroppedFiles(files),
+  );
+  const addDroppedFolders = useStableCallback((folders: File[]) =>
+    editorRef.current?.addDroppedFolders(folders),
+  );
+  const fileDrop = makeWorkspaceFileDropHandlers({
+    setDragActive: () => {},
+    addFiles: addDroppedFiles,
+    addFolders: addDroppedFolders,
+  });
   const [askAi, setAskAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const online = view?.status === "online" && snapshot !== null && snapshot !== undefined;
-  const profiles = new Map(group.members.map((member) => [member.friendId, member]));
+  const publishActivity = useAtomCommand(sharedGroupPublishActivity, { reportFailure: false });
+  const liveActivity = useEnvironmentQuery(
+    online ? sharedGroupActivitySubscription({ environmentId, input: address }) : null,
+  );
+  const activity = useConversationActivityPublisher({
+    targetKey: JSON.stringify([userId, environmentId, group.key]),
+    enabled: online && canSend,
+    publish: (kind) => publishActivity({ environmentId, input: { ...address, kind } }),
+  });
+  const reportDraftActivity = (kind: "typing" | "voice" | "idle") => {
+    if (kind === "typing") activity.typing();
+    else if (kind === "voice") activity.voice(true);
+    else {
+      activity.voice(false);
+      activity.clear();
+    }
+  };
   const hasAiChats = (snapshot?.members.length ?? 0) > 0;
   const effectiveAskAi = askAi && hasAiChats;
-  const submit = async (requestAiResponse = effectiveAskAi) => {
-    if (!draft.text.trim() || busy || !online || !canSend) return;
-    if (draft.text.length > 120_000) {
+  const submit = async (requestAiResponse: boolean, payload: GroupComposerMessage) => {
+    if (
+      (!payload.message.trim() &&
+        !payload.attachments?.length &&
+        !payload.context?.records.length) ||
+      busy ||
+      !online ||
+      !canSend
+    )
+      return false;
+    if (payload.message.length > 120_000) {
       setError(
         "Group messages can contain up to 120,000 characters. Shorten your draft to send it.",
       );
-      return;
+      return false;
     }
     if (requestAiResponse && !hasAiChats) {
       setError("Bring a chat to the group before asking AI.");
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -240,23 +286,18 @@ export function SharedGroupConversation({
         cause instanceof Error ? cause.message : "Your computer’s account could not be checked.",
       );
       setBusy(false);
-      return;
+      return false;
     }
-    const requestId = draft.requestId;
     const result = await send({
       environmentId,
       input: {
         ...address,
-        message: draft.text.trim(),
-        clientRequestId: requestId,
+        ...payload,
         requestAiResponse,
       },
     });
     setBusy(false);
     if (result._tag === "Success") {
-      setDraft((current) =>
-        current.requestId === requestId ? { text: "", requestId: randomUUID() } : current,
-      );
       setAskAi(false);
       query.refresh();
     } else {
@@ -267,9 +308,17 @@ export function SharedGroupConversation({
           : "Your message could not be sent. Your draft is saved.",
       );
     }
+    return result._tag === "Success";
   };
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3" aria-label="Shared conversation">
+    <section
+      className="flex min-h-0 flex-1 flex-col gap-3"
+      aria-label="Shared conversation"
+      onDragEnter={fileDrop.onDragEnter}
+      onDragOver={fileDrop.onDragOver}
+      onDragLeave={fileDrop.onDragLeave}
+      onDrop={fileDrop.onDrop}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 flex-1 text-sm font-medium">Conversation</h2>
         <Button
@@ -307,48 +356,45 @@ export function SharedGroupConversation({
         </p>
       ) : null}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div
-          className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 pr-14 lg:pr-4"
-          role="log"
-          aria-label="Group messages"
-          aria-live="polite"
-          aria-relevant="additions text"
-        >
-          {snapshot?.messages.map((message) => {
-            const author = message.authorFriendId
-              ? profiles.get(message.authorFriendId)
-              : undefined;
-            const label = message.memberId
-              ? (snapshot.members.find((member) => member.id === message.memberId)?.alias ?? "Mine")
-              : message.authorFriendId === data?.profile.friendId
-                ? "You"
-                : (author?.displayName ?? "Group member");
-            return (
-              <article key={message.id} className="flex items-start gap-3">
-                {author ? <ContactAvatar profile={author} /> : null}
-                <div className="min-w-0 flex-1">
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                    {message.text}
-                  </p>
+        {snapshot ? (
+          <GroupConversationTimeline
+            key={`${environmentId}:${snapshot.group.id}`}
+            environmentId={environmentId}
+            coordinatorEnvironmentId={EnvironmentId.make(group.coordinatorEnvironmentId)}
+            snapshot={snapshot}
+            sharedAddress={{ groupKey: group.key, coordinatorDeviceId: group.coordinatorDeviceId }}
+            listRef={timelineRef}
+            footer={liveActivity.data?.participants
+              .filter((participant) => participant.friendId !== data?.profile.friendId)
+              .map((participant) => (
+                <div key={participant.friendId} className="chat-content-lane py-1">
+                  <ConversationActivityIndicator
+                    activity={participant}
+                    name={
+                      group.members.find((member) => member.friendId === participant.friendId)
+                        ?.displayName ?? "Group member"
+                    }
+                  />
                 </div>
-              </article>
-            );
-          })}
-          {online && snapshot?.messages.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Start a conversation. AI stays quiet until you ask.
-            </p>
-          ) : null}
-        </div>
+              ))}
+            authorNames={
+              new Map(group.members.map((member) => [member.friendId, member.displayName]))
+            }
+            onCiteAssistantText={(citation, anchor) =>
+              editorRef.current?.citeAssistantText(citation, anchor) ?? false
+            }
+            onOpenThread={(ref) => void navigate({ to: "/$environmentId/$threadId", params: ref })}
+          />
+        ) : (
+          <div className="min-h-0 flex-1 px-4 py-4 text-sm text-muted-foreground">
+            Connecting to the group…
+          </div>
+        )}
         <GroupConversationSidebar
           snapshot={snapshot ?? null}
           onMention={(alias) => {
-            setDraft((current) => ({
-              text: `${current.text}${current.text ? " " : ""}@${alias} `,
-              requestId: randomUUID(),
-            }));
-            editorRef.current?.focus();
+            editorRef.current?.insertTextAtEnd(`@${alias} `, { ensureLeadingBoundary: true });
+            editorRef.current?.focusAtEnd();
           }}
           users={
             renderUsers
@@ -412,6 +458,30 @@ export function SharedGroupConversation({
       </div>
       <div className="shrink-0">
         <GroupMessageComposer
+          environmentId={environmentId}
+          snapshot={snapshot ?? null}
+          {...(data?.profile.friendId ? { authorFriendId: data.profile.friendId } : {})}
+          getTimelineScrollableNode={() => timelineRef.current?.getScrollableNode() ?? null}
+          isSendBusy={busy}
+          onDraftActivity={reportDraftActivity}
+          submissionKey={String(effectiveAskAi)}
+          onPlanModeChange={(active) => {
+            if (active) setAskAi(true);
+          }}
+          onOpenMember={(member) =>
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: { environmentId, threadId: member.threadId },
+            })
+          }
+          canOpenMember={(member) => view?.selectedThreadIds.includes(member.threadId) ?? false}
+          sendDisabledReason={
+            !online
+              ? "Reconnect to the group to send."
+              : !canSend
+                ? "This connection cannot send to this group."
+                : null
+          }
           editorRef={editorRef}
           draftKey={JSON.stringify([userId, environmentId, group.key])}
           ariaLabel="Message your group"
@@ -424,7 +494,7 @@ export function SharedGroupConversation({
               current.text === text ? current : { text, requestId: randomUUID() },
             );
           }}
-          onSubmit={(alternate) => void submit(effectiveAskAi || alternate)}
+          onSubmit={(alternate, payload) => submit(effectiveAskAi || alternate, payload)}
         >
           <Button
             size="sm"
@@ -441,14 +511,6 @@ export function SharedGroupConversation({
               ? "Turn on Ask AI when you want a mine to respond."
               : "Bring a chat to enable Ask AI."}
           </span>
-          <Button
-            type="submit"
-            size="icon"
-            aria-label={effectiveAskAi ? "Send and ask AI" : "Send message"}
-            disabled={!draft.text.trim() || busy || !online || !canSend}
-          >
-            <ArrowUpIcon />
-          </Button>
         </GroupMessageComposer>
       </div>
       {picking && view ? (

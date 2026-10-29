@@ -86,7 +86,7 @@ it.live(
           } else if (path === "/api/guest/attachment") {
             response.writeHead(200, { "content-type": "application/octet-stream" });
             response.end(binary);
-          } else if (path === "/api/guest/messages") {
+          } else if (path === "/api/guest/messages" || path === "/api/guest/activity") {
             response.writeHead(204);
             response.end();
           } else {
@@ -188,6 +188,19 @@ it.live(
         const uploaded = observed.find((request) => request.path.startsWith("/api/guest/messages"));
         expect(uploaded?.body.includes(binary)).toBe(true);
         expect(uploaded?.headers["content-type"]).toMatch(/^multipart\/form-data; boundary=/);
+        const activity = await fetch(`${base}/activity?share=share_001`, {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify({ shareId: "share_001", kind: "voice" }),
+        });
+        expect(activity.status).toBe(204);
+        const activityRequest = observed.find((request) =>
+          request.path.startsWith("/api/guest/activity"),
+        );
+        expect(JSON.parse(activityRequest!.body.toString())).toEqual({
+          shareId: "share_001",
+          kind: "voice",
+        });
         for (const method of ["PATCH", "DELETE"]) {
           const payload = {
             shareId: "share_001",

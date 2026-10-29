@@ -806,6 +806,24 @@ function makeLocalCommandHarness(input: {
   };
 }
 
+effectIt.effect("uses the queued group's Plan selection without changing the mine's mode", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Plan this shared change.",
+      previousTurn: { runStatus: "completed", turnStatus: "completed" },
+    });
+    const original = harness.projection();
+    harness.setProjection({
+      ...original,
+      thread: { ...original.thread, interactionMode: "default" },
+      runs: original.runs.map((run) => ({ ...run, interactionMode: "plan" })),
+    });
+    yield* harness.start;
+    expect(harness.resolveRuntimePolicy.mock.calls[0]?.[0].thread.interactionMode).toBe("plan");
+    expect(harness.projection().thread.interactionMode).toBe("default");
+  }),
+);
+
 effectIt.effect(
   "adds the immutable organizational context once to the native prompt without changing the user message",
   () =>

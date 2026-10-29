@@ -315,7 +315,8 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       workEntry.command?.trim() ||
       workEntry.detail?.trim() ||
       workEntry.changedFiles?.length ||
-      viewedImage,
+      viewedImage ||
+      (ctx.renderViewedImage && viewedImagePath),
     );
   const expandedBody =
     expanded && !isReasoning
@@ -502,7 +503,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
         </>
       }
     >
-      {expanded && viewedImage && threadRef ? (
+      {expanded && ctx.renderViewedImage && viewedImagePath ? (
+        <WorkLogDetails kind="media">{ctx.renderViewedImage(workEntry)}</WorkLogDetails>
+      ) : expanded && viewedImage && threadRef ? (
         <WorkLogDetails kind="media">
           <ChatMarkdownAssetImage
             environmentId={threadRef.environmentId}

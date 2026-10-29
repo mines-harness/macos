@@ -55,7 +55,62 @@ vi.mock("@effect/atom-react", () => ({ useAtomValue: (value: unknown) => value }
 vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
-vi.mock("../../native/MinesComposerEditor", () => ({ ComposerEditor: () => null }));
+vi.mock("../../components/ConversationMessage", () => ({ ConversationMessage: () => null }));
+vi.mock("../../catalog/GroupRunTranscript", () => ({
+  GroupRunTranscript: () => null,
+  GroupRunLoadMore: () => null,
+  useGroupRunProjections: () => ({ projections: [] }),
+}));
+vi.mock("../../components/ConversationActivityIndicator", () => ({
+  ConversationActivityIndicator: () => null,
+}));
+vi.mock("../../state/conversationActivity", () => ({
+  sharedGroupPublishActivity: {},
+  sharedGroupActivitySubscription: () => ({ kind: "activity" }),
+}));
+vi.mock("../../catalog/GroupConversationComposer", () => ({
+  GroupConversationComposer: ({
+    children,
+    canSend,
+    disabled,
+    busy,
+    onSend,
+  }: {
+    children: ReactNode;
+    canSend: boolean;
+    disabled: boolean;
+    busy: boolean;
+    onSend: () => void;
+  }) => (
+    <div>
+      {children}
+      <button disabled={!canSend || disabled || busy} onClick={onSend}>
+        Send
+      </button>
+    </div>
+  ),
+}));
+vi.mock("../../catalog/useGroupConversationComposer", () => ({
+  useGroupConversationComposer: ({ store }: { store: NonNullable<typeof state.store> }) => {
+    const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+    return {
+      draftKey: "group-composer",
+      draft: { text: snapshot.draft.text, attachments: [] },
+      ready: true,
+      hasContent: !!snapshot.draft.text.trim(),
+      error: null,
+      setText: store.setText,
+      async prepare() {
+        const sent = store.markAttempted();
+        await store.flush();
+        return {
+          payload: { message: sent.text, clientRequestId: sent.requestId },
+          acknowledge: () => store.acknowledge(sent.requestId),
+        };
+      },
+    };
+  },
+}));
 vi.mock("../../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
 vi.mock("../../components/ui/Button", () => ({
   Button: ({
@@ -98,8 +153,8 @@ vi.mock("./ContactAvatar", () => ({ ContactAvatar: () => null }));
 vi.mock("../../lib/uuid", () => ({ uuidv4: () => "selection-request" }));
 vi.mock("./sharedGroupHost", () => ({ checkSharedGroupHost: async () => {} }));
 vi.mock("../../state/query", () => ({
-  useEnvironmentQuery: () => ({
-    data: state.view,
+  useEnvironmentQuery: (query: { kind?: string } | null) => ({
+    data: query?.kind === "activity" ? { participants: [] } : state.view,
     isPending: false,
     error: null,
     refresh: state.refresh,

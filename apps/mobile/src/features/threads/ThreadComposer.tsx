@@ -13,6 +13,7 @@ import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-run
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type ConversationActivityKind,
   type ChatAttachment,
   type EnvironmentId,
   type MessageId,
@@ -28,7 +29,15 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
-import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { Keyboard, Platform, View, type ViewStyle } from "react-native";
 import { composerImageGallery } from "../../lib/composerImageGallery";
 import { filePreviewGallery } from "../../lib/filePreviewGallery";
@@ -63,7 +72,13 @@ import {
 import { appAtomRegistry } from "../../state/atom-registry";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject, useThreadShells } from "../../state/entities";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  guestSharePublishActivity,
+  useConversationActivityPublisher,
+} from "../../state/conversationActivity";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { useGuestShareExpired, useThreadGuestShare } from "./useThreadGuestShare";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { ComposerAttachmentButton } from "./ComposerAttachmentButton";
@@ -553,6 +568,15 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       usageLimitsOffered && draftAttachments.length === 0 ? openUsageLimits : undefined,
   });
   const [liveVoiceActive, setLiveVoiceActive] = useState(false);
+  const [liveVoiceCaptureOwner, setLiveVoiceCaptureOwner] = useState<string | null>(null);
+  const reportLiveVoiceCapture = useCallback(
+    (capturing: boolean) => {
+      setLiveVoiceCaptureOwner((current) =>
+        capturing ? composerOwnerKey : current === composerOwnerKey ? null : current,
+      );
+    },
+    [composerOwnerKey],
+  );
   const voiceInput = useVoiceInputController({
     ownerKey: composerDraftKey,
     label: props.selectedThread.title || "Untitled mine",
@@ -562,6 +586,40 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
     disabled: liveVoiceActive,
+  });
+  const activityThreadRef = useMemo(
+    () => (props.isDraft ? null : scopeThreadRef(props.environmentId, props.selectedThread.id)),
+    [props.environmentId, props.isDraft, props.selectedThread.id],
+  );
+  const guestShare = useThreadGuestShare(activityThreadRef);
+  const guestShareExpired = useGuestShareExpired(guestShare);
+  const publishActivity = useAtomCommand(guestSharePublishActivity, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const canPublishActivity = useAtomValue(
+    guestSharePublishActivity.permissionAtom(props.environmentId),
+  );
+  const publishGuestActivity = useCallback(
+    (kind: ConversationActivityKind) => {
+      void publishActivity({
+        environmentId: props.environmentId,
+        input: { threadId: props.selectedThread.id, kind },
+      });
+    },
+    [props.environmentId, props.selectedThread.id, publishActivity],
+  );
+  const conversationActivity = useConversationActivityPublisher({
+    scopeKey: composerOwnerKey,
+    enabled:
+      guestShare !== null &&
+      !guestShareExpired &&
+      props.connectionState === "connected" &&
+      !props.hidden &&
+      canPublishActivity,
+    captureActive:
+      voiceInput.state.phase === "recording" || liveVoiceCaptureOwner === composerOwnerKey,
+    publish: publishGuestActivity,
   });
   const isSubmissionLocked =
     props.interactionLocked === true ||
@@ -646,6 +704,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   };
 
   const handleBlur = () => {
+    conversationActivity.onBlur();
     setIsFocused(false);
     settingsSheetPresentation.onEditorFocusChange(false);
     onEditorFocusChange?.(false);
@@ -659,6 +718,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       pendingNativeImagePasteCountRef.current > 0
     )
       return;
+    conversationActivity.onSubmit();
     if (usageLimitsOffered && isUsageLimitsCommand(draftMessage) && draftAttachments.length === 0) {
       if (openUsageLimits()) onChangeDraftMessage("");
       return;
@@ -969,6 +1029,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     }
                     size={hasSidebarTabBar ? "large" : "regular"}
                     onActiveChange={setLiveVoiceActive}
+                    onCaptureChange={reportLiveVoiceCapture}
                   />
                 ) : null}
                 <ComposerDictationStartAction
@@ -1044,7 +1105,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 skills={composerMenu.skills}
                 selection={composerMenu.selection}
                 onChangeText={(text) => {
-                  if (!isSubmissionLocked) props.onChangeDraftMessage(text);
+                  if (!isSubmissionLocked) {
+                    conversationActivity.onEdit(text.length > 0);
+                    props.onChangeDraftMessage(text);
+                  }
                 }}
                 onSelectionChange={composerMenu.onSelectionChange}
                 onPasteImages={(uris) => {
@@ -1056,6 +1120,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 }}
                 onPasteText={(paste) => {
                   if (isSubmissionLocked) return;
+                  conversationActivity.onEdit(paste.text.length > 0);
                   const insertPaste = () => {
                     const insertion = replaceTextSelection({
                       value: paste.value,

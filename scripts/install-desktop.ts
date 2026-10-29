@@ -7,7 +7,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
-import { extractFile } from "@electron/asar";
+import { extractFile, uncache } from "@electron/asar";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -92,6 +92,14 @@ async function satisfiesRequirement(appPath: string, requirement: string): Promi
   }
 }
 
+export async function inspectMacDesktopPayload(asarPath: string) {
+  const hash = NodeCrypto.createHash("sha256");
+  for await (const chunk of NodeFS.createReadStream(asarPath)) hash.update(chunk);
+  uncache(asarPath);
+  const metadata = decodePackage(extractFile(asarPath, "package.json").toString("utf8"));
+  return { sourceCommit: metadata.minesCommitHash ?? null, payloadSha256: hash.digest("hex") };
+}
+
 export async function inspectMacDesktopBundle(appPath: string): Promise<MacDesktopBundle> {
   const path = await NodeFSP.realpath(appPath);
   const plist = await execFile("plutil", [
@@ -108,9 +116,7 @@ export async function inspectMacDesktopBundle(appPath: string): Promise<MacDeskt
   const designatedRequirement = signature.match(/^(?:# )?designated => (.+)$/mu)?.[1];
   if (!designatedRequirement) throw new Error(`No designated requirement found at ${path}.`);
   const asarPath = NodePath.join(path, "Contents/Resources/app.asar");
-  const hash = NodeCrypto.createHash("sha256");
-  for await (const chunk of NodeFS.createReadStream(asarPath)) hash.update(chunk);
-  const metadata = decodePackage(extractFile(asarPath, "package.json").toString("utf8"));
+  const payload = await inspectMacDesktopPayload(asarPath);
   const teamId = signature.match(/^TeamIdentifier=(.+)$/mu)?.[1];
   return {
     path,
@@ -123,8 +129,7 @@ export async function inspectMacDesktopBundle(appPath: string): Promise<MacDeskt
       /^Authority=Apple Development:/mu.test(signature) &&
       (await satisfiesRequirement(path, DEVELOPMENT_REQUIREMENT)),
     designatedRequirement,
-    sourceCommit: metadata.minesCommitHash ?? null,
-    payloadSha256: hash.digest("hex"),
+    ...payload,
   };
 }
 

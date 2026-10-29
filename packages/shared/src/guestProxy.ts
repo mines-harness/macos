@@ -14,7 +14,7 @@ export {
 } from "@t3tools/contracts/guestProxy";
 
 const GET_ROUTES = new Set(["session", "stream", "item", "command-output", "render", "attachment"]);
-const POST_ROUTES = new Set(["redeem", "messages"]);
+const POST_ROUTES = new Set(["redeem", "messages", "activity"]);
 
 /** A guest transport cannot reach any owner API, encoded path, or arbitrary proxy target. */
 export function guestProxyPath(path: string, method: string): boolean {

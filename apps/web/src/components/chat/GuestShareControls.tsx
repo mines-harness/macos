@@ -31,6 +31,8 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useQuietThreadProjection } from "~/state/entities";
 import { serverEnvironment } from "~/state/server";
+import { guestShareActivitySubscription } from "~/state/conversationActivity";
+import { useEnvironmentQuery } from "~/state/query";
 import { environmentPresentations } from "~/state/presentation";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -58,6 +60,7 @@ import { GuestMessageName, guestBubbleClassName } from "./guestMessageStyle";
 import { guestMessageAuthorName } from "./guestMessageAuthor";
 import { guestShareDialogThreadAtom, openGuestShareDialog } from "./guestShareDialogState";
 import { guestShareLinkAvailable } from "./guestShareLinkAvailability";
+import { ConversationActivityIndicator } from "./ConversationActivity";
 
 const GUEST_PERMISSION_LABELS = {
   viewer: "Viewer",
@@ -439,6 +442,12 @@ function GuestParticipantList({
   readonly share: ThreadGuestShare;
 }) {
   const guests = guestShareGuests(share);
+  const activities = useEnvironmentQuery(
+    guestShareActivitySubscription({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId },
+    }),
+  );
   const canKick = useAtomValue(threadEnvironment.kickGuest.permissionAtom(threadRef.environmentId));
   const canBan = useAtomValue(threadEnvironment.banGuest.permissionAtom(threadRef.environmentId));
   const canSetPermission = useAtomValue(
@@ -509,6 +518,15 @@ function GuestParticipantList({
                   ? "Can send directly"
                   : "Can suggest messages"}
             </p>
+            <ConversationActivityIndicator
+              activity={
+                activities.data?.shareId === share.id
+                  ? activities.data.guests.find((candidate) => candidate.guestId === guest.id)
+                  : null
+              }
+              name={guest.name}
+              includeName={false}
+            />
           </div>
           <Tooltip>
             <TooltipTrigger

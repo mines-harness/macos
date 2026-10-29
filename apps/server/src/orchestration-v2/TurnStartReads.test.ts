@@ -9,6 +9,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   TurnItemId,
   type OrchestrationV2AppThread,
@@ -360,6 +361,88 @@ it.effect.each(["sqlite", "memory"] as const)(
         yield* store.getTurnStartContext(ThreadId.make("missing"), runId).pipe(Effect.flip),
         ProjectionStore.ProjectionStoreThreadNotFoundError,
       );
+      for (let ordinal = 100; ordinal < 240; ordinal += 1) {
+        yield* store.apply({
+          id: EventId.make(`page:item:${ordinal}`),
+          type: "turn-item.updated",
+          threadId,
+          runId: oldRunId,
+          occurredAt: now,
+          payload: {
+            ...item,
+            id: TurnItemId.make(`page:item:${ordinal}`),
+            nodeId: NodeId.make(`page:node:${ordinal}`),
+            ordinal,
+          },
+        });
+      }
+      for (const node of [101, 238, 999]) {
+        yield* store.apply({
+          id: EventId.make(`page:request:${node}`),
+          type: "runtime-request.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: RuntimeRequestId.make(`page:request:${node}`),
+            nodeId: NodeId.make(`page:node:${node}`),
+            providerTurnId: null,
+            nativeRequestRef: null,
+            kind: "user_input",
+            status: "pending",
+            responseCapability: { type: "message" },
+            createdAt: now,
+            resolvedAt: null,
+          },
+        });
+      }
+      if (storage === "sqlite") {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE orchestration_v2_projection_runtime_requests SET payload_json = 'invalid JSON' WHERE runtime_request_id = 'page:request:999'`;
+      }
+      const latest = yield* store.getThreadRecords(threadId, ["turnItems", "runtimeRequests"], {
+        turnItemRunId: oldRunId,
+        turnItemBeforeOrdinal: 240,
+        turnItemLimit: 2,
+      });
+      assert.deepEqual(
+        latest.turnItems.map((row) => row.ordinal),
+        [238, 239],
+      );
+      assert.deepEqual(
+        latest.runtimeRequests.map((row) => row.id),
+        ["page:request:238"],
+      );
+      const requestsOnly = yield* store.getThreadRecords(threadId, ["runtimeRequests"], {
+        turnItemRunId: oldRunId,
+        turnItemBeforeOrdinal: 240,
+        turnItemLimit: 2,
+      });
+      assert.deepEqual(
+        requestsOnly.runtimeRequests.map((row) => row.id),
+        ["page:request:238"],
+      );
+      const previous = yield* store.getThreadRecords(threadId, ["turnItems", "runtimeRequests"], {
+        turnItemRunId: oldRunId,
+        turnItemBeforeOrdinal: latest.turnItems[0]!.ordinal,
+        turnItemLimit: 2,
+      });
+      assert.deepEqual(
+        previous.turnItems.map((row) => row.ordinal),
+        [236, 237],
+      );
+      assert.deepEqual(previous.runtimeRequests, []);
+      const capped = yield* store.getThreadRecords(threadId, ["turnItems"], {
+        turnItemRunId: oldRunId,
+        turnItemLimit: 1000,
+      });
+      assert.equal(capped.turnItems.length, 129);
+      assert.equal(capped.turnItems[0]?.ordinal, 111);
+      const empty = yield* store.getThreadRecords(threadId, ["turnItems", "runtimeRequests"], {
+        turnItemRunId: oldRunId,
+        turnItemLimit: 0,
+      });
+      assert.deepEqual(empty.turnItems, []);
+      assert.deepEqual(empty.runtimeRequests, []);
     }).pipe(
       Effect.provide(
         storage === "sqlite"

@@ -1,5 +1,6 @@
 import type { OrchestrationV2ProjectedTurnItem, ScopedThreadRef } from "@t3tools/contracts";
-import { useState } from "react";
+import { use, useState } from "react";
+import { TimelineRowCtx } from "./timelineRowContext";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -11,10 +12,17 @@ export function BodyRangeNotice({
   row?: OrchestrationV2ProjectedTurnItem | undefined;
   threadRef?: ScopedThreadRef | null | undefined;
 }) {
+  const loadFromSource = use(TimelineRowCtx)?.onLoadEarlierBody;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const load = useAtomCommand(threadEnvironment.loadEarlierBody, { reportFailure: false });
-  if (!row || !threadRef || !row.item.bodyRange || row.item.bodyRange.startByte === 0) return null;
+  if (
+    !row ||
+    (!threadRef && !loadFromSource) ||
+    !row.item.bodyRange ||
+    row.item.bodyRange.startByte === 0
+  )
+    return null;
   return (
     <div className="mb-2 text-xs text-muted-foreground">
       <Button
@@ -24,6 +32,20 @@ export function BodyRangeNotice({
         onClick={() => {
           setBusy(true);
           setError(null);
+          if (loadFromSource) {
+            void loadFromSource(row)
+              .catch((cause) =>
+                setError(
+                  cause instanceof Error ? cause.message : "Could not load earlier content.",
+                ),
+              )
+              .finally(() => setBusy(false));
+            return;
+          }
+          if (!threadRef) {
+            setBusy(false);
+            return;
+          }
           void load({
             environmentId: threadRef.environmentId,
             input: {

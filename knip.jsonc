@@ -63,6 +63,8 @@
     "apps/desktop": {
       // Electron loads these bundles by filename rather than importing them.
       "entry": [
+        // The artifact builder invokes the native speech compiler by path.
+        "scripts/build-dictation.mjs",
         "gnome-extension/extension.js!",
         "src/electron/WindowsForegroundFocusWorker.ts!",
         "src/snapShot/GlobalShiftShortcutWorker.ts!",

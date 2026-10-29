@@ -318,7 +318,6 @@ export function useComposerContextImport(input: {
       switch (record.kind) {
         case "terminal": {
           const threadId = activeThread?.id ?? activeThreadId;
-          if (!threadId) break;
           const imported = terminalContextDraftFromRecord(record, threadId);
           const draft = conflicts ? { ...imported, id: randomUUID() } : imported;
           addComposerDraftTerminalContexts(composerDraftTarget, [draft], {

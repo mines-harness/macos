@@ -6,6 +6,8 @@ import {
   IsoDateTime,
   ProjectId,
   ProviderInstanceId,
+  RuntimeRequestId,
+  RunId,
   ThreadId,
   type GroupSnapshot,
   type GroupSendInput,
@@ -15,15 +17,18 @@ import type { SharedGroupDeviceGrant } from "@t3tools/contracts/contacts";
 import { createPeerIdentity } from "@t3tools/shared/minesPeerTrust";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as GroupChatService from "./GroupChatService.ts";
 import * as GroupPeerStore from "./GroupPeerStore.ts";
 import * as SharedGroupTransport from "./SharedGroupTransport.ts";
+import * as GroupAttachments from "./GroupAttachments.ts";
 import * as SharedGroupService from "./SharedGroupService.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PeerTrustStore from "../peer/PeerTrustStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import { sharedGroupEnvironmentId } from "./sharedGroupPolicy.ts";
+import { sharedGroupEnvironmentId, sharedGroupRevision } from "./sharedGroupPolicy.ts";
 
 const fixture = (coordinator = true) => {
   const owner = createPeerIdentity(new Uint8Array(32).fill(21), "Owner");
@@ -80,6 +85,8 @@ const fixture = (coordinator = true) => {
   const sends: Array<{ input: GroupSendInput; author: string }> = [];
   const native: Array<{ environmentId: EnvironmentId; request: GroupPeerRequest }> = [];
   const additions: ReadonlyArray<unknown>[] = [];
+  const responses: Array<unknown> = [];
+  const requests: string[] = [];
   const removals: Array<{
     groupId: GroupId;
     memberIds: ReadonlyArray<string>;
@@ -87,9 +94,18 @@ const fixture = (coordinator = true) => {
   }> = [];
   let revokedRoutes: ReadonlyArray<EnvironmentId> = [];
   const dependencies = Layer.mergeAll(
+    Layer.mock(GroupAttachments.GroupAttachments)({}),
     GroupPeerStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
     Layer.mock(GroupChatService.GroupChatService)({
       get: () => Effect.succeed(snapshot),
+      getDeliveryMember: () =>
+        snapshot.members[0]
+          ? Effect.succeed(snapshot.members[0])
+          : Effect.fail(new GroupChatError({ code: "not-found", message: "Missing member" })),
+      respondToRuntimeRequest: (input) =>
+        Effect.sync(() => {
+          responses.push(input);
+        }),
       subscribe: () => Stream.succeed(snapshot),
       sendShared: (input, author) =>
         Effect.sync(() => {
@@ -134,12 +150,14 @@ const fixture = (coordinator = true) => {
               : Effect.succeed(grant(owner.device)),
         ),
       request: (_key, _device, call) =>
-        Effect.suspend(() =>
-          offline || (addingFails && call.type === "add-chats")
+        Effect.suspend(() => {
+          requests.push(call.type);
+          return offline || (addingFails && call.type === "add-chats")
             ? Effect.fail(new GroupChatError({ code: "dispatch", message: "Offline" }))
-            : Effect.succeed(snapshot),
-        ),
+            : Effect.succeed(snapshot);
+        }),
       selected: () => Effect.sync(() => selections),
+      routeFriendId: () => Effect.succeed("mines-bbbbbbbbbbbbbbbbbbbb"),
       revokedRoutes: () => Effect.sync(() => revokedRoutes),
       select: (_key, ids, selected) =>
         Effect.sync(() => {
@@ -162,6 +180,8 @@ const fixture = (coordinator = true) => {
     sends,
     native,
     additions,
+    responses,
+    requests,
     removals,
     revokeRoutes: (routes: ReadonlyArray<EnvironmentId>) => {
       revokedRoutes = routes;
@@ -186,6 +206,129 @@ const fixture = (coordinator = true) => {
 };
 
 describe("shared group service", () => {
+  it.effect("does not treat viewer-specific response authority as a new watch event", () => {
+    const h = fixture();
+    const member = {
+      id: "member",
+      groupId: h.groupId,
+      threadId: h.selected,
+      projectId: ProjectId.make("project"),
+      environmentId: null,
+      alias: "writer",
+      role: "",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt" },
+      joinedAt: h.snapshot.group.createdAt,
+    };
+    Object.assign(h.snapshot, {
+      members: [member],
+      runProjections: [
+        {
+          deliveryId: "delivery",
+          memberId: member.id,
+          environmentId: h.environmentId,
+          threadId: h.selected,
+          runId: RunId.make("run"),
+          items: [],
+          runtimeRequests: [],
+          deferredItems: [],
+          hasMoreItems: false,
+          beforeOrdinal: null,
+          canRespond: true,
+        },
+      ],
+    });
+    return Effect.gen(function* () {
+      yield* SharedGroupService.SharedGroupService;
+      const initial = yield* h.handle({ type: "get" });
+      if (!("members" in initial)) throw new Error("Expected snapshot");
+      expect(initial.runProjections?.[0]?.canRespond).toBe(false);
+      const result = yield* h
+        .handle({ type: "watch", after: sharedGroupRevision(initial) })
+        .pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.effect("allows only the owning human to answer a contributed mine's runtime request", () => {
+    const h = fixture();
+    const member = {
+      id: "member",
+      groupId: h.groupId,
+      threadId: h.selected,
+      projectId: ProjectId.make("project"),
+      environmentId: null as EnvironmentId | null,
+      alias: "writer",
+      role: "",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt" },
+      joinedAt: h.snapshot.group.createdAt,
+    };
+    Object.assign(h.snapshot, { members: [member] });
+    const response = {
+      deliveryId: "delivery",
+      requestId: RuntimeRequestId.make("request"),
+      clientRequestId: "answer",
+      decision: "accept" as const,
+    };
+    return Effect.gen(function* () {
+      const service = yield* SharedGroupService.SharedGroupService;
+      yield* h.handle({ type: "runtime-response", ...response }).pipe(Effect.flip);
+      expect(h.responses).toEqual([]);
+      yield* service.respondToRuntimeRequest({ ...h.input, ...response });
+      expect(h.responses).toHaveLength(1);
+      Object.assign(h.snapshot, {
+        members: [
+          {
+            ...member,
+            environmentId: sharedGroupEnvironmentId(h.input.groupKey, h.grant().to.deviceId),
+          },
+        ],
+      });
+      yield* service.respondToRuntimeRequest({ ...h.input, ...response }).pipe(Effect.flip);
+      expect(h.responses).toHaveLength(1);
+      yield* h.handle({ type: "runtime-response", ...response });
+      expect(h.responses).toHaveLength(2);
+    }).pipe(Effect.provide(h.layer));
+  });
+  it.effect(
+    "refuses rich sends before acceptance when an older coordinator cannot advertise support",
+    () => {
+      const h = fixture(false);
+      return Effect.gen(function* () {
+        const service = yield* SharedGroupService.SharedGroupService;
+        const failure = yield* service
+          .send({
+            ...h.input,
+            message: "Plan this",
+            interactionMode: "plan",
+            clientRequestId: "rich-old",
+          })
+          .pipe(Effect.flip);
+        expect(failure.code).toBe("unsupported");
+        expect(h.requests).toEqual(["capabilities"]);
+        expect(h.sends).toEqual([]);
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+  it.effect(
+    "attributes typing to the verified friend and expires it without persisting conversation events",
+    () => {
+      const h = fixture();
+      return Effect.gen(function* () {
+        const service = yield* SharedGroupService.SharedGroupService;
+        yield* h.handle({ type: "activity", kind: "typing" });
+        const current = yield* service.activityStream(h.input).pipe(Stream.runHead);
+        expect(Option.getOrThrow(current).participants).toMatchObject([
+          { friendId: h.grant().toFriendId, kind: "typing" },
+        ]);
+        yield* TestClock.adjust("8 seconds");
+        expect(
+          Option.getOrThrow(yield* service.activityStream(h.input).pipe(Stream.runHead))
+            .participants,
+        ).toEqual([]);
+        expect(h.sends).toEqual([]);
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
   it.effect("removes every mine from revoked device routes and preserves the other members", () => {
     const h = fixture();
     const revoked = sharedGroupEnvironmentId(h.input.groupKey, h.grant().to.deviceId);

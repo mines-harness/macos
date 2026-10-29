@@ -181,6 +181,7 @@ export function ThreadHtmlRender(props: {
   readonly render: HtmlRenderReference;
   readonly frameWidth: number;
   readonly iconColor: ColorValue;
+  readonly onOpen?: () => void;
 }) {
   const navigation = useNavigation();
   const { attachmentId, title } = props.render;
@@ -252,7 +253,8 @@ export function ThreadHtmlRender(props: {
             accessibilityLabel={`Open ${title}`}
             hitSlop={8}
             className="absolute right-1.5 top-1.5 h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/80"
-            onPress={() =>
+            onPress={() => {
+              if (props.onOpen) return props.onOpen();
               navigation.navigate("ThreadAttachment", {
                 environmentId: String(props.environmentId),
                 threadId: String(props.threadId),
@@ -261,8 +263,8 @@ export function ThreadHtmlRender(props: {
                 mimeType: "text/html",
                 sizeBytes: "0",
                 htmlRender: "1",
-              })
-            }
+              });
+            }}
           >
             <SymbolView
               name="arrow.up.left.and.arrow.down.right"

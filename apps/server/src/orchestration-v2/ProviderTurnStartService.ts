@@ -674,7 +674,10 @@ export const layer: Layer.Layer<
       const { isCurrentAttemptInStatus } = runControls;
 
       const resolvedRuntimePolicy = yield* runtimePolicy.resolve({
-        thread: projection.thread,
+        thread:
+          run.interactionMode === undefined
+            ? projection.thread
+            : { ...projection.thread, interactionMode: run.interactionMode },
         modelSelection: run.modelSelection,
       });
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;

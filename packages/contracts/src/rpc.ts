@@ -7,7 +7,10 @@ import * as Cloud from "./executionTargets.ts";
 import * as Groups from "./groupChat.ts";
 import * as SharedGroups from "./sharedGroups.ts";
 import * as Voice from "./providerVoice.ts";
+import { ChatAttachment } from "./chatAttachment.ts";
 import {
+  OrchestrationV2GetTurnItemResult,
+  OrchestrationV2BodyRangeResult,
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -169,6 +172,10 @@ import {
 } from "./provider.ts";
 import { ProviderInstanceId, ProviderInstanceMutation } from "./providerInstance.ts";
 import {
+  GuestActivityError,
+  GuestOwnerActivityInput,
+  GuestActivitySubscribeInput,
+  GuestShareActivityView,
   GuestShareCreateError,
   GuestShareCreateInput,
   GuestShareCreateResult,
@@ -497,6 +504,22 @@ export const WS_METHODS = {
   deviceDetail: "device.detail",
   deviceAction: "device.action",
 
+  sharedGroupsPublishActivity: "sharedGroups.publishActivity",
+  sharedGroupsActivitySubscribe: "sharedGroups.subscribeActivity",
+  sharedGroupsGetRunPage: "sharedGroups.getRunPage",
+  sharedGroupsGetRunItem: "sharedGroups.getRunItem",
+  sharedGroupsGetRunBodyRange: "sharedGroups.getRunBodyRange",
+  groupsGetRunPage: "groups.getRunPage",
+  groupsGetRunItem: "groups.getRunItem",
+  groupsGetRunBodyRange: "groups.getRunBodyRange",
+  groupsGetHistory: "groups.getHistory",
+  groupsGetMessageChunk: "groups.getMessageChunk",
+  sharedGroupsGetHistory: "sharedGroups.getHistory",
+  sharedGroupsGetMessageChunk: "sharedGroups.getMessageChunk",
+  groupsGetRunAsset: "groups.getRunAsset",
+  sharedGroupsGetRunAsset: "sharedGroups.getRunAsset",
+  groupsRespondToRuntimeRequest: "groups.respondToRuntimeRequest",
+  sharedGroupsRespondToRuntimeRequest: "sharedGroups.respondToRuntimeRequest",
   sharedGroupsGet: "sharedGroups.get",
   sharedGroupsSubscribe: "sharedGroups.subscribe",
   sharedGroupsSend: "sharedGroups.send",
@@ -587,6 +610,8 @@ export const WS_METHODS = {
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
+  guestSharePublishActivity: "guestShare.publishActivity",
+  guestShareActivitySubscribe: "guestShare.subscribeActivity",
   guestShareCreate: "guestShare.create",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
@@ -686,6 +711,90 @@ const WsVoiceStopRpc = Rpc.make(WS_METHODS.voiceStop, {
   error: Schema.Union([Voice.ProviderVoiceError, EnvironmentAuthorizationError]),
 });
 
+const WsSharedGroupsPublishActivityRpc = Rpc.make(WS_METHODS.sharedGroupsPublishActivity, {
+  payload: SharedGroups.SharedGroupActivityInput,
+  success: Schema.Void,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsActivitySubscribeRpc = Rpc.make(WS_METHODS.sharedGroupsActivitySubscribe, {
+  payload: SharedGroups.SharedGroupGetInput,
+  success: SharedGroups.SharedGroupActivityView,
+  stream: true,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsGetRunPageRpc = Rpc.make(WS_METHODS.groupsGetRunPage, {
+  payload: Groups.GroupRunPageInput,
+  success: Groups.GroupRunProjection,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsGetRunItemRpc = Rpc.make(WS_METHODS.groupsGetRunItem, {
+  payload: Groups.GroupRunItemInput,
+  success: OrchestrationV2GetTurnItemResult,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsGetRunBodyRangeRpc = Rpc.make(WS_METHODS.groupsGetRunBodyRange, {
+  payload: Groups.GroupRunBodyInput,
+  success: Schema.NullOr(OrchestrationV2BodyRangeResult),
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsGetRunPageRpc = Rpc.make(WS_METHODS.sharedGroupsGetRunPage, {
+  payload: SharedGroups.SharedGroupRunPageInput,
+  success: Groups.GroupRunProjection,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsGetRunItemRpc = Rpc.make(WS_METHODS.sharedGroupsGetRunItem, {
+  payload: SharedGroups.SharedGroupRunItemInput,
+  success: OrchestrationV2GetTurnItemResult,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsGetRunBodyRangeRpc = Rpc.make(WS_METHODS.sharedGroupsGetRunBodyRange, {
+  payload: SharedGroups.SharedGroupRunBodyInput,
+  success: Schema.NullOr(OrchestrationV2BodyRangeResult),
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsGetHistoryRpc = Rpc.make(WS_METHODS.groupsGetHistory, {
+  payload: Groups.GroupHistoryInput,
+  success: Groups.GroupSnapshot,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsGetMessageChunkRpc = Rpc.make(WS_METHODS.groupsGetMessageChunk, {
+  payload: Groups.GroupMessageChunkInput,
+  success: Groups.GroupMessageChunk,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsGetHistoryRpc = Rpc.make(WS_METHODS.sharedGroupsGetHistory, {
+  payload: SharedGroups.SharedGroupHistoryInput,
+  success: SharedGroups.SharedGroupView,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsGetMessageChunkRpc = Rpc.make(WS_METHODS.sharedGroupsGetMessageChunk, {
+  payload: SharedGroups.SharedGroupMessageChunkInput,
+  success: Groups.GroupMessageChunk,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsGetRunAssetRpc = Rpc.make(WS_METHODS.groupsGetRunAsset, {
+  payload: Groups.GroupRunAssetInput,
+  success: ChatAttachment,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsGetRunAssetRpc = Rpc.make(WS_METHODS.sharedGroupsGetRunAsset, {
+  payload: SharedGroups.SharedGroupRunAssetInput,
+  success: ChatAttachment,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsGroupsRespondToRuntimeRequestRpc = Rpc.make(WS_METHODS.groupsRespondToRuntimeRequest, {
+  payload: Groups.GroupRunRespondInput,
+  success: Schema.Void,
+  error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+});
+const WsSharedGroupsRespondToRuntimeRequestRpc = Rpc.make(
+  WS_METHODS.sharedGroupsRespondToRuntimeRequest,
+  {
+    payload: SharedGroups.SharedGroupRunRespondInput,
+    success: Schema.Void,
+    error: Schema.Union([Groups.GroupChatError, EnvironmentAuthorizationError]),
+  },
+);
 const WsSharedGroupsGetRpc = Rpc.make(WS_METHODS.sharedGroupsGet, {
   payload: SharedGroups.SharedGroupGetInput,
   success: SharedGroups.SharedGroupView,
@@ -2177,6 +2286,17 @@ const WsScheduledTasksRotateWebhookTokenRpc = Rpc.make(
   },
 );
 
+const WsGuestSharePublishActivityRpc = Rpc.make(WS_METHODS.guestSharePublishActivity, {
+  payload: GuestOwnerActivityInput,
+  success: Schema.Void,
+  error: Schema.Union([GuestActivityError, EnvironmentAuthorizationError]),
+});
+const WsGuestShareActivitySubscribeRpc = Rpc.make(WS_METHODS.guestShareActivitySubscribe, {
+  payload: GuestActivitySubscribeInput,
+  success: GuestShareActivityView,
+  stream: true,
+  error: Schema.Union([GuestActivityError, EnvironmentAuthorizationError]),
+});
 const WsGuestShareCreateRpc = Rpc.make(WS_METHODS.guestShareCreate, {
   payload: GuestShareCreateInput,
   success: GuestShareCreateResult,
@@ -2338,6 +2458,22 @@ export const WsRpcGroup = RpcGroup.make(
   WsCloudApplyRpc,
   WsCloudUnlinkRpc,
 
+  WsSharedGroupsPublishActivityRpc,
+  WsSharedGroupsActivitySubscribeRpc,
+  WsGroupsGetRunPageRpc,
+  WsGroupsGetRunItemRpc,
+  WsGroupsGetRunBodyRangeRpc,
+  WsSharedGroupsGetRunPageRpc,
+  WsSharedGroupsGetRunItemRpc,
+  WsSharedGroupsGetRunBodyRangeRpc,
+  WsGroupsGetHistoryRpc,
+  WsGroupsGetMessageChunkRpc,
+  WsSharedGroupsGetHistoryRpc,
+  WsSharedGroupsGetMessageChunkRpc,
+  WsGroupsGetRunAssetRpc,
+  WsSharedGroupsGetRunAssetRpc,
+  WsGroupsRespondToRuntimeRequestRpc,
+  WsSharedGroupsRespondToRuntimeRequestRpc,
   WsSharedGroupsGetRpc,
   WsSharedGroupsSubscribeRpc,
   WsSharedGroupsSendRpc,
@@ -2354,6 +2490,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsGroupsArchiveRpc,
   WsGroupsRetryRpc,
 
+  WsGuestSharePublishActivityRpc,
+  WsGuestShareActivitySubscribeRpc,
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,

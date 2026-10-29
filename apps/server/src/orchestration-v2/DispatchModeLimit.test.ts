@@ -1,9 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  MessageId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -57,6 +59,75 @@ const createThread = (threadId: ThreadId) =>
   });
 
 it.layer(layerTest)("DispatchModeLimit", (it) => {
+  it.effect("rejects a per-turn mode on steering rather than ignoring its permission limit", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("thread:steer-mode-override");
+      yield* createThread(threadId);
+      for (const type of ["steer_active", "restart_active"] as const) {
+        const outcome = yield* orchestrator
+          .dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(`override:${type}`),
+            threadId,
+            messageId: MessageId.make(`override-message:${type}`),
+            text: "Plan this change.",
+            attachments: [],
+            interactionMode: "plan",
+            dispatchMode: { type, targetRunId: RunId.make("existing-run") },
+            createdBy: "agent",
+            creationSource: "mcp",
+          })
+          .pipe(
+            Effect.provideService(DispatchModeLimit, { ...supervised, interactionMode: "plan" }),
+            Effect.flip,
+          );
+        assert.equal(outcome._tag, "OrchestratorDispatchError");
+        if (outcome._tag === "OrchestratorDispatchError") {
+          assert.equal(
+            outcome.cause,
+            "A per-turn mode requires a new turn. Queue this message instead of steering the active turn.",
+          );
+        }
+      }
+    }),
+  );
+
+  it.effect("refuses a turn override above a Plan-only caller's limit", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = ThreadId.make("thread:limited-turn-override");
+      yield* createThread(threadId);
+      yield* orchestrator.dispatch({
+        type: "thread.interaction-mode.set",
+        commandId: CommandId.make("make-member-plan-only"),
+        threadId,
+        interactionMode: "plan",
+      });
+      const outcome = yield* orchestrator
+        .dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("attempt-build-override"),
+          threadId,
+          messageId: MessageId.make("limited-build-message"),
+          text: "Build instead of planning.",
+          attachments: [],
+          interactionMode: "default",
+          dispatchMode: { type: "defer_start" },
+          createdBy: "agent",
+          creationSource: "mcp",
+        })
+        .pipe(
+          Effect.provideService(DispatchModeLimit, { ...supervised, interactionMode: "plan" }),
+          Effect.result,
+        );
+      assert.equal(outcome._tag, "Failure");
+      if (outcome._tag === "Failure")
+        assert.equal(outcome.failure._tag, "OrchestratorThreadAboveModeLimitError");
+      assert.deepEqual((yield* projections.getThreadRecords(threadId, ["runs"])).runs, []);
+    }),
+  );
   it.effect("refuses a limited command on a thread its user raised, and records nothing", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

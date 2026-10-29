@@ -136,3 +136,7 @@ export const COMPLETE_LEGACY_LOCAL_STORAGE_CHANNEL = "desktop:complete-legacy-lo
 export const GET_MINES_CATALOG_CHANNEL = "desktop:mines-catalog-get";
 export const SET_MINES_CATALOG_CHANNEL = "desktop:mines-catalog-set";
 export const CLEAR_MINES_CATALOG_CHANNEL = "desktop:mines-catalog-clear";
+export const GET_DICTATION_CAPABILITY_CHANNEL = "desktop:dictation-capability";
+export const START_DICTATION_CHANNEL = "desktop:dictation-start";
+export const STOP_DICTATION_CHANNEL = "desktop:dictation-stop";
+export const DICTATION_STATE_CHANNEL = "desktop:dictation-state";

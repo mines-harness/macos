@@ -30,7 +30,8 @@ import * as Cause from "effect/Cause";
 import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
+import { ConversationTurnItemAccess } from "./conversationTurnItemAccess";
 
 import { appAtomRegistry } from "./atom-registry";
 import { orchestrationEnvironment } from "./orchestration";
@@ -441,16 +442,19 @@ export function useTurnItemDetail(
     readonly row: OrchestrationV2ProjectedTurnItem;
   } | null,
 ) {
+  const access = useContext(ConversationTurnItemAccess);
   return useEnvironmentQuery(
     target === null
       ? null
-      : orchestrationEnvironment.turnItem({
-          environmentId: target.environmentId,
-          input: {
-            threadId: target.row.sourceThreadId,
-            itemId: target.row.sourceItemId,
-            revision: turnItemDetailRevision(target.row.item),
-          },
-        }),
+      : access
+        ? access.itemQuery(target.row)
+        : orchestrationEnvironment.turnItem({
+            environmentId: target.environmentId,
+            input: {
+              threadId: target.row.sourceThreadId,
+              itemId: target.row.sourceItemId,
+              revision: turnItemDetailRevision(target.row.item),
+            },
+          }),
   );
 }

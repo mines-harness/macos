@@ -243,6 +243,7 @@ interface MessagesTimelineProps {
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   renderHtmlRender?: TimelineRowSharedState["renderHtmlRender"];
   renderUserMessageActions?: TimelineRowSharedState["renderUserMessageActions"];
+  resolveRowContext?: (row: TimelineRow) => Partial<TimelineRowSharedState>;
   turnItemSource?: TimelineRowSharedState["turnItemSource"];
   parentThreadLink?: {
     readonly threadId: ThreadId;
@@ -352,6 +353,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenThread,
   renderHtmlRender,
   renderUserMessageActions,
+  resolveRowContext,
   turnItemSource,
   parentThreadLink = null,
   workflowOpening = null,
@@ -1267,7 +1269,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
       )?.id
     : undefined;
   const renderItem = ({ item }: { item: MessagesTimelineRow }) => (
-    <TimelineRowCtx value={sharedState}>
+    <TimelineRowCtx
+      value={resolveRowContext ? { ...sharedState, ...resolveRowContext(item) } : sharedState}
+    >
       <div
         className="messages-timeline-row-frame"
         onPlayCapture={(event) => onAudioPlaybackChange(item.id, event)}
@@ -1293,6 +1297,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     identity: listIdentityKey,
     rowCount: rows.length,
     sharedState,
+    resolveRowContext,
     importedHistory,
   };
 
@@ -1333,10 +1338,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
             className="relative h-full min-h-0"
             data-assistant-citation-viewport="true"
           >
-            {onCiteAssistantText && citationThreadRef ? (
+            {onCiteAssistantText ? (
               <AssistantSelectionToolbar
                 viewport={timelineViewportElement}
-                threadRef={citationThreadRef}
+                {...(citationThreadRef ? { threadRef: citationThreadRef } : {})}
                 onCite={onCiteAssistantText}
               />
             ) : null}
@@ -1459,6 +1464,7 @@ function getItemType(item: MessagesTimelineRow) {
 }
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const ctx = use(TimelineRowCtx);
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =
@@ -1499,6 +1505,12 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
+      {ctx.messageAuthorLabel &&
+      row.kind !== "message" &&
+      row.kind !== "assistant-meta" &&
+      row.kind !== "working" ? (
+        <p className="mb-1 text-xs font-medium text-muted-foreground">{ctx.messageAuthorLabel}</p>
+      ) : null}
       {isWorkLogRow ? (
         <WorkLogBlock
           continues={row.continuesWorkLog}
@@ -1526,6 +1538,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "attempt-fold" ? <AttemptFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
+      {row.kind === "message" && row.message.role === "system" ? (
+        <TimelineSystemDivider label={row.message.text} />
+      ) : null}
       {row.kind === "message" && row.message.role === "user" ? <UserMessageRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />

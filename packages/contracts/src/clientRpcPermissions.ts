@@ -49,6 +49,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 
   [WS_METHODS.sharedGroupsGet]: AuthOrchestrationReadScope,
   [WS_METHODS.sharedGroupsSubscribe]: AuthOrchestrationReadScope,
+  [WS_METHODS.sharedGroupsPublishActivity]: AuthOrchestrationOperateScope,
+  [WS_METHODS.groupsRespondToRuntimeRequest]: AuthOrchestrationOperateScope,
+  [WS_METHODS.sharedGroupsRespondToRuntimeRequest]: AuthOrchestrationOperateScope,
   [WS_METHODS.sharedGroupsSend]: AuthOrchestrationOperateScope,
   [WS_METHODS.sharedGroupsAddChats]: AuthOrchestrationOperateScope,
   [WS_METHODS.sharedGroupsRemoveChats]: AuthOrchestrationOperateScope,
@@ -98,6 +101,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   // A guest link hands thread access to someone outside, like a pairing link.
+  [WS_METHODS.guestSharePublishActivity]: AuthOrchestrationOperateScope,
   [WS_METHODS.guestShareCreate]: AuthAccessWriteScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;

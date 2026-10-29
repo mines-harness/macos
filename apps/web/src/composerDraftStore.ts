@@ -221,7 +221,7 @@ const isPersistedComposerDraftFileAttachment = Schema.is(PersistedComposerDraftF
 
 const PersistedTerminalContextDraft = Schema.Struct({
   id: Schema.String,
-  threadId: ThreadId,
+  threadId: Schema.NullOr(ThreadId),
   createdAt: Schema.String,
   terminalId: Schema.String,
   terminalLabel: Schema.String,
@@ -808,11 +808,11 @@ export function composerFileMatchesReattachMarker(
 }
 
 function terminalContextDedupKey(context: TerminalContextDraft): string {
-  return `${context.terminalId}\u0000${context.lineStart}\u0000${context.lineEnd}`;
+  return `${context.threadId ?? context.id}\u0000${context.terminalId}\u0000${context.lineStart}\u0000${context.lineEnd}`;
 }
 
 function normalizeTerminalContextForThread(
-  threadId: ThreadId,
+  threadId: ThreadId | null,
   context: TerminalContextDraft,
 ): TerminalContextDraft | null {
   const terminalId = context.terminalId.trim();
@@ -825,7 +825,7 @@ function normalizeTerminalContextForThread(
   return {
     ...context,
     id: toComposerContextId(context.id),
-    threadId,
+    threadId: threadId ?? context.threadId,
     terminalId,
     terminalLabel,
     lineStart,
@@ -835,7 +835,7 @@ function normalizeTerminalContextForThread(
 }
 
 function normalizeTerminalContextsForThread(
-  threadId: ThreadId,
+  threadId: ThreadId | null,
   contexts: ReadonlyArray<TerminalContextDraft>,
 ): TerminalContextDraft[] {
   const existingIds = new Set<string>();
@@ -1225,8 +1225,7 @@ function normalizePersistedTerminalContextDraft(
   if (
     typeof id !== "string" ||
     id.length === 0 ||
-    typeof threadId !== "string" ||
-    threadId.length === 0 ||
+    (threadId !== null && (typeof threadId !== "string" || threadId.length === 0)) ||
     typeof createdAt !== "string" ||
     createdAt.length === 0 ||
     typeof lineStart !== "number" ||
@@ -1246,7 +1245,7 @@ function normalizePersistedTerminalContextDraft(
   const normalizedLineEnd = Math.max(normalizedLineStart, Math.floor(lineEnd));
   return {
     id: toComposerContextId(id),
-    threadId: threadId as ThreadId,
+    threadId: threadId === null ? null : (threadId as ThreadId),
     createdAt,
     terminalId,
     terminalLabel,
@@ -2879,7 +2878,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         setTerminalContexts: (threadRef, contexts) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           const threadId = resolveComposerThreadId(get(), threadRef);
-          if (!threadKey || !threadId) {
+          if (!threadKey) {
             return;
           }
           const normalizedContexts = normalizeTerminalContextsForThread(threadId, contexts);
@@ -3174,8 +3173,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         addImage: (threadRef, image) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
-          if (!threadKey || !threadId) {
+          if (!threadKey) {
             return false;
           }
           const acceptedIds = get().addImages(
@@ -3464,7 +3462,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         insertTerminalContext: (threadRef, prompt, context, index) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           const threadId = resolveComposerThreadId(get(), threadRef);
-          if (!threadKey || !threadId) {
+          if (!threadKey) {
             return false;
           }
           let inserted = false;
@@ -3503,8 +3501,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         addTerminalContext: (threadRef, context) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
-          if (!threadKey || !threadId) {
+          if (!threadKey) {
             return;
           }
           get().addTerminalContexts(
@@ -3515,7 +3512,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         addTerminalContexts: (threadRef, contexts, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           const threadId = resolveComposerThreadId(get(), threadRef);
-          if (!threadKey || !threadId || contexts.length === 0) {
+          if (!threadKey || contexts.length === 0) {
             return;
           }
           const currentContexts = get().draftsByThreadKey[threadKey]?.terminalContexts ?? [];

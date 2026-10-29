@@ -6,6 +6,7 @@ import * as CatalogIdentityVerifier from "../catalog/CatalogIdentityVerifier.ts"
 import * as CatalogRunContextService from "../catalog/CatalogRunContextService.ts";
 import * as HostCatalogLifecycle from "../catalog/HostCatalogLifecycle.ts";
 import * as HostGroupCatalogLifecycle from "../catalog/HostGroupCatalogLifecycle.ts";
+import * as GroupAttachments from "../groupChat/GroupAttachments.ts";
 import * as GroupStore from "../groupChat/GroupStore.ts";
 import * as RemoteGroupTransport from "../groupChat/RemoteGroupTransport.ts";
 import * as PeerRuntime from "../peer/runtimeLayer.ts";
@@ -417,6 +418,7 @@ const layerRemoteGroupTransportProvided = RemoteGroupTransport.layer.pipe(
 );
 
 const layerGroupChatProvided = GroupChatService.layer.pipe(
+  Layer.provide(GroupAttachments.layer),
   Layer.provide(
     Layer.mergeAll(
       layerThreadManagementProvided,
@@ -469,6 +471,7 @@ export const layerProduction = Layer.mergeAll(
   CloudTaskService.layer,
   layerGroupChatProvided,
   SharedGroupService.layer.pipe(
+    Layer.provide(GroupAttachments.layer),
     Layer.provide(
       Layer.mergeAll(
         layerGroupChatProvided,

@@ -17,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -1286,4 +1287,129 @@ it.effect("deletes an owned sent message after its moderation record was trimmed
       ),
     );
   }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "shows host typing and voice to viewer guests without granting them publish permission",
+  () =>
+    Effect.gen(function* () {
+      const { guestShares } = yield* shareThread;
+      const { url, share } = yield* guestShares.create({ threadId, permission: "viewer" });
+      const viewer = yield* guestShares.redeem({ credential: url.split("#")[1]!, name: "Viewer" });
+      yield* guestShares.publishOwnerActivity({ threadId, kind: "typing" });
+      const opening = yield* Stream.runCollect(
+        (yield* guestShares.stream(viewer.token)).pipe(Stream.take(3)),
+      );
+      assert.isTrue(
+        Array.from(opening).some(
+          (event) => event.type === "activity" && event.activity.kind === "typing",
+        ),
+      );
+      yield* guestShares.publishOwnerActivity({ threadId, kind: "voice" });
+      const voice = yield* Stream.runCollect(
+        (yield* guestShares.stream(viewer.token)).pipe(Stream.take(3)),
+      );
+      assert.isTrue(
+        Array.from(voice).some(
+          (event) => event.type === "activity" && event.activity.kind === "voice",
+        ),
+      );
+      assert.equal(
+        (yield* Effect.flip(
+          guestShares.publishGuestActivity(
+            viewer.token,
+            { shareId: share.id, kind: "typing" },
+            "203.0.113.1",
+          ),
+        )).reason,
+        "forbidden",
+      );
+      yield* guestShares.publishGuestActivity(
+        viewer.token,
+        { shareId: share.id, kind: "idle" },
+        "203.0.113.1",
+      );
+      yield* TestClock.adjust("8 seconds");
+      const expired = yield* Stream.runCollect(
+        (yield* guestShares.stream(viewer.token)).pipe(Stream.take(3)),
+      );
+      assert.isTrue(
+        Array.from(expired).some(
+          (event) => event.type === "activity" && event.activity.kind === "idle",
+        ),
+      );
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "binds guest draft activity to the authenticated roster and expires it without durable events",
+  () =>
+    Effect.gen(function* () {
+      const { guestShares, orchestrator, session, shareId } = yield* joinedGuest;
+      const before = yield* orchestrator.getThreadSnapshot(threadId);
+      yield* guestShares.publishGuestActivity(session, { shareId, kind: "typing" }, "203.0.113.1");
+      const ready = yield* Deferred.make<void>();
+      const watching = yield* guestShares.activityStream({ threadId }).pipe(
+        Stream.tap(() => Deferred.succeed(ready, undefined)),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* Deferred.await(ready);
+      assert.equal(
+        (yield* orchestrator.getThreadSnapshot(threadId)).snapshotSequence,
+        before.snapshotSequence,
+      );
+      yield* TestClock.adjust("8 seconds");
+      const [active, expired] = Array.from(yield* Fiber.join(watching));
+      assert.equal(active?.guests[0]?.kind, "typing");
+      assert.deepEqual(expired?.guests, []);
+      yield* guestShares.publishGuestActivity(session, { shareId, kind: "voice" }, "203.0.113.1");
+      const guestId = active!.guests[0]!.guestId;
+      yield* guestShares.submit(session, { shareId, text: "Sent draft" }, []);
+      const submitted = Array.from(
+        yield* Stream.runCollect(guestShares.activityStream({ threadId }).pipe(Stream.take(1))),
+      )[0]!;
+      assert.deepEqual(submitted.guests, []);
+      yield* guestShares.publishGuestActivity(session, { shareId, kind: "typing" }, "203.0.113.1");
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.permission.set",
+        commandId: CommandId.make("revoke-active-presence"),
+        threadId,
+        guestId,
+        permission: "viewer",
+      });
+      const revoked = Array.from(
+        yield* Stream.runCollect(guestShares.activityStream({ threadId }).pipe(Stream.take(1))),
+      )[0]!;
+      assert.deepEqual(revoked.guests, []);
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.permission.set",
+        commandId: CommandId.make("restore-active-presence"),
+        threadId,
+        guestId,
+        permission: "confirm",
+      });
+      const restored = Array.from(
+        yield* Stream.runCollect(guestShares.activityStream({ threadId }).pipe(Stream.take(1))),
+      )[0]!;
+      assert.deepEqual(restored.guests, []);
+      yield* guestShares.publishGuestActivity(session, { shareId, kind: "voice" }, "203.0.113.1");
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.kick",
+        commandId: CommandId.make("kick-active-guest"),
+        threadId,
+        guestId,
+      });
+      const kicked = Array.from(
+        yield* Stream.runCollect(guestShares.activityStream({ threadId }).pipe(Stream.take(1))),
+      )[0]!;
+      assert.deepEqual(kicked.guests, []);
+      assert.equal(
+        (yield* Effect.flip(
+          guestShares.publishGuestActivity(session, { shareId, kind: "typing" }, "203.0.113.1"),
+        )).reason,
+        "inactive",
+      );
+    }).pipe(Effect.provide(layerTest)),
 );

@@ -330,6 +330,8 @@ export interface ProjectionRuntimeResponseContext {
 export interface ProjectionRecordFilter {
   readonly messageRoles?: ReadonlyArray<OrchestrationV2ConversationMessage["role"]>;
   readonly turnItemRunId?: RunId;
+  readonly turnItemBeforeOrdinal?: number;
+  readonly turnItemLimit?: number;
   readonly messageIds?: ReadonlyArray<MessageId>;
   readonly messageRunIds?: ReadonlyArray<RunId>;
   readonly turnItemRunIds?: ReadonlyArray<RunId | null>;
@@ -338,6 +340,9 @@ export interface ProjectionRecordFilter {
   readonly turnItemStatuses?: ReadonlyArray<OrchestrationV2TurnItem["status"]>;
   readonly omitSettledLeafNodes?: boolean;
 }
+
+const recordTurnItemLimit = (limit: number | undefined) =>
+  limit === undefined ? undefined : Math.min(129, Math.max(0, Math.trunc(limit)));
 
 type ProjectionNode = OrchestrationV2ThreadProjection["nodes"][number];
 type ProjectionRun = OrchestrationV2ThreadProjection["runs"][number];
@@ -3123,21 +3128,42 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           return yield* new ProjectionStoreThreadNotFoundError({ threadId });
         }
 
+        const turnItemLimit = recordTurnItemLimit(filter?.turnItemLimit);
+        const recordItemFilter = sql`
+          thread_id = ${threadId}
+            ${filter?.turnItemTypes === undefined ? sql`` : sql`AND type IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemTypes)}))`}
+            ${filter?.turnItemStatuses === undefined ? sql`` : sql`AND status IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemStatuses)}))`}
+            ${filter?.turnItemRunId === undefined ? sql`` : sql`AND run_id = ${filter.turnItemRunId}`}
+            ${filter?.turnItemRunIds === undefined ? sql`` : sql`AND (run_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRunIds.filter((id): id is RunId => id !== null))})) OR (${filter.turnItemRunIds.includes(null) ? 1 : 0} = 1 AND run_id IS NULL))`}
+            ${filter?.turnItemBeforeOrdinal === undefined ? sql`` : sql`AND ordinal < ${filter.turnItemBeforeOrdinal}`}
+        `;
+        const recordItemSelection = sql`
+          SELECT rowid AS item_rowid, ordinal, turn_item_id
+          FROM orchestration_v2_projection_turn_items
+          WHERE ${recordItemFilter}
+          ORDER BY ordinal DESC, turn_item_id DESC
+          ${turnItemLimit === undefined ? sql`` : sql`LIMIT ${turnItemLimit}`}
+        `;
+
         const boundedTurnItemRows =
           (fields !== undefined && !fields.includes("turnItems")) ||
           (window === undefined &&
             matchesNothing(filter?.turnItemTypes, filter?.turnItemStatuses, filter?.turnItemRunIds))
             ? []
             : window === undefined
-              ? yield* sql<PayloadRow>`
-                SELECT payload_json
-                FROM orchestration_v2_projection_turn_items
-                WHERE thread_id = ${threadId}
-                  ${filter?.turnItemTypes === undefined ? sql`` : sql`AND type IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemTypes)}))`}
-                  ${filter?.turnItemStatuses === undefined ? sql`` : sql`AND status IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemStatuses)}))`}
-                  ${filter?.turnItemRunId === undefined ? sql`` : sql`AND run_id = ${filter.turnItemRunId}`}
-                  ${filter?.turnItemRunIds === undefined ? sql`` : sql`AND (run_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRunIds.filter((id): id is RunId => id !== null))})) OR (${filter.turnItemRunIds.includes(null) ? 1 : 0} = 1 AND run_id IS NULL))`}
-                ORDER BY ordinal ASC, turn_item_id ASC
+              ? turnItemLimit === undefined
+                ? yield* sql<PayloadRow>`
+                    SELECT payload_json FROM orchestration_v2_projection_turn_items
+                    WHERE ${recordItemFilter}
+                    ORDER BY ordinal ASC, turn_item_id ASC
+                  `
+                : yield* sql<PayloadRow>`
+                WITH selected AS MATERIALIZED (${recordItemSelection})
+                SELECT item.payload_json
+                FROM selected
+                CROSS JOIN orchestration_v2_projection_turn_items AS item
+                  ON item.rowid = selected.item_rowid
+                ORDER BY selected.ordinal ASC, selected.turn_item_id ASC
               `
               : yield* sql<PayloadRow>`
                 ${retainedWindowRows(threadId, window)}
@@ -3159,6 +3185,36 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               return value === null ? [] : [value];
             }),
           );
+        const runtimeOnlyCohort =
+          window === undefined &&
+          filter?.turnItemRunId !== undefined &&
+          fields !== undefined &&
+          !fields.includes("turnItems") &&
+          fields.includes("runtimeRequests")
+            ? yield* sql<{ readonly node_id: string | null; readonly request_id: string | null }>`
+                WITH selected AS MATERIALIZED (${recordItemSelection})
+                SELECT item.node_id,
+                  CASE WHEN item.type IN ('approval_request', 'user_input_request')
+                    THEN json_extract(item.payload_json, '$.requestId') ELSE NULL END AS request_id
+                FROM selected
+                CROSS JOIN orchestration_v2_projection_turn_items AS item
+                  ON item.rowid = selected.item_rowid
+              `
+            : [];
+        const runtimeRequestNodeIds =
+          runtimeOnlyCohort.length > 0
+            ? encodeIdList(
+                runtimeOnlyCohort.flatMap((row) => (row.node_id === null ? [] : [row.node_id])),
+              )
+            : cohortJson("nodeId");
+        const runtimeRequestIds =
+          runtimeOnlyCohort.length > 0
+            ? encodeIdList(
+                runtimeOnlyCohort.flatMap((row) =>
+                  row.request_id === null ? [] : [row.request_id],
+                ),
+              )
+            : cohortJson("requestId");
         const cohortRunIds = cohortJson("runId");
         const cohortNodeIds =
           window === undefined ||
@@ -3458,6 +3514,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             SELECT payload_json
             FROM orchestration_v2_projection_runtime_requests
             WHERE thread_id = ${threadId}
+              ${filter?.turnItemRunId === undefined ? sql`` : sql`AND (node_id IN (SELECT value FROM json_each(${runtimeRequestNodeIds})) OR runtime_request_id IN (SELECT value FROM json_each(${runtimeRequestIds})))`}
             ORDER BY created_at ASC, runtime_request_id ASC
           `
               : sql<PayloadRow>`
@@ -7265,6 +7322,33 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
           const projection = (yield* Ref.get(replayState)).projections.get(threadId);
           if (projection === undefined)
             return yield* new ProjectionStoreThreadNotFoundError({ threadId });
+          const filteredItems = projection.turnItems.filter(
+            (row) =>
+              (filter?.turnItemRunIds === undefined || filter.turnItemRunIds.includes(row.runId)) &&
+              (filter?.turnItemTypes === undefined || filter.turnItemTypes.includes(row.type)) &&
+              (filter?.turnItemStatuses === undefined ||
+                filter.turnItemStatuses.includes(row.status)) &&
+              (filter?.turnItemRunId === undefined || filter.turnItemRunId === row.runId) &&
+              (filter?.turnItemBeforeOrdinal === undefined ||
+                row.ordinal < filter.turnItemBeforeOrdinal),
+          );
+          const turnItemLimit = recordTurnItemLimit(filter?.turnItemLimit);
+          const turnItems =
+            turnItemLimit === undefined
+              ? filteredItems
+              : filteredItems
+                  .toSorted(
+                    (left, right) =>
+                      right.ordinal - left.ordinal || right.id.localeCompare(left.id),
+                  )
+                  .slice(0, turnItemLimit)
+                  .reverse();
+          const requestNodes = new Set(
+            turnItems.flatMap((item) => (item.nodeId === null ? [] : [item.nodeId])),
+          );
+          const requestIds = new Set(
+            turnItems.flatMap((item) => ("requestId" in item ? [item.requestId] : [])),
+          );
           const selected = {
             ...projection,
             messages: projection.messages.filter(
@@ -7278,15 +7362,13 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
               filter?.runIds === undefined
                 ? projection.runs
                 : projection.runs.filter((row) => filter.runIds!.includes(row.id)),
-            turnItems: projection.turnItems.filter(
-              (row) =>
-                (filter?.turnItemRunIds === undefined ||
-                  filter.turnItemRunIds.includes(row.runId)) &&
-                (filter?.turnItemTypes === undefined || filter.turnItemTypes.includes(row.type)) &&
-                (filter?.turnItemStatuses === undefined ||
-                  filter.turnItemStatuses.includes(row.status)) &&
-                (filter?.turnItemRunId === undefined || filter.turnItemRunId === row.runId),
-            ),
+            turnItems,
+            runtimeRequests:
+              filter?.turnItemRunId === undefined
+                ? projection.runtimeRequests
+                : projection.runtimeRequests.filter(
+                    (request) => requestNodes.has(request.nodeId) || requestIds.has(request.id),
+                  ),
             nodes:
               filter?.omitSettledLeafNodes === true
                 ? projection.nodes.filter((node) => !isSettledLeafNode(node, projection.runs))

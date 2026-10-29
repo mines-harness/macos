@@ -110,6 +110,42 @@ describe("resolveTranscriptCommit", () => {
 describe("VoiceInputController", () => {
   beforeEach(() => resetVoiceInputGlobalsForTests());
 
+  it("reports recording only after asynchronous microphone capture starts", async () => {
+    const captureRequested = deferred<void>();
+    const captureStarted = deferred<void>();
+    const harness = createHarness();
+    harness.recorder.record.mockImplementation(() => {
+      captureRequested.resolve();
+      return captureStarted.promise;
+    });
+    const start = harness.controller.start();
+    await captureRequested.promise;
+    expect(harness.controller.currentState.phase).toBe("preparing");
+    captureStarted.resolve();
+    await start;
+    expect(harness.controller.currentState.phase).toBe("recording");
+    harness.controller.cancel();
+  });
+
+  it("does not report recording when cancelled while microphone capture starts", async () => {
+    const captureRequested = deferred<void>();
+    const captureStarted = deferred<void>();
+    const states: string[] = [];
+    const harness = createHarness({ onStateChange: (state) => states.push(state.phase) });
+    harness.recorder.record.mockImplementation(() => {
+      captureRequested.resolve();
+      return captureStarted.promise;
+    });
+    const start = harness.controller.start();
+    await captureRequested.promise;
+    harness.controller.cancel();
+    captureStarted.resolve();
+    await start;
+    expect(harness.controller.currentState.phase).toBe("idle");
+    expect(states).not.toContain("recording");
+    expect(harness.commits).toEqual([]);
+  });
+
   it("checks support and permission before recording", async () => {
     const unsupported = createHarness({ getTranscriber: () => null });
     await unsupported.controller.start();

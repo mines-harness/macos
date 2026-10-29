@@ -1,5 +1,19 @@
 import {
   CommandId,
+  type GroupAttachmentChunk,
+  type ChatAttachment,
+  type GroupRunAssetInput,
+  type GroupRunRespondInput,
+  UserInputAttachments,
+  type GroupHistoryInput,
+  type GroupMessageChunkInput,
+  type GroupMessageChunk,
+  type GroupRunPageInput,
+  type GroupRunItemInput,
+  type GroupRunBodyInput,
+  type GroupRunProjection,
+  type OrchestrationV2GetTurnItemResult,
+  type OrchestrationV2BodyRangeResult,
   GroupChatError,
   GroupId,
   IsoDateTime,
@@ -14,7 +28,7 @@ import {
   type GroupMessage,
   type GroupRound,
   type GroupSendInput,
-  type GroupSnapshot,
+  GroupSnapshot,
   type ThreadId,
   type EnvironmentId,
   type GroupPeerRequest,
@@ -33,6 +47,13 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as Clock from "effect/Clock";
 import * as GroupStore from "./GroupStore.ts";
+import * as GroupAttachments from "./GroupAttachments.ts";
+import {
+  projectGroupRun,
+  projectGroupRunItem,
+  groupRunBodyRange,
+  groupRunRuntimeRequest,
+} from "./groupRunProjection.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -50,6 +71,37 @@ import {
 } from "./groupPolicy.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeUserInputAttachments = Schema.decodeUnknownEffect(UserInputAttachments);
+const encodeSnapshot = Schema.encodeSync(Schema.fromJsonString(Schema.toCodecJson(GroupSnapshot)));
+const messageTail = (text: string) => {
+  const bytes = Buffer.from(text);
+  if (bytes.length <= 8 * 1024) return text;
+  let start = bytes.length - 8 * 1024;
+  while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start += 1;
+  return bytes.subarray(start).toString("utf8");
+};
+const boundedSnapshot = (snapshot: GroupSnapshot): GroupSnapshot => {
+  let result = snapshot;
+  while (Buffer.byteLength(encodeSnapshot(result)) > 512 * 1024) {
+    if (result.runProjections?.length) {
+      result = Object.assign({}, result, { runProjections: result.runProjections.slice(1) });
+      continue;
+    }
+    if (result.messages.length > 1) {
+      result = { ...result, messages: result.messages.slice(1), hasMoreMessages: true };
+      continue;
+    }
+    const referenced = new Set(
+      result.messages.flatMap((message) => (message.roundId === null ? [] : [message.roundId])),
+    );
+    const obsolete = result.rounds.find(
+      (round) => round.status !== "active" && !referenced.has(round.id),
+    );
+    if (!obsolete) break;
+    result = { ...result, rounds: result.rounds.filter((round) => round.id !== obsolete.id) };
+  }
+  return result;
+};
 const decodeAskReceipt = Schema.decodeSync(
   Schema.fromJsonString(Schema.Tuple([GroupId, Schema.String, Schema.String])),
 );
@@ -70,6 +122,37 @@ const message = (input: Omit<GroupMessage, "truncated">): GroupMessage => ({
 export class GroupChatService extends Context.Service<
   GroupChatService,
   {
+    readonly getDeliveryMember: (input: {
+      readonly groupId: GroupId;
+      readonly deliveryId: string;
+    }) => Effect.Effect<GroupMember, GroupChatError>;
+    readonly respondToRuntimeRequest: (
+      input: GroupRunRespondInput,
+    ) => Effect.Effect<void, GroupChatError>;
+    readonly readRunAsset: (
+      input: GroupRunAssetInput & { readonly offset: number },
+    ) => Effect.Effect<GroupAttachmentChunk, GroupChatError>;
+    readonly getRunAsset: (
+      input: GroupRunAssetInput,
+    ) => Effect.Effect<ChatAttachment, GroupChatError>;
+    readonly getHistory: (input: GroupHistoryInput) => Effect.Effect<GroupSnapshot, GroupChatError>;
+    readonly getMessageChunk: (
+      input: GroupMessageChunkInput,
+    ) => Effect.Effect<GroupMessageChunk, GroupChatError>;
+    readonly getRunPage: (
+      input: GroupRunPageInput,
+    ) => Effect.Effect<GroupRunProjection, GroupChatError>;
+    readonly getRunItem: (
+      input: GroupRunItemInput,
+    ) => Effect.Effect<OrchestrationV2GetTurnItemResult, GroupChatError>;
+    readonly getRunBodyRange: (
+      input: GroupRunBodyInput,
+    ) => Effect.Effect<OrchestrationV2BodyRangeResult | null, GroupChatError>;
+    readonly readAttachment: (input: {
+      readonly groupId: GroupId;
+      readonly attachmentId: string;
+      readonly offset: number;
+    }) => Effect.Effect<GroupAttachmentChunk, GroupChatError>;
     readonly list: () => Effect.Effect<GroupListResult, GroupChatError>;
     readonly get: (input: {
       readonly groupId: GroupId;
@@ -147,6 +230,7 @@ const make = Effect.gen(function* () {
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   });
   const store = yield* GroupStore.GroupStore;
+  const attachments = yield* GroupAttachments.GroupAttachments;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
@@ -158,6 +242,166 @@ const make = Effect.gen(function* () {
   const environmentId = yield* environment.getEnvironmentId;
   const lock = yield* Semaphore.make(1);
   const wake = yield* Queue.sliding<void>(1);
+  const nativeProjection = Effect.fn("GroupChatService.nativeProjection")(function* (input: {
+    deliveryId: string;
+    memberId: string;
+    threadId: ThreadId;
+    runId: GroupRunProjection["runId"];
+    beforeOrdinal?: number;
+  }) {
+    const records = yield* threads
+      .getThreadRecords(input.threadId, ["turnItems", "runtimeRequests"], {
+        turnItemRunId: input.runId,
+        turnItemLimit: 129,
+        ...(input.beforeOrdinal === undefined
+          ? {}
+          : { turnItemBeforeOrdinal: input.beforeOrdinal }),
+      })
+      .pipe(Effect.mapError(nativeError));
+    return {
+      ...projectGroupRun({
+        ...input,
+        environmentId,
+        items: records.turnItems,
+        runtimeRequests: records.runtimeRequests,
+      }),
+      canRespond: true,
+    };
+  });
+  const resolveDelivery = Effect.fn("GroupChatService.resolveDelivery")(function* (
+    input: GroupRunPageInput,
+  ) {
+    const round = yield* store.deliveryRound(input.groupId, input.deliveryId);
+    const delivery = round.deliveries.find((candidate) => candidate.id === input.deliveryId);
+    const member = round.members.find((candidate) => candidate.id === delivery?.memberId);
+    if (!delivery?.runId || !member)
+      return yield* new GroupChatError({
+        code: "not-found",
+        message: "This group delivery has not started.",
+      });
+    const current = yield* store.get(input.groupId);
+    if (
+      !current.members.some(
+        (candidate) =>
+          candidate.id === member.id &&
+          candidate.threadId === member.threadId &&
+          candidate.environmentId === member.environmentId,
+      )
+    )
+      return yield* new GroupChatError({
+        code: "not-group-turn",
+        message: "This mine is no longer part of the group.",
+      });
+    return { round, delivery, member, runId: delivery.runId };
+  });
+  const getRunPage = Effect.fn("GroupChatService.getRunPage")(function* (input: GroupRunPageInput) {
+    const { member, runId } = yield* resolveDelivery(input);
+    if (member.environmentId !== null) {
+      const result = yield* remote.request(member.environmentId, {
+        type: "run-page",
+        groupId: input.groupId,
+        memberId: member.id,
+        threadId: member.threadId,
+        deliveryId: input.deliveryId,
+        ...(input.beforeOrdinal === undefined ? {} : { beforeOrdinal: input.beforeOrdinal }),
+      });
+      if (result.type !== "run-page") return yield* nativeError();
+      return { ...result.projection, environmentId: member.environmentId };
+    }
+    return yield* nativeProjection({
+      deliveryId: input.deliveryId,
+      memberId: member.id,
+      threadId: member.threadId,
+      runId,
+      ...(input.beforeOrdinal === undefined ? {} : { beforeOrdinal: input.beforeOrdinal }),
+    });
+  });
+  const getRunItem = Effect.fn("GroupChatService.getRunItem")(function* (input: GroupRunItemInput) {
+    const { member, runId } = yield* resolveDelivery(input);
+    if (member.environmentId !== null) {
+      const result = yield* remote.request(member.environmentId, {
+        type: "run-item",
+        ...input,
+        memberId: member.id,
+        threadId: member.threadId,
+      });
+      if (result.type !== "run-item") return yield* nativeError();
+      return result.result;
+    }
+    const item = yield* orchestrator
+      .getTurnItem({ threadId: member.threadId, itemId: input.itemId })
+      .pipe(Effect.mapError(nativeError));
+    return projectGroupRunItem({ threadId: member.threadId, runId }, item);
+  });
+  const getRunBodyRange = Effect.fn("GroupChatService.getRunBodyRange")(function* (
+    input: GroupRunBodyInput,
+  ) {
+    const { member, runId } = yield* resolveDelivery(input);
+    if (member.environmentId !== null) {
+      const result = yield* remote.request(member.environmentId, {
+        type: "run-body-range",
+        ...input,
+        memberId: member.id,
+        threadId: member.threadId,
+      });
+      if (result.type !== "run-body-range") return yield* nativeError();
+      return result.result;
+    }
+    const item = yield* orchestrator
+      .getTurnItem({ threadId: member.threadId, itemId: input.itemId })
+      .pipe(Effect.mapError(nativeError));
+    return groupRunBodyRange({ threadId: member.threadId, runId }, item, input);
+  });
+  const readRunAsset = Effect.fn("GroupChatService.readRunAsset")(function* (
+    input: GroupRunAssetInput & { readonly offset: number },
+  ) {
+    const { member, runId } = yield* resolveDelivery(input);
+    if (member.environmentId !== null) {
+      const result = yield* remote.request(member.environmentId, {
+        type: "run-asset",
+        ...input,
+        memberId: member.id,
+        threadId: member.threadId,
+      });
+      if (result.type !== "run-asset") return yield* nativeError();
+      return result.chunk;
+    }
+    const item = yield* orchestrator
+      .getTurnItem({ threadId: member.threadId, itemId: input.itemId })
+      .pipe(Effect.mapError(nativeError));
+    if (!item || item.threadId !== member.threadId || item.runId !== runId)
+      return yield* nativeError();
+    let workspaceRoot: string | undefined;
+    if (input.kind === "image" && item.type === "dynamic_tool" && item.viewedImagePath) {
+      const { thread } = yield* threads
+        .getThreadRecords(member.threadId, [])
+        .pipe(Effect.mapError(nativeError));
+      const project = yield* projects.get(thread.projectId).pipe(Effect.mapError(nativeError));
+      if (Option.isNone(project)) return yield* nativeError();
+      workspaceRoot = thread.worktreePath ?? project.value.workspaceRoot;
+    }
+    const asset = yield* attachments.itemAsset(item, input.kind, input.index, workspaceRoot);
+    return yield* attachments.read(asset, input.offset);
+  });
+  const getRunAsset = Effect.fn("GroupChatService.getRunAsset")(function* (
+    input: GroupRunAssetInput,
+  ) {
+    const { member } = yield* resolveDelivery(input);
+    let chunk = yield* readRunAsset({ ...input, offset: 0 });
+    if (member.environmentId === null) return chunk.attachment;
+    const scope = `run-asset:${input.groupId}:${input.deliveryId}`;
+    const cached = yield* attachments.cached(scope, chunk.attachment);
+    if (cached) return cached;
+    let result = yield* attachments.receive(scope, chunk);
+    while (!chunk.complete) {
+      chunk = yield* readRunAsset({
+        ...input,
+        offset: chunk.offset + Buffer.from(chunk.data, "base64").length,
+      });
+      result = yield* attachments.receive(scope, chunk);
+    }
+    return result;
+  });
   const get = Effect.fn("GroupChatService.get")(function* (input: { readonly groupId: GroupId }) {
     const snapshot = yield* store.get(input.groupId);
     const liveMessages = yield* Effect.forEach(
@@ -189,9 +433,12 @@ const make = Effect.gen(function* () {
                 roundId: round.id,
                 memberId: member.id,
                 kind: "assistant" as const,
-                text: reply.text.slice(-32_000),
+                text: messageTail(reply.text),
+                sourceRunId: reply.runId,
+                ...(reply.sourceMessageId ? { sourceMessageId: reply.sourceMessageId } : {}),
+                streaming: true,
                 createdAt: round.createdAt,
-                truncated: reply.truncated || reply.text.length > 32_000,
+                truncated: reply.truncated || messageTail(reply.text).length < reply.text.length,
               },
             ];
           }
@@ -210,22 +457,43 @@ const make = Effect.gen(function* () {
               roundId: round.id,
               memberId: member.id,
               kind: "assistant" as const,
-              text: text.slice(-32_000),
+              text: messageTail(text),
+              sourceRunId: delivery.runId,
+              streaming: true,
+              ...(records.turnItems.length === 1 &&
+              records.turnItems[0]?.type === "assistant_message" &&
+              records.turnItems[0].messageId
+                ? { sourceMessageId: records.turnItems[0].messageId }
+                : {}),
               createdAt: round.createdAt,
-              truncated: text.length > 32_000,
+              truncated: messageTail(text).length < text.length,
             },
           ];
         }).pipe(Effect.orElseSucceed(() => [])),
       { concurrency: 4 },
     );
     const live = liveMessages.flat();
-    return {
+    const selected = snapshot.rounds
+      .flatMap((round) => round.deliveries)
+      .filter((delivery) => delivery.runId !== null)
+      .slice(-4);
+    const runProjections = yield* Effect.forEach(
+      selected,
+      (delivery) =>
+        getRunPage({ groupId: input.groupId, deliveryId: delivery.id }).pipe(
+          Effect.map((projection) => [projection]),
+          Effect.orElseSucceed(() => []),
+        ),
+      { concurrency: 4 },
+    );
+    return boundedSnapshot({
       ...snapshot,
+      runProjections: runProjections.flat(),
       messages: [
         ...snapshot.messages.filter((item) => !live.some((candidate) => candidate.id === item.id)),
         ...live,
       ],
-    };
+    });
   });
   const subscribe = (input: { readonly groupId: GroupId }) =>
     Stream.unwrap(
@@ -253,6 +521,13 @@ const make = Effect.gen(function* () {
         message: "This request ID was already used for different group content.",
       });
     return receipt?.result;
+  });
+  const planCapability = Effect.fn("GroupChatService.planCapability")(function* (
+    instanceId: GroupMember["modelSelection"]["instanceId"],
+  ) {
+    const instance = yield* registry.getInstance(instanceId);
+    if (!instance) return undefined;
+    return (yield* instance.snapshot.getSnapshot).showInteractionModeToggle !== false;
   });
   const loadMember = Effect.fn("GroupChatService.loadMember")(function* (
     input: GroupCreateInput["members"][number],
@@ -286,6 +561,12 @@ const make = Effect.gen(function* () {
         alias: input.alias,
         role: input.role ?? "",
         modelSelection: description.modelSelection,
+        ...(description.supportsRichMessages === undefined
+          ? {}
+          : { supportsRichMessages: description.supportsRichMessages }),
+        ...(description.supportsPlanMode === undefined
+          ? {}
+          : { supportsPlanMode: description.supportsPlanMode }),
         joinedAt: at,
       } satisfies GroupMember;
     }
@@ -307,7 +588,10 @@ const make = Effect.gen(function* () {
         message:
           "Choose active original conversations, rather than archived mines or delegated subagents.",
       });
+    const supportsPlanMode = yield* planCapability(thread.modelSelection.instanceId);
     return {
+      ...(supportsPlanMode === undefined ? {} : { supportsPlanMode }),
+      supportsRichMessages: true,
       id: `member:${yield* uuid}`,
       groupId,
       threadId: thread.id,
@@ -617,6 +901,12 @@ const make = Effect.gen(function* () {
             code: "busy",
             message: "Reopen this group before sending a message.",
           });
+        if (!input.message.trim() && !input.attachments?.length && !input.context?.records.length)
+          return yield* new GroupChatError({
+            code: "invalid-members",
+            message: "Write a message or add context before sending.",
+          });
+        const payload = yield* attachments.retain(input.groupId, input);
         if (shared && input.requestAiResponse !== true) {
           const at = yield* now;
           const id = `group-message:${yield* uuid}`;
@@ -633,6 +923,7 @@ const make = Effect.gen(function* () {
                 memberId: null,
                 kind: "user",
                 text: input.message,
+                ...payload,
                 createdAt: at,
                 authorFriendId: authorFriendId!,
               }),
@@ -653,6 +944,38 @@ const make = Effect.gen(function* () {
               "Wait for this discussion to finish, or stop it before sending a new group message.",
           });
         const routing = routeGroupMessage(input, snapshot.members);
+        if (
+          input.attachments?.length ||
+          input.context?.records.length ||
+          input.interactionMode !== undefined
+        ) {
+          for (const member of snapshot.members.filter(
+            (candidate) =>
+              routing.memberIds.includes(candidate.id) && candidate.environmentId !== null,
+          )) {
+            const description = yield* remote.request(member.environmentId!, {
+              type: "describe",
+              threadId: member.threadId,
+            });
+            if (description.type !== "description" || description.supportsRichMessages !== true)
+              return yield* new GroupChatError({
+                code: "unsupported",
+                message:
+                  "A selected mine's host needs an update before it can receive files, context, or Plan mode. Your draft was kept.",
+              });
+          }
+        }
+        if (
+          input.interactionMode === "plan" &&
+          snapshot.members.some(
+            (member) => routing.memberIds.includes(member.id) && member.supportsPlanMode === false,
+          )
+        )
+          return yield* new GroupChatError({
+            code: "unsupported",
+            message:
+              "A selected mine does not support Plan mode. Choose another recipient or send in its default mode.",
+          });
         if (routing.memberIds.some((id) => !snapshot.members.some((member) => member.id === id)))
           return yield* new GroupChatError({
             code: "invalid-members",
@@ -668,6 +991,7 @@ const make = Effect.gen(function* () {
             ? [snapshot.group.leadMemberId]
             : routing.memberIds;
         const round: GroupRound = {
+          ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
           ...(shared || input.catalogContextRevision === undefined
             ? {}
             : { catalogContextRevision: input.catalogContextRevision }),
@@ -703,6 +1027,7 @@ const make = Effect.gen(function* () {
               memberId: null,
               kind: "user",
               text: input.message,
+              ...payload,
               createdAt: at,
               ...(shared ? { authorFriendId: authorFriendId! } : {}),
             }),
@@ -893,6 +1218,56 @@ const make = Effect.gen(function* () {
               ),
             },
           });
+          if (
+            current.interactionMode === "plan" &&
+            member.environmentId === null &&
+            (yield* planCapability(member.modelSelection.instanceId)) === false
+          )
+            return yield* new GroupChatError({
+              code: "unsupported",
+              message: "This provider does not support Plan mode.",
+            });
+          const originalMessage = (yield* store.messagesThrough(
+            current.groupId,
+            current.userMessageId,
+          )).find((message) => message.id === current.userMessageId);
+          const payload = originalMessage ?? { attachments: [] };
+          if (
+            member.environmentId !== null &&
+            (payload.attachments?.length ||
+              ("context" in payload && payload.context?.records.length) ||
+              current.interactionMode !== undefined)
+          ) {
+            const description = yield* remote.request(member.environmentId, {
+              type: "describe",
+              threadId: member.threadId,
+            });
+            if (description.type !== "description" || description.supportsRichMessages !== true)
+              return yield* new GroupChatError({
+                code: "unsupported",
+                message: "Update this mine's host before retrying files, context, or Plan mode.",
+              });
+          }
+          const prepared =
+            member.environmentId !== null
+              ? yield* attachments.transfer(payload, (chunk) =>
+                  remote
+                    .request(member.environmentId!, {
+                      type: "attachment-put",
+                      groupId: current.groupId,
+                      memberId: member.id,
+                      threadId: member.threadId,
+                      chunk,
+                    })
+                    .pipe(
+                      Effect.flatMap((result) =>
+                        result.type === "attachment-stored"
+                          ? Effect.succeed(result.attachment)
+                          : Effect.fail(nativeError()),
+                      ),
+                    ),
+                )
+              : yield* attachments.forThread(member.threadId, payload);
           const sent =
             member.environmentId !== null
               ? yield* remote.request(member.environmentId, {
@@ -902,6 +1277,8 @@ const make = Effect.gen(function* () {
                   threadId: member.threadId,
                   deliveryId: pending.id,
                   prompt,
+                  ...prepared,
+                  ...(current.interactionMode ? { interactionMode: current.interactionMode } : {}),
                   handoff: pending.stage === "handoff",
                   ...(current.catalogContextRevision === undefined
                     ? {}
@@ -917,7 +1294,10 @@ const make = Effect.gen(function* () {
                     commandId: CommandId.make(`mines-group:${pending.id}`),
                     messageId: MessageId.make(`mines-group:${pending.id}`),
                     text: prompt,
-                    attachments: [],
+                    ...prepared,
+                    ...(current.interactionMode
+                      ? { interactionMode: current.interactionMode }
+                      : {}),
                     mode: "queue",
                     createdBy: pending.stage === "handoff" ? "agent" : "user",
                     creationSource: "server",
@@ -1005,6 +1385,8 @@ const make = Effect.gen(function* () {
                 memberId: member.id,
                 kind: "assistant",
                 text: reply.text,
+                sourceRunId: reply.runId,
+                ...(reply.sourceMessageId ? { sourceMessageId: reply.sourceMessageId } : {}),
                 createdAt: at,
               }),
               truncated: reply.truncated,
@@ -1084,6 +1466,12 @@ const make = Effect.gen(function* () {
             memberId: member.id,
             kind: "assistant",
             text,
+            sourceRunId: run.id,
+            ...(records.turnItems.length === 1 &&
+            records.turnItems[0]?.type === "assistant_message" &&
+            records.turnItems[0].messageId
+              ? { sourceMessageId: records.turnItems[0].messageId }
+              : {}),
             createdAt: at,
           })
         : undefined,
@@ -1511,6 +1899,101 @@ const make = Effect.gen(function* () {
     return yield* store.get(input.groupId);
   });
 
+  const nativeResponse = Effect.fn("GroupChatService.nativeResponse")(function* (
+    input: GroupRunRespondInput,
+    threadId: ThreadId,
+    runId: GroupRunProjection["runId"],
+    origin: string,
+  ) {
+    const key = `group-runtime:${origin}:${input.deliveryId}:${input.clientRequestId}`;
+    if (yield* checkReceipt(key, input)) return;
+    const records = yield* threads
+      .getThreadRecords(threadId, ["turnItems", "runtimeRequests"], { turnItemRunId: runId })
+      .pipe(Effect.mapError(nativeError));
+    const request = groupRunRuntimeRequest(
+      { threadId, runId },
+      records.turnItems,
+      records.runtimeRequests,
+      input.requestId,
+    );
+    if (!request || (input.dismiss && request.kind !== "user_input"))
+      return yield* new GroupChatError({
+        code: "not-group-turn",
+        message: "This request is no longer answerable in the group's current run.",
+      });
+    const prepared = input.attachmentsByQuestionId
+      ? yield* attachments.prepareAnswers(
+          threadId,
+          input.answers ?? {},
+          input.attachmentsByQuestionId,
+        )
+      : input.answers
+        ? { answers: input.answers }
+        : {};
+    yield* threads
+      .dispatch(
+        input.dismiss
+          ? {
+              type: "thread.user-input.dismiss",
+              commandId: CommandId.make(key),
+              threadId,
+              requestId: input.requestId,
+            }
+          : {
+              type: "runtime-request.respond",
+              commandId: CommandId.make(key),
+              threadId,
+              requestId: input.requestId,
+              ...(input.decision ? { decision: input.decision } : {}),
+              ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
+              ...prepared,
+            },
+      )
+      .pipe(Effect.mapError(nativeError));
+    yield* store.commit({
+      groupId: input.groupId,
+      kind: "runtime-request.responded",
+      at: yield* now,
+      receipt: { id: key, fingerprint: yield* fingerprint(input), result: input.requestId },
+    });
+  });
+  const respondToRuntimeRequest = Effect.fn("GroupChatService.respondToRuntimeRequest")(function* (
+    input: GroupRunRespondInput,
+  ) {
+    const { member, runId } = yield* resolveDelivery(input);
+    if (member.environmentId === null)
+      return yield* nativeResponse(input, member.threadId, runId, environmentId);
+    const byQuestion = {} as Record<string, ReadonlyArray<ChatAttachment>>;
+    for (const [key, files] of Object.entries(input.attachmentsByQuestionId ?? {}))
+      byQuestion[key] = (yield* attachments.transfer({ attachments: files }, (chunk) =>
+        remote
+          .request(member.environmentId!, {
+            type: "attachment-put",
+            groupId: input.groupId,
+            memberId: member.id,
+            threadId: member.threadId,
+            chunk,
+          })
+          .pipe(
+            Effect.flatMap((result) =>
+              result.type === "attachment-stored"
+                ? Effect.succeed(result.attachment)
+                : Effect.fail(nativeError()),
+            ),
+          ),
+      )).attachments;
+    const attachmentsByQuestionId = yield* decodeUserInputAttachments(byQuestion).pipe(
+      Effect.mapError(nativeError),
+    );
+    const result = yield* remote.request(member.environmentId, {
+      type: "runtime-response",
+      ...input,
+      attachmentsByQuestionId,
+      memberId: member.id,
+      threadId: member.threadId,
+    });
+    if (result.type !== "ok") return yield* nativeError();
+  });
   const assertDirectSendAllowed = Effect.fn("GroupChatService.assertDirectSendAllowed")(function* (
     callerThreadId: ThreadId,
     targetThreadId: ThreadId,
@@ -1605,13 +2088,17 @@ const make = Effect.gen(function* () {
           code: "invalid-members",
           message: "This remote chat is not an active original conversation.",
         });
-      if (input.type === "describe")
+      if (input.type === "describe") {
+        const supportsPlanMode = yield* planCapability(thread.modelSelection.instanceId);
         return {
+          ...(supportsPlanMode === undefined ? {} : { supportsPlanMode }),
           type: "description",
+          supportsRichMessages: true,
           threadId: thread.id,
           projectId: thread.projectId,
           modelSelection: thread.modelSelection,
         };
+      }
       yield* lock.withPermits(1)(
         peers.reserve({
           coordinatorEnvironmentId: callerEnvironmentId,
@@ -1643,6 +2130,89 @@ const make = Effect.gen(function* () {
         code: "not-group-turn",
         message: "This peer does not coordinate the mine's active group.",
       });
+    if (
+      input.type === "run-page" ||
+      input.type === "run-item" ||
+      input.type === "run-body-range" ||
+      input.type === "run-asset"
+    ) {
+      const delivery = yield* peers.delivery(input.deliveryId);
+      if (!delivery?.runId || !GroupPeerStore.sameMembership(delivery, expected))
+        return yield* nativeError();
+      const records = yield* threads
+        .getThreadRecords(input.threadId, ["runs"])
+        .pipe(Effect.mapError(nativeError));
+      const original = records.runs.find((run) => run.id === delivery.runId);
+      const origin = original?.accountFailoverOriginRunId ?? delivery.runId;
+      const run = records.runs
+        .filter((run) => run.id === origin || run.accountFailoverOriginRunId === origin)
+        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      if (!run) return yield* nativeError();
+      if (input.type === "run-page")
+        return {
+          type: "run-page",
+          projection: yield* nativeProjection({
+            deliveryId: input.deliveryId,
+            memberId: input.memberId,
+            threadId: input.threadId,
+            runId: run.id,
+            ...(input.beforeOrdinal === undefined ? {} : { beforeOrdinal: input.beforeOrdinal }),
+          }),
+        };
+      const item = yield* orchestrator
+        .getTurnItem({ threadId: input.threadId, itemId: input.itemId })
+        .pipe(Effect.mapError(nativeError));
+      if (input.type === "run-asset") {
+        if (!item || item.threadId !== input.threadId || item.runId !== run.id)
+          return yield* nativeError();
+        let workspaceRoot: string | undefined;
+        if (input.kind === "image" && item.type === "dynamic_tool" && item.viewedImagePath) {
+          const project = yield* projects.get(thread.projectId).pipe(Effect.mapError(nativeError));
+          if (Option.isNone(project)) return yield* nativeError();
+          workspaceRoot = thread.worktreePath ?? project.value.workspaceRoot;
+        }
+        const asset = yield* attachments.itemAsset(item, input.kind, input.index, workspaceRoot);
+        return { type: "run-asset", chunk: yield* attachments.read(asset, input.offset) };
+      }
+      return input.type === "run-item"
+        ? {
+            type: "run-item",
+            result: projectGroupRunItem({ threadId: input.threadId, runId: run.id }, item),
+          }
+        : {
+            type: "run-body-range",
+            result: groupRunBodyRange({ threadId: input.threadId, runId: run.id }, item, input),
+          };
+    }
+    if (input.type === "runtime-response") {
+      const delivery = yield* peers.delivery(input.deliveryId);
+      if (!delivery?.runId || !GroupPeerStore.sameMembership(delivery, expected))
+        return yield* nativeError();
+      const byQuestion: Record<string, ReadonlyArray<ChatAttachment>> = {};
+      for (const [key, files] of Object.entries(input.attachmentsByQuestionId ?? {}))
+        byQuestion[key] = (yield* attachments.restore(
+          `${callerEnvironmentId}:${input.groupId}:${input.memberId}`,
+          { attachments: files },
+        )).attachments;
+      const attachmentsByQuestionId = yield* decodeUserInputAttachments(byQuestion).pipe(
+        Effect.mapError(nativeError),
+      );
+      yield* nativeResponse(
+        { ...input, attachmentsByQuestionId },
+        input.threadId,
+        delivery.runId,
+        callerEnvironmentId,
+      );
+      return { type: "ok" };
+    }
+    if (input.type === "attachment-put")
+      return {
+        type: "attachment-stored",
+        attachment: yield* attachments.receive(
+          `${callerEnvironmentId}:${input.groupId}:${input.memberId}`,
+          input.chunk,
+        ),
+      };
     if (input.type === "assess") {
       const instance = yield* registry.getInstance(thread.modelSelection.instanceId);
       if (!instance?.textGeneration.assessGroupRelevance)
@@ -1688,6 +2258,22 @@ const make = Effect.gen(function* () {
               code: "busy",
               message: "This group delivery was cancelled.",
             });
+          if (
+            input.interactionMode === "plan" &&
+            (yield* planCapability(thread.modelSelection.instanceId)) === false
+          )
+            return yield* new GroupChatError({
+              code: "unsupported",
+              message: "This provider does not support Plan mode.",
+            });
+          const payload =
+            input.contextFile || input.attachments?.length
+              ? yield* attachments.restore(
+                  `${callerEnvironmentId}:${input.groupId}:${input.memberId}`,
+                  input,
+                )
+              : input;
+          const prepared = yield* attachments.forThread(input.threadId, payload);
           const sent = yield* threads
             .sendToThread({
               projectId: thread.projectId,
@@ -1695,7 +2281,8 @@ const make = Effect.gen(function* () {
               commandId: CommandId.make(`mines-group:${input.deliveryId}`),
               messageId: MessageId.make(`mines-group:${input.deliveryId}`),
               text: input.prompt,
-              attachments: [],
+              ...prepared,
+              ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
               mode: "queue",
               createdBy: input.handoff ? "agent" : "user",
               creationSource: "server",
@@ -1796,6 +2383,11 @@ const make = Effect.gen(function* () {
     return {
       type: "run",
       runId: run.id,
+      ...(output.turnItems.length === 1 &&
+      output.turnItems[0]?.type === "assistant_message" &&
+      output.turnItems[0].messageId
+        ? { sourceMessageId: output.turnItems[0].messageId }
+        : {}),
       status,
       text: text.slice(-120_000),
       truncated: text.length > 120_000,
@@ -1818,11 +2410,7 @@ const make = Effect.gen(function* () {
   const lastPublished = new Map<string, number>();
   yield* Effect.forkScoped(
     orchestrator.streamDomainEvents.pipe(
-      Stream.filter(
-        (event) =>
-          event.type === "run.updated" ||
-          (event.type === "turn-item.updated" && event.payload.type === "assistant_message"),
-      ),
+      Stream.filter((event) => event.type === "run.updated" || event.type === "turn-item.updated"),
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           if (event.type === "run.updated") yield* Queue.offer(wake, undefined);
@@ -1856,6 +2444,49 @@ const make = Effect.gen(function* () {
   );
   yield* Queue.offer(wake, undefined);
   return GroupChatService.of({
+    getDeliveryMember: Effect.fn("GroupChatService.getDeliveryMember")((input) =>
+      resolveDelivery(input).pipe(Effect.map(({ member }) => member)),
+    ),
+    respondToRuntimeRequest,
+    getHistory: Effect.fn("GroupChatService.getHistory")((input) =>
+      store.get(input.groupId, input.beforeMessageId),
+    ),
+    getMessageChunk: Effect.fn("GroupChatService.getMessageChunk")(function* (input) {
+      const message = yield* store.message(input.groupId, input.messageId);
+      if (!message)
+        return yield* new GroupChatError({
+          code: "not-found",
+          message: "This message is not part of the group.",
+        });
+      const bytes = Buffer.from(encodeJson(message));
+      if (input.offset > bytes.length)
+        return yield* new GroupChatError({
+          code: "not-found",
+          message: "This message range is no longer available.",
+        });
+      const chunk = bytes.subarray(input.offset, input.offset + 192 * 1024);
+      return {
+        type: "message-chunk",
+        offset: input.offset,
+        totalBytes: bytes.length,
+        data: chunk.toString("base64"),
+        complete: input.offset + chunk.length === bytes.length,
+      };
+    }),
+    readRunAsset,
+    getRunAsset,
+    getRunPage,
+    getRunItem,
+    getRunBodyRange,
+    readAttachment: Effect.fn("GroupChatService.readAttachment")(function* (input) {
+      const attachment = yield* store.attachment(input.groupId, input.attachmentId);
+      if (!attachment)
+        return yield* new GroupChatError({
+          code: "not-found",
+          message: "This file is not part of the shared group.",
+        });
+      return yield* attachments.read(attachment, input.offset);
+    }),
     list: Effect.fn("GroupChatService.list")(function* () {
       return { groups: yield* store.list(), memberships: yield* store.listMemberships() };
     }),

@@ -6,6 +6,7 @@ import {
   GuestStreamEvent,
   isProviderSendTurnSupportedImageMimeType,
   type GuestMessageId,
+  type ConversationActivity,
   type GuestShareView,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ThreadProjection,
@@ -20,6 +21,7 @@ import * as Schema from "effect/Schema";
 import { guestApiUrl } from "../../guestRouting";
 
 export interface GuestStreamState {
+  readonly hostActivity: ConversationActivity | null;
   readonly view: GuestShareView | null;
   /** The thread as the owner's client holds it, built with the same reducer. */
   readonly projection: OrchestrationV2ThreadProjection | null;
@@ -35,6 +37,7 @@ export interface GuestStreamState {
 }
 
 export const initialGuestStreamState: GuestStreamState = {
+  hostActivity: null,
   view: null,
   projection: null,
   sequence: 0,
@@ -87,6 +90,8 @@ export function applyGuestStreamEvent(
   event: GuestStreamEvent,
 ): GuestStreamState {
   switch (event.type) {
+    case "activity":
+      return { ...state, hostActivity: event.activity };
     case "view":
       // The page follows the share it names; a view of another one means the link changed.
       if (state.view !== null && state.view.shareId !== event.view.shareId) {
@@ -142,7 +147,7 @@ export function applyGuestStreamEvent(
       };
     }
     case "ended":
-      return { ...state, ended: true };
+      return { ...state, ended: true, hostActivity: null };
   }
 }
 

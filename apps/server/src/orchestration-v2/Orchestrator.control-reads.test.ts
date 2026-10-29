@@ -62,6 +62,58 @@ const layerTest = Layer.mergeAll(
   ),
 );
 
+it.effect("retains each group turn's interaction mode without changing its mine defaults", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:group-turn-modes");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-group-turn-modes"),
+      threadId,
+      projectId: ProjectId.make("project:group-turn-modes"),
+      title: "A member's mine",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("group-plan-turn"),
+      threadId,
+      messageId: MessageId.make("group-plan-message"),
+      text: "Plan the change together.",
+      attachments: [],
+      interactionMode: "plan",
+      dispatchMode: { type: "defer_start" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("group-default-turn"),
+      threadId,
+      messageId: MessageId.make("group-default-message"),
+      text: "Then build the agreed change.",
+      attachments: [],
+      interactionMode: "default",
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const projection = yield* projections.getThreadRecords(threadId, ["runs"]);
+    assert.deepEqual(
+      projection.runs.map((run) => run.interactionMode),
+      ["plan", "default"],
+    );
+    assert.equal(projection.thread.interactionMode, "default");
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("guards metadata title repair against a concurrent rename without provider effects", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

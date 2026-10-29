@@ -198,6 +198,18 @@ voice releases the microphone.
 Provider dictation into an editable prompt and Claude live voice remain unavailable
 until their providers expose supported interfaces for Mines.
 
+## Dictate a prompt
+
+Choose **Dictate message** in a mine or group chat, allow microphone and speech
+access, and speak. Finish dictation to insert the words into your draft, then review
+and edit them before sending. Canceling or leaving the conversation discards the
+dictation and preserves the draft. A recording can last up to five minutes.
+
+Mac dictation runs on your device. Windows uses an installed Windows speech
+language. Supported web browsers provide their own speech service and may process
+audio online; the microphone requires HTTPS or localhost. The control explains
+when speech recognition is unavailable. No provider account or API key is needed.
+
 ## Voice input on iPhone
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,

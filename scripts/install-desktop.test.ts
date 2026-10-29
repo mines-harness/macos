@@ -1,6 +1,53 @@
 import { assert, it } from "@effect/vitest";
+import { createPackage } from "@electron/asar";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
-import { planMacDesktopInstall, type MacDesktopBundle } from "./install-desktop.ts";
+import {
+  inspectMacDesktopPayload,
+  planMacDesktopInstall,
+  type MacDesktopBundle,
+} from "./install-desktop.ts";
+
+it.effect("reads the new payload metadata after an archive replaces the same install path", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "mines-installer-asar-cache-" });
+      const previous = path.join(root, "previous");
+      const next = path.join(root, "next");
+      yield* fs.makeDirectory(previous);
+      yield* fs.makeDirectory(next);
+      yield* fs.writeFileString(
+        path.join(previous, "package.json"),
+        JSON.stringify({ minesCommitHash: "a".repeat(40) }),
+      );
+      yield* fs.writeFileString(
+        path.join(next, "package.json"),
+        JSON.stringify({
+          minesCommitHash: "b".repeat(40),
+          version: "0.1.21",
+          description: "A differently sized package header for the replacement payload",
+        }),
+      );
+      const installed = path.join(root, "app.asar");
+      const replacement = path.join(root, "replacement.asar");
+      yield* Effect.tryPromise(() => createPackage(previous, installed));
+      yield* Effect.tryPromise(() => createPackage(next, replacement));
+      const oldPayload = yield* Effect.tryPromise(() => inspectMacDesktopPayload(installed));
+      const expected = yield* Effect.tryPromise(() => inspectMacDesktopPayload(replacement));
+      assert.equal(oldPayload.sourceCommit, "a".repeat(40));
+      yield* fs.rename(replacement, installed);
+      const actual = yield* Effect.tryPromise(() => inspectMacDesktopPayload(installed));
+      assert.deepStrictEqual(actual, expected);
+      assert.equal(actual.sourceCommit, "b".repeat(40));
+      assert.notEqual(actual.payloadSha256, oldPayload.payloadSha256);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 const bundle = (overrides: Partial<MacDesktopBundle> = {}): MacDesktopBundle => ({
   path: "/build/mines (Beta).app",

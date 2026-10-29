@@ -5,6 +5,7 @@ import "vite-plus/test/config";
 
 const reactTests = [
   "src/features/contacts/SharedGroupModal.test.tsx",
+  "src/catalog/useGroupConversationComposer.test.tsx",
   "src/catalog/MobileCatalogContextModal.test.tsx",
   "src/features/projects/AddProjectScreen.test.ts",
   "src/lib/useMediaVideoPlayback.test.tsx",

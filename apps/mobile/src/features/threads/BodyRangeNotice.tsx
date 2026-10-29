@@ -1,5 +1,6 @@
 import type { EnvironmentId, OrchestrationV2ProjectedTurnItem, ThreadId } from "@t3tools/contracts";
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { ConversationTurnItemAccess } from "../../state/conversationTurnItemAccess";
 import { Pressable, Text, View } from "react-native";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -15,6 +16,7 @@ export function BodyRangeNotice({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const access = useContext(ConversationTurnItemAccess);
   const load = useAtomCommand(threadEnvironment.loadEarlierBody, { reportFailure: false });
   if (!row?.item.bodyRange || row.item.bodyRange.startByte === 0) return null;
   return (
@@ -25,6 +27,17 @@ export function BodyRangeNotice({
         onPress={() => {
           setBusy(true);
           setError(null);
+          if (access) {
+            void access
+              .loadEarlierBody(row)
+              .catch((cause: unknown) =>
+                setError(
+                  cause instanceof Error ? cause.message : "Could not load earlier content.",
+                ),
+              )
+              .finally(() => setBusy(false));
+            return;
+          }
           void load({
             environmentId,
             input: { threadId, sourceThreadId: row.sourceThreadId, itemId: row.sourceItemId },

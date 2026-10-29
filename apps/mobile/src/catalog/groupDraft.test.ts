@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import { openGroupDraft } from "./groupDraft";
+import { groupComposerContentKey, openGroupDraft } from "./groupDraft";
+import { EnvironmentId } from "@t3tools/contracts";
 
 function fixture() {
   let next = 0;
@@ -42,6 +43,52 @@ describe("encrypted group draft state", () => {
     draft.acknowledge(draft.getSnapshot().draft.requestId);
     await draft.flush();
     expect(draft.getSnapshot().draft.text).toBe("");
+  });
+  it("reuses uncertain attachment sends but gives changed context a new request", async () => {
+    const draft = await openGroupDraft(fixture());
+    draft.setContent("Review", "file-a:context-a");
+    const sent = draft.markAttempted();
+    draft.setContent("Review", "file-a:context-a");
+    expect(draft.markAttempted().requestId).toBe(sent.requestId);
+    draft.setContent("Review", "file-b:context-a");
+    expect(draft.getSnapshot().draft.requestId).not.toBe(sent.requestId);
+    const changed = draft.markAttempted();
+    draft.setContent("Review", "file-b:context-b");
+    draft.acknowledge(changed.requestId);
+    expect(draft.getSnapshot().draft.contentKey).toBe("file-b:context-b");
+    await draft.flush();
+  });
+  it("ignores upload bookkeeping in retry identities while tracking file and AI changes", () => {
+    const attachment = {
+      id: "file-a",
+      type: "file" as const,
+      name: "notes.md",
+      mimeType: "text/markdown",
+      sizeBytes: 12,
+      fileUri: "file:///notes.md",
+    };
+    const draft = { text: "Review", attachments: [attachment] };
+    const key = groupComposerContentKey(draft, false);
+    expect(
+      groupComposerContentKey(
+        {
+          ...draft,
+          attachments: [
+            {
+              ...attachment,
+              uploadedAttachmentId: "uploaded",
+              uploadEnvironmentId: EnvironmentId.make("server"),
+            },
+          ],
+        },
+        false,
+      ),
+    ).toBe(key);
+    expect(
+      groupComposerContentKey({ ...draft, attachments: [{ ...attachment, id: "file-b" }] }, false),
+    ).not.toBe(key);
+    expect(groupComposerContentKey(draft, true)).not.toBe(key);
+    expect(groupComposerContentKey({ ...draft, interactionMode: "plan" }, false)).not.toBe(key);
   });
   it("isolates the same group identifier on another coordinator and clears only the local draft", async () => {
     const input = fixture();

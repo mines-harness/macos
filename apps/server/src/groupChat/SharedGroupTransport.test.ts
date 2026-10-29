@@ -23,6 +23,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SharedGroupService from "./SharedGroupService.ts";
+import * as GroupAttachments from "./GroupAttachments.ts";
 import * as GroupChatService from "./GroupChatService.ts";
 import * as GroupPeerStore from "./GroupPeerStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -228,6 +229,7 @@ describe("shared group direct transport", () => {
         const threadId = ThreadId.make("selected-local-chat");
         yield* h.participant.select(h.groupKey, [threadId], true);
         const dependencies = Layer.mergeAll(
+          Layer.mock(GroupAttachments.GroupAttachments)({}),
           GroupPeerStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
           Layer.mock(GroupChatService.GroupChatService)({}),
           Layer.mock(PeerTrustStore.PeerTrustStore)({ identity: Effect.succeed(h.friend) }),

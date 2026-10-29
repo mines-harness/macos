@@ -229,6 +229,73 @@ function visit(path: string): Disposable {
 }
 
 describe("GuestPage", () => {
+  it.each(["viewer", "confirm", "send"] as const)(
+    "shows host typing and voice bubbles to a %s guest",
+    async (permission) => {
+      using _page = visit(`/guest?share=${SHARE_ID}`);
+      using _now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-29T00:00:00.000Z"));
+      using _session = vi
+        .spyOn(window, "fetch")
+        .mockImplementation(async () => new Response(null, { status: 204 }));
+      const sources: Array<EventTarget> = [];
+      using _stream = vi
+        .spyOn(window, "EventSource")
+        .mockImplementation(
+          fakeEventSource(opening([], [], { ...view, permission }), sources) as never,
+        );
+      await using screen = await render(<GuestPage />);
+      const activity = (kind: "typing" | "voice" | "idle") =>
+        sources.at(-1)!.dispatchEvent(
+          new MessageEvent("message", {
+            data: encodeEvent({
+              type: "activity",
+              activity: { kind, expiresAt: "2026-10-29T00:00:08.000Z" },
+            }),
+          }),
+        );
+      await vi.waitFor(() => expect(sources.length).toBeGreaterThan(0));
+      activity("typing");
+      await expect
+        .element(screen.getByRole("status", { name: "The host is typing" }))
+        .toBeVisible();
+      activity("voice");
+      await expect
+        .element(screen.getByRole("status", { name: "The host is speaking" }))
+        .toBeVisible();
+      activity("idle");
+      await expect
+        .element(screen.getByRole("status", { name: "The host is speaking" }))
+        .not.toBeInTheDocument();
+    },
+  );
+
+  it("publishes only typing kind and clears activity before sending a guest message", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using fetchSpy = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(
+        fakeEventSource(opening([], [], { ...view, permission: "confirm" })) as never,
+      );
+    await using screen = await render(<GuestPage />);
+    await userEvent.type(
+      screen.getByLabelText("Message", { exact: true }),
+      "Private draft contents",
+    );
+    const activityRequests = () =>
+      fetchSpy.mock.calls
+        .filter(([url]) => String(url).includes("/api/guest/activity?"))
+        .map(([, init]) => JSON.parse(String(init?.body)) as unknown);
+    expect(activityRequests()).toEqual([{ shareId: SHARE_ID, kind: "typing" }]);
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(activityRequests()).toEqual([
+      { shareId: SHARE_ID, kind: "typing" },
+      { shareId: SHARE_ID, kind: "idle" },
+    ]);
+  });
+
   it("edits a waiting message with the pen and preserves the unsent draft", async () => {
     using _page = visit(`/guest?share=${SHARE_ID}`);
     using fetchSpy = vi

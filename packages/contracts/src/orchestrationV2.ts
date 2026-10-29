@@ -647,6 +647,7 @@ export const OrchestrationV2Run = Schema.Struct({
   ordinal: PositiveInt,
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,
+  interactionMode: Schema.optional(ProviderInteractionMode),
   liveVoice: Schema.optional(OrchestrationV2LiveVoice),
   providerThreadId: Schema.NullOr(ProviderThreadId),
   userMessageId: MessageId,
@@ -3061,6 +3062,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("message.dispatch"),
+    interactionMode: Schema.optional(ProviderInteractionMode),
     liveVoice: Schema.optional(OrchestrationV2LiveVoice),
     notification: Schema.optional(OrchestrationV2Notification),
     /** Sends this pending guest message; the server uses the guest's text, not `text`. */

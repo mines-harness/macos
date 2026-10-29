@@ -4,7 +4,7 @@ import { composerTargetKey } from "../../composerDraftStore";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { EMPTY_PARTICIPANT_DRAFT, ParticipantDraft } from "./draftParticipants";
 
-const participantDraftKey = (target: ComposerThreadTarget) =>
+export const participantDraftKey = (target: ComposerThreadTarget) =>
   `mines:composer-participants:${composerTargetKey(target)}`;
 
 export function useDraftParticipants(target: ComposerThreadTarget) {

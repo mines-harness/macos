@@ -1,4 +1,5 @@
 import {
+  ChatAttachment,
   EnvironmentId,
   Group,
   GroupChatError,
@@ -35,6 +36,7 @@ const decodeGroup = Schema.decodeUnknownSync(Schema.fromJsonString(Group));
 const decodeMember = Schema.decodeUnknownSync(Schema.fromJsonString(GroupMember));
 const decodeRound = Schema.decodeUnknownSync(Schema.fromJsonString(GroupRound));
 const decodeMessage = Schema.decodeUnknownSync(Schema.fromJsonString(GroupMessage));
+const decodeAttachment = Schema.decodeEffect(Schema.fromJsonString(ChatAttachment));
 const storageError = () =>
   new GroupChatError({ code: "storage", message: "Group history could not be read or saved." });
 
@@ -46,7 +48,22 @@ export class GroupStore extends Context.Service<
       ReadonlyArray<GroupMembershipRef>,
       GroupChatError
     >;
-    readonly get: (groupId: GroupId) => Effect.Effect<GroupSnapshot, GroupChatError>;
+    readonly message: (
+      groupId: GroupId,
+      messageId: string,
+    ) => Effect.Effect<GroupMessage | undefined, GroupChatError>;
+    readonly deliveryRound: (
+      groupId: GroupId,
+      deliveryId: string,
+    ) => Effect.Effect<GroupRound, GroupChatError>;
+    readonly attachment: (
+      groupId: GroupId,
+      attachmentId: string,
+    ) => Effect.Effect<ChatAttachment | undefined, GroupChatError>;
+    readonly get: (
+      groupId: GroupId,
+      beforeMessageId?: string,
+    ) => Effect.Effect<GroupSnapshot, GroupChatError>;
     readonly activeRounds: () => Effect.Effect<ReadonlyArray<GroupRound>, GroupChatError>;
     readonly round: (roundId: string) => Effect.Effect<GroupRound, GroupChatError>;
     readonly messagesThrough: (
@@ -132,7 +149,7 @@ const make = Effect.gen(function* () {
           }>`SELECT body FROM mines_group_messages WHERE group_id = ${groupId} AND sequence <= (SELECT sequence FROM mines_group_messages WHERE id = ${messageId}) ORDER BY sequence DESC LIMIT 80`;
     return rows.map((row) => decodeMessage(row.body)).reverse();
   }, Effect.mapError(storageError));
-  const get = Effect.fn("GroupStore.get")(function* (groupId: GroupId) {
+  const get = Effect.fn("GroupStore.get")(function* (groupId: GroupId, beforeMessageId?: string) {
     const groups = yield* sql<{
       body: string;
     }>`SELECT body FROM mines_groups WHERE id = ${groupId}`.pipe(Effect.mapError(storageError));
@@ -151,24 +168,80 @@ const make = Effect.gen(function* () {
     }>`SELECT body FROM mines_group_rounds WHERE group_id = ${groupId} ORDER BY created_at DESC LIMIT 12`.pipe(
       Effect.mapError(storageError),
     );
-    const recent = yield* messagesThrough(groupId, null);
+    const recent =
+      beforeMessageId === undefined
+        ? yield* messagesThrough(groupId, null)
+        : (yield* sql<{
+            body: string;
+          }>`SELECT body FROM mines_group_messages WHERE group_id = ${groupId} AND sequence < (SELECT sequence FROM mines_group_messages WHERE group_id = ${groupId} AND id = ${beforeMessageId}) ORDER BY sequence DESC LIMIT 40`.pipe(
+            Effect.mapError(storageError),
+          ))
+            .map((row) => decodeMessage(row.body))
+            .reverse();
     let budget = 128_000;
     const selected: GroupMessage[] = [];
     for (const message of recent.toReversed()) {
       if (budget <= 0) break;
       const text = message.text.slice(0, Math.min(32_000, budget));
+      const { context, ...withoutContext } = message;
+      const contextBytes = context === undefined ? 0 : Buffer.byteLength(encodeJson(context));
+      const metadata = {
+        ...withoutContext,
+        ...(message.attachments
+          ? {
+              attachments: message.attachments.map((attachment) =>
+                "source" in attachment
+                  ? (({ source: _source, ...rest }) => rest)(attachment)
+                  : attachment,
+              ),
+            }
+          : {}),
+        text: "",
+      };
+      const metadataBytes = Buffer.byteLength(encodeJson(metadata));
+      if (metadataBytes > budget && selected.length > 0) break;
+      const deferred =
+        context !== undefined &&
+        (contextBytes > 32 * 1024 || contextBytes + metadataBytes + text.length > budget);
       selected.unshift({
-        ...message,
+        ...metadata,
+        ...(deferred ? { contextDeferred: true } : context ? { context } : {}),
         text,
         truncated: message.truncated || text.length < message.text.length,
       });
-      budget -= text.length;
+      budget -= Buffer.byteLength(text) + metadataBytes + (deferred ? 0 : contextBytes);
     }
+    const referencedIds = [
+      ...new Set(
+        selected.flatMap((message) => (message.roundId === null ? [] : [message.roundId])),
+      ),
+    ];
+    const referenced = referencedIds.length
+      ? yield* sql<{
+          body: string;
+        }>`SELECT body FROM mines_group_rounds WHERE group_id = ${groupId} AND id IN ${sql.in(referencedIds)}`.pipe(
+          Effect.mapError(storageError),
+        )
+      : [];
+    const roundRows =
+      beforeMessageId === undefined
+        ? [
+            ...rounds,
+            ...referenced.filter((row) => !rounds.some((current) => current.body === row.body)),
+          ]
+        : referenced;
+    const oldest = selected[0];
+    const more = oldest
+      ? yield* sql`SELECT 1 FROM mines_group_messages WHERE group_id = ${groupId} AND sequence < (SELECT sequence FROM mines_group_messages WHERE group_id = ${groupId} AND id = ${oldest.id}) LIMIT 1`.pipe(
+          Effect.mapError(storageError),
+        )
+      : [];
     return {
       group: decodeGroup(groups[0].body),
       members: members.map((row) => decodeMember(row.body)),
-      rounds: rounds
+      rounds: roundRows
         .map((row) => decodeRound(row.body))
+        .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
         .map((round) => ({
           ...round,
           deliveries: round.deliveries.map((delivery) => ({
@@ -178,7 +251,7 @@ const make = Effect.gen(function* () {
         }))
         .reverse(),
       messages: selected,
-      hasMoreMessages: recent.length === 80 || selected.length < recent.length,
+      hasMoreMessages: more.length > 0,
     } satisfies GroupSnapshot;
   });
   const round = Effect.fn("GroupStore.round")(function* (roundId: string) {
@@ -254,6 +327,33 @@ const make = Effect.gen(function* () {
     list,
     listMemberships,
     get,
+    message: Effect.fn("GroupStore.message")(function* (groupId, messageId) {
+      const rows = yield* sql<{
+        body: string;
+      }>`SELECT body FROM mines_group_messages WHERE group_id = ${groupId} AND id = ${messageId}`.pipe(
+        Effect.mapError(storageError),
+      );
+      return rows[0] ? decodeMessage(rows[0].body) : undefined;
+    }),
+    deliveryRound: Effect.fn("GroupStore.deliveryRound")(function* (groupId, deliveryId) {
+      const rows = yield* sql<{
+        body: string;
+      }>`SELECT r.body FROM mines_group_rounds r, json_each(json_extract(r.body, '$.deliveries')) d WHERE r.group_id = ${groupId} AND json_extract(d.value, '$.id') = ${deliveryId} LIMIT 1`.pipe(
+        Effect.mapError(storageError),
+      );
+      if (!rows[0])
+        return yield* new GroupChatError({
+          code: "not-found",
+          message: "This delivery is not part of the group.",
+        });
+      return decodeRound(rows[0].body);
+    }),
+    attachment: Effect.fn("GroupStore.attachment")(function* (groupId, attachmentId) {
+      const rows = yield* sql<{
+        value: string;
+      }>`SELECT a.value FROM mines_group_messages m, json_each(json_extract(m.body, '$.attachments')) a WHERE m.group_id = ${groupId} AND json_extract(a.value, '$.id') = ${attachmentId} LIMIT 1`;
+      return rows[0] ? yield* decodeAttachment(rows[0].value) : undefined;
+    }, Effect.mapError(storageError)),
     round,
     activeRounds,
     messagesThrough,

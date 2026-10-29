@@ -25,6 +25,51 @@ const supervisedRuntimeModeOption = {
   mode: "approval-required" as const,
   ...runtimeModeConfig["approval-required"],
 };
+export function ComposerPlanControl({
+  active,
+  onToggle,
+  disabled = false,
+  disabledReason,
+  size = "sm",
+}: {
+  readonly active: boolean;
+  readonly onToggle: () => void;
+  readonly disabled?: boolean;
+  readonly disabledReason?: string;
+  readonly size?: "sm" | "xs";
+}) {
+  const label = active
+    ? "Plan mode. Click to return to default mode"
+    : "Plan the next group message";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <ComposerControl
+            size={size}
+            className="shrink-0 whitespace-nowrap"
+            aria-pressed={active}
+            disabled={disabled}
+            type="button"
+            onClick={onToggle}
+            aria-label={label}
+          />
+        }
+      >
+        <ComposerControlIcon
+          icon={PencilRulerIcon}
+          size={size}
+          className="text-current opacity-100"
+        />
+        <span data-composer-control-label className="sr-only sm:not-sr-only">
+          Plan
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">{disabled && disabledReason ? disabledReason : label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 export const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
@@ -42,34 +87,9 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
     props.runtimeModeOptions.find((option) => option.mode === props.runtimeMode) ??
     supervisedRuntimeModeOption;
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const interactionModeTooltip = "Plan mode. Click to return to default mode";
-
   const interactionModeToggle =
     props.showInteractionModeToggle && props.interactionMode === "plan" ? (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <ComposerControl
-              size={size}
-              className="shrink-0 whitespace-nowrap"
-              aria-pressed={props.interactionMode === "plan"}
-              type="button"
-              onClick={props.onToggleInteractionMode}
-              aria-label={interactionModeTooltip}
-            />
-          }
-        >
-          <ComposerControlIcon
-            icon={PencilRulerIcon}
-            size={size}
-            className="text-current opacity-100"
-          />
-          <span data-composer-control-label className="sr-only sm:not-sr-only">
-            Plan
-          </span>
-        </TooltipTrigger>
-        <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
-      </Tooltip>
+      <ComposerPlanControl active onToggle={props.onToggleInteractionMode} size={size} />
     ) : null;
 
   return (

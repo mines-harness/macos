@@ -107,6 +107,16 @@ const itemIds = (state: GuestStreamState) =>
   state.projection?.visibleTurnItems.map((row) => row.item.id) ?? [];
 
 describe("applyGuestStreamEvent", () => {
+  it("updates host activity without changing the transcript and clears it when the share ends", () => {
+    const before = apply([{ type: "view", view }, snapshot(1)]);
+    const activity = { kind: "typing" as const, expiresAt: "2026-10-23T10:00:08.000Z" };
+    const typing = apply([{ type: "activity", activity }], before);
+    expect(typing.hostActivity).toEqual(activity);
+    expect(typing.projection).toBe(before.projection);
+    expect(typing.sequence).toBe(before.sequence);
+    expect(apply([{ type: "ended" }], typing).hostActivity).toBeNull();
+  });
+
   it("builds the thread from the snapshot and applies each later event once", () => {
     const once = apply([{ type: "view", view }, snapshot(1), itemEvent(2, reply("a1", "Hi"))]);
     expect(itemIds(once)).toEqual(["a1"]);

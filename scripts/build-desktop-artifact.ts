@@ -977,6 +977,10 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/resources/browser-secret/**/*",
   "!apps/desktop/prod-resources/browser-secret",
   "!apps/desktop/prod-resources/browser-secret/**/*",
+  "!apps/desktop/resources/dictation",
+  "!apps/desktop/resources/dictation/**/*",
+  "!apps/desktop/prod-resources/dictation",
+  "!apps/desktop/prod-resources/dictation/**/*",
   "!apps/desktop/prod-resources/windows-server",
   "!apps/desktop/prod-resources/windows-server/**/*",
   "!apps/desktop/prod-resources/wsl-runtime.tar.gz",
@@ -2373,6 +2377,39 @@ export const stageBrowserSecret = Effect.fn("stageBrowserSecret")(function* (inp
   );
 });
 
+export const stageDictation = Effect.fn("stageDictation")(function* (input: {
+  readonly repoRoot: string;
+  readonly stageResourcesDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+  readonly verbose: boolean;
+}) {
+  if (input.platform === "linux") return;
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const destination = path.join(input.stageResourcesDir, "dictation");
+  yield* fs.makeDirectory(destination, { recursive: true });
+  if (input.platform === "mac") {
+    yield* runCommand(
+      ChildProcess.make(
+        "node",
+        [
+          path.join(input.repoRoot, "apps/desktop/scripts/build-dictation.mjs"),
+          input.arch,
+          path.join(destination, "mines-dictation.dylib"),
+        ],
+        { cwd: input.repoRoot },
+      ),
+      { label: "build macOS on-device dictation", verbose: input.verbose },
+    );
+  } else {
+    yield* fs.copyFile(
+      path.join(input.repoRoot, "native/dictation/windows.ps1"),
+      path.join(destination, "windows.ps1"),
+    );
+  }
+});
+
 const generateMacIconSet = Effect.fn("build-desktop-artifact.generateMacIconSet")(function* (
   sourcePng: string,
   targetIcns: string,
@@ -2725,6 +2762,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       : {}),
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
+      ...(platform === "mac" || platform === "win"
+        ? [{ from: "apps/desktop/prod-resources/dictation", to: "dictation" }]
+        : []),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
@@ -2773,7 +2813,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         NSCameraUsageDescription:
           "mines lets commands run by terminals and coding agents use the camera.",
         NSMicrophoneUsageDescription:
-          "mines uses your microphone for live voice conversations and commands you run.",
+          "mines uses your microphone to dictate drafts, for live voice conversations, and for commands you run.",
+        NSSpeechRecognitionUsageDescription:
+          "mines recognizes speech on this device to add words to your draft. Nothing is sent until you submit it.",
         // macOS lists an app under Default web browser only when it opens web
         // pages as documents as well as http and https links (see protocols).
         CFBundleDocumentTypes: [
@@ -3663,6 +3705,13 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
   }
   yield* stageResourceMonitor({
+    repoRoot,
+    stageResourcesDir,
+    platform: options.platform,
+    arch: options.arch,
+    verbose: options.verbose,
+  });
+  yield* stageDictation({
     repoRoot,
     stageResourcesDir,
     platform: options.platform,

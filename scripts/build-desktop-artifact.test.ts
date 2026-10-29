@@ -48,6 +48,7 @@ import {
   copyDirectoryPreservingSymlinks,
   LinuxBrowserSecretHostError,
   stageBrowserSecret,
+  stageDictation,
   validateWindowsPackagedPayload,
   verifyPackagedBundleIsSelfContained,
   WindowsPrimaryNativeProbeError,
@@ -497,6 +498,51 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopProductName("1.2.3-nightly.20261029.1"), "mines (Beta)");
     assert.equal(resolveDesktopProductName("1.2.3-preview.20261029.1"), "mines (Beta)");
   });
+
+  it.effect("packages native dictation outside ASAR and declares macOS speech privacy", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dir",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.includeDeepMembers(config.extraResources as unknown[], [
+        { from: "apps/desktop/prod-resources/dictation", to: "dictation" },
+      ]);
+      const info = (config.mac as { extendInfo: Record<string, unknown> }).extendInfo;
+      assert.include(info.NSMicrophoneUsageDescription as string, "dictate drafts");
+      assert.include(info.NSSpeechRecognitionUsageDescription as string, "on this device");
+    }),
+  );
+
+  it.effect("stages the Windows speech helper verbatim without a native build", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "mines-dictation-stage-" });
+        const source = path.join(root, "native/dictation");
+        yield* fs.makeDirectory(source, { recursive: true });
+        yield* fs.writeFileString(path.join(source, "windows.ps1"), "Windows speech fixture");
+        const resources = path.join(root, "resources");
+        yield* stageDictation({
+          repoRoot: root,
+          stageResourcesDir: resources,
+          platform: "win",
+          arch: "x64",
+          verbose: false,
+        });
+        assert.equal(
+          yield* fs.readFileString(path.join(resources, "dictation/windows.ps1")),
+          "Windows speech fixture",
+        );
+      }),
+    ),
+  );
 
   it.effect.each(["mac", "win"] as const)(
     "keeps unsigned %s artifacts off the configured updater feed",

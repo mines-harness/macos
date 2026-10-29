@@ -22,7 +22,11 @@ import { useSelectWorkspaceDetail } from "../features/workspace/useSelectWorkspa
 import { useGroupDraft } from "./useGroupDraft";
 import { GroupParticipantsButton } from "./GroupParticipantsButton";
 import { MobileGroupParticipantsModal } from "./MobileGroupParticipantsModal";
-import { ComposerEditor } from "../native/MinesComposerEditor";
+import { GroupRunTranscript, GroupRunLoadMore, useGroupRunProjections } from "./GroupRunTranscript";
+import { groupMessageProjection, unplacedGroupProjections } from "./groupConversationRows";
+import { ConversationMessage } from "../components/ConversationMessage";
+import { GroupConversationComposer } from "./GroupConversationComposer";
+import { useGroupConversationComposer } from "./useGroupConversationComposer";
 import { MobileGroupRoster } from "./MobileGroupRoster";
 
 export function MobileGroupModal({
@@ -48,12 +52,19 @@ export function MobileGroupModal({
   const archiveAllowed = useAtomValue(groupArchive.permissionAtom(environmentId));
   const addAllowed = useAtomValue(groupAddMembers.permissionAtom(environmentId));
   const { store, draft, error: draftError } = useGroupDraft(environmentId, groupId);
+  const composer = useGroupConversationComposer({ environmentId, groupId, store });
   const [busy, setBusy] = useState(false);
   const [addingParticipants, setAddingParticipants] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectDetail = useSelectWorkspaceDetail();
   const snapshot = query.data?.group.visibility === "shared" ? null : query.data;
+  const activity = useGroupRunProjections({
+    environmentId,
+    coordinatorEnvironmentId: environmentId,
+    snapshot,
+    address: { groupId },
+  });
   const archived = snapshot?.group.archivedAt != null;
   const finish = (result: Awaited<ReturnType<typeof send>>) => {
     if (result._tag === "Success") return true;
@@ -62,19 +73,26 @@ export function MobileGroupModal({
     return false;
   };
   const submit = async () => {
-    if (busy || !draft.text.trim() || !snapshot || !store || archived || !sendAllowed) return;
+    if (
+      busy ||
+      !composer.hasContent ||
+      !composer.ready ||
+      !snapshot ||
+      !store ||
+      archived ||
+      !sendAllowed
+    )
+      return;
     setBusy(true);
     setError(null);
-    const sent = store.markAttempted();
     try {
-      await store.flush();
-      const addressing = groupRecipients(sent.text, snapshot.members);
+      const prepared = await composer.prepare();
+      const addressing = groupRecipients(prepared.payload.message, snapshot.members);
       const result = await send({
         environmentId,
         input: {
           groupId,
-          message: sent.text,
-          clientRequestId: sent.requestId,
+          ...prepared.payload,
           ...(addressing.mentionEveryone
             ? { mentionEveryone: true }
             : addressing.recipientMemberIds.length
@@ -82,7 +100,7 @@ export function MobileGroupModal({
               : {}),
         },
       });
-      if (finish(result)) store.acknowledge(sent.requestId);
+      if (finish(result)) prepared.acknowledge();
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Your draft could not be saved on this phone.",
@@ -101,9 +119,10 @@ export function MobileGroupModal({
       setBusy(false);
     }
   };
-  const canSend = !busy && !!draft.text.trim() && !!snapshot && !!store && !archived && sendAllowed;
+  const canSend =
+    !busy && composer.hasContent && composer.ready && !!snapshot && !archived && sendAllowed;
   const appendMention = (alias: string) =>
-    store?.setText((text) => `${text}${text && !/\s$/.test(text) ? " " : ""}@${alias} `);
+    composer.setText((text) => `${text}${text && !/\s$/.test(text) ? " " : ""}@${alias} `);
   if (addingParticipants && snapshot) {
     return (
       <MobileGroupParticipantsModal
@@ -158,9 +177,9 @@ export function MobileGroupModal({
               Open this conversation from Shared groups.
             </Text>
           ) : null}
-          {query.error || error || draftError ? (
+          {query.error || error || draftError || composer.error ? (
             <Text accessibilityRole="alert" className="px-4 text-destructive">
-              {error ?? draftError ?? query.error}
+              {error ?? draftError ?? composer.error ?? query.error}
             </Text>
           ) : null}
           <View className="min-h-0 flex-1">
@@ -170,6 +189,7 @@ export function MobileGroupModal({
               keyExtractor={(message) => message.id}
               contentContainerStyle={{ padding: 16, gap: 16 }}
               renderItem={({ item }) => {
+                const projection = groupMessageProjection(activity.projections, item);
                 const member =
                   snapshot?.rounds
                     .find((round) => round.id === item.roundId)
@@ -180,9 +200,21 @@ export function MobileGroupModal({
                     <Text className="mb-1 text-xs text-muted-foreground">
                       {member?.alias ?? (item.kind === "user" ? "You" : "Group")}
                     </Text>
-                    <Text selectable className="text-base leading-6">
-                      {item.text}
-                    </Text>
+                    {projection ? (
+                      <GroupRunTranscript
+                        environmentId={environmentId}
+                        projection={projection}
+                        address={{ groupId }}
+                      />
+                    ) : (
+                      <ConversationMessage
+                        environmentId={environmentId}
+                        text={item.text}
+                        user={item.kind === "user"}
+                        attachments={item.attachments}
+                        context={item.context}
+                      />
+                    )}
                     {member ? (
                       <Pressable
                         accessibilityRole="button"
@@ -210,6 +242,22 @@ export function MobileGroupModal({
               }}
               ListFooterComponent={
                 <>
+                  {unplacedGroupProjections(activity.projections, snapshot?.messages ?? []).map(
+                    (projection) => (
+                      <View key={projection.deliveryId} className="gap-2 py-3">
+                        <Text className="text-xs text-foreground-muted">
+                          {snapshot?.members.find((member) => member.id === projection.memberId)
+                            ?.alias ?? "Mine"}
+                        </Text>
+                        <GroupRunTranscript
+                          environmentId={environmentId}
+                          projection={projection}
+                          address={{ groupId }}
+                        />
+                      </View>
+                    ),
+                  )}
+                  <GroupRunLoadMore loader={activity} />
                   {snapshot?.rounds.slice(-1).flatMap((round) =>
                     round.deliveries.map((delivery) => (
                       <View key={delivery.id} className="gap-2 py-2">
@@ -301,54 +349,24 @@ export function MobileGroupModal({
               </MobileGroupRoster>
             ) : null}
           </View>
-          <View className="shrink-0 gap-3 border-t border-border p-4">
-            <ComposerEditor
-              key={JSON.stringify([environmentId, groupId])}
-              accessibilityLabel="Message the group"
-              multiline
-              value={draft.text}
-              onChangeText={(value) => store?.setText(value)}
-              onSubmit={() => void submit()}
-              maxLength={120_000}
-              editable={!!store && !archived}
-              placeholder={
-                archived ? "Reopen this group to send a message" : "Message or mention a member…"
-              }
-              contentInsetVertical={12}
-              style={{ maxHeight: 160, minHeight: 48 }}
-            />
-            {draft.attempted ? (
-              <Text className="text-xs text-muted-foreground">
-                Retry uses the same request to avoid duplicate delivery. Clear draft only removes
-                the text saved on this phone.
-              </Text>
-            ) : null}
-            <View className="flex-row items-center gap-3">
-              {draft.text ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    store?.clear();
-                    setError(null);
-                  }}
-                  className="p-3"
-                >
-                  <Text>Clear draft</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ disabled: !canSend }}
-                disabled={!canSend}
-                onPress={() => void submit()}
-                className="flex-1 items-center rounded-xl bg-primary p-3"
-              >
-                <Text className="font-semibold text-primary-foreground">
-                  {busy ? "Working…" : draft.attempted ? "Retry send" : "Send"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
+          <GroupConversationComposer
+            composer={composer}
+            members={snapshot?.members ?? []}
+            environmentId={environmentId}
+            label="Message the group"
+            disabled={archived}
+            busy={busy}
+            canSend={canSend}
+            onSend={() => void submit()}
+          >
+            <Text className="text-xs text-foreground-muted">
+              {draft.attempted
+                ? "Retry send"
+                : snapshot?.group.workflow === "team"
+                  ? "Team"
+                  : "Group"}
+            </Text>
+          </GroupConversationComposer>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>

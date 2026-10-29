@@ -1,5 +1,22 @@
 import type { GroupMember, GroupRound } from "@t3tools/contracts/groupChat";
 
+export function groupPlanModeBlockReason(
+  prompt: string,
+  members: ReadonlyArray<Pick<GroupMember, "id" | "alias" | "supportsPlanMode">>,
+): string | null {
+  if (members.length === 0) return "Bring a mine to use Plan mode.";
+  const addressing = groupRecipients(prompt, members);
+  const targets = new Set(addressing.recipientMemberIds);
+  const unsupported = members.filter(
+    (member) =>
+      member.supportsPlanMode === false &&
+      (addressing.mentionEveryone || targets.size === 0 || targets.has(member.id)),
+  );
+  return unsupported.length > 0
+    ? `Plan mode is unavailable for ${unsupported.map((member) => `@${member.alias}`).join(", ")}. Choose other mines or exit Plan mode.`
+    : null;
+}
+
 /** Only user-authored prose addresses members; copied excerpts do not dispatch work. */
 export function groupRecipients(
   text: string,

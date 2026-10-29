@@ -16,6 +16,8 @@ describe("guest proxy boundary", () => {
     expect(guestProxyPath("/api/guest/stream?share=test", "GET")).toBe(true);
     expect(guestProxyPath("/api/guest/attachment?share=test&id=file", "GET")).toBe(true);
     expect(guestProxyPath("/api/guest/messages?share=test", "POST")).toBe(true);
+    expect(guestProxyPath("/api/guest/activity?share=test", "POST")).toBe(true);
+    expect(guestProxyPath("/api/guest/activity?share=test", "GET")).toBe(false);
     expect(guestProxyPath("/api/guest/messages?share=test", "PATCH")).toBe(true);
     expect(guestProxyPath("/api/guest/messages?share=test", "DELETE")).toBe(true);
     expect(guestProxyPath("/api/guest/redeem?share=test", "DELETE")).toBe(false);

@@ -5,11 +5,28 @@ import {
   EnvironmentId,
   IsoDateTime,
   ProjectId,
+  MessageId,
+  TurnItemId,
+  RuntimeRequestId,
+  NonNegativeInt,
   RunId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import {
+  ProviderApprovalDecision,
+  ProviderUserInputAnswers,
+  UserInputAttachments,
+} from "./providerPolicy.ts";
+import { ProviderInteractionMode } from "./providerPolicy.ts";
+import { GroupRunProjection } from "./groupTranscript.ts";
+import {
+  OrchestrationV2GetTurnItemResult,
+  OrchestrationV2BodyRangeResult,
+} from "./orchestrationV2.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { ChatAttachment } from "./chatAttachment.ts";
+import { OrchestrationMessageContext } from "./composerContext.ts";
 
 export const GroupId = TrimmedNonEmptyString.pipe(Schema.brand("GroupId"));
 export type GroupId = typeof GroupId.Type;
@@ -18,6 +35,21 @@ export type GroupWorkflow = typeof GroupWorkflow.Type;
 const RequestId = TrimmedNonEmptyString.check(Schema.isMaxLength(160));
 const Alias = TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/));
 const MessageText = TrimmedNonEmptyString.check(Schema.isMaxLength(120_000));
+export const GroupPayloadFields = {
+  interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  attachments: Schema.optionalKey(Schema.Array(ChatAttachment).check(Schema.isMaxLength(20))),
+  context: Schema.optionalKey(OrchestrationMessageContext),
+};
+
+export const GroupTransferredContext = Schema.Struct({
+  attachment: ChatAttachment,
+  sourceId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+});
+export type GroupTransferredContext = typeof GroupTransferredContext.Type;
+export const GroupPeerPayloadFields = {
+  ...GroupPayloadFields,
+  contextFile: Schema.optionalKey(GroupTransferredContext),
+};
 
 export const GroupMemberInput = Schema.Struct({
   threadId: ThreadId,
@@ -26,6 +58,8 @@ export const GroupMemberInput = Schema.Struct({
   environmentId: Schema.optional(EnvironmentId),
 });
 export const GroupMember = Schema.Struct({
+  supportsPlanMode: Schema.optionalKey(Schema.Boolean),
+  supportsRichMessages: Schema.optionalKey(Schema.Boolean),
   id: Schema.String,
   groupId: GroupId,
   threadId: ThreadId,
@@ -78,6 +112,7 @@ export const GroupDelivery = Schema.Struct({
 });
 export type GroupDelivery = typeof GroupDelivery.Type;
 export const GroupRound = Schema.Struct({
+  interactionMode: Schema.optionalKey(ProviderInteractionMode),
   catalogContextRevision: Schema.optional(CatalogContextRevision),
   id: Schema.String,
   groupId: GroupId,
@@ -92,6 +127,11 @@ export const GroupRound = Schema.Struct({
 });
 export type GroupRound = typeof GroupRound.Type;
 export const GroupMessage = Schema.Struct({
+  contextDeferred: Schema.optionalKey(Schema.Boolean),
+  ...GroupPayloadFields,
+  streaming: Schema.optionalKey(Schema.Boolean),
+  sourceMessageId: Schema.optionalKey(MessageId),
+  sourceRunId: Schema.optionalKey(RunId),
   authorFriendId: Schema.optionalKey(Schema.String),
   id: Schema.String,
   groupId: GroupId,
@@ -104,6 +144,7 @@ export const GroupMessage = Schema.Struct({
 });
 export type GroupMessage = typeof GroupMessage.Type;
 export const GroupSnapshot = Schema.Struct({
+  runProjections: Schema.optionalKey(Schema.Array(GroupRunProjection)),
   group: Group,
   members: Schema.Array(GroupMember),
   messages: Schema.Array(GroupMessage),
@@ -142,10 +183,11 @@ export const GroupAddMembersInput = Schema.Struct({
 });
 export type GroupAddMembersInput = typeof GroupAddMembersInput.Type;
 export const GroupSendInput = Schema.Struct({
+  ...GroupPayloadFields,
   requestAiResponse: Schema.optionalKey(Schema.Boolean),
   catalogContextRevision: Schema.optional(CatalogContextRevision),
   groupId: GroupId,
-  message: MessageText,
+  message: Schema.String.check(Schema.isMaxLength(120_000)),
   recipientMemberIds: Schema.optional(Schema.Array(Schema.String).check(Schema.isMaxLength(12))),
   mentionEveryone: Schema.optional(Schema.Boolean),
   clientRequestId: RequestId,
@@ -174,9 +216,106 @@ export const GroupAskResult = Schema.Struct({
 });
 export type GroupAskResult = typeof GroupAskResult.Type;
 
+export const GroupAttachmentChunk = Schema.Struct({
+  type: Schema.Literal("attachment-chunk"),
+  attachment: ChatAttachment,
+  offset: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  data: Schema.String.check(Schema.isMaxLength(262_144)),
+  complete: Schema.Boolean,
+});
+export type GroupAttachmentChunk = typeof GroupAttachmentChunk.Type;
+export const GroupHistoryFields = { beforeMessageId: Schema.optionalKey(RequestId) };
+export const GroupHistoryInput = Schema.Struct({ groupId: GroupId, ...GroupHistoryFields });
+export type GroupHistoryInput = typeof GroupHistoryInput.Type;
+export const GroupMessageChunkFields = { messageId: RequestId, offset: NonNegativeInt };
+export const GroupMessageChunkInput = Schema.Struct({
+  groupId: GroupId,
+  ...GroupMessageChunkFields,
+});
+export type GroupMessageChunkInput = typeof GroupMessageChunkInput.Type;
+export const GroupMessageChunk = Schema.Struct({
+  type: Schema.Literal("message-chunk"),
+  data: Schema.String.check(Schema.isMaxLength(262_144)),
+  offset: NonNegativeInt,
+  totalBytes: NonNegativeInt,
+  complete: Schema.Boolean,
+});
+export type GroupMessageChunk = typeof GroupMessageChunk.Type;
+export const GroupRunPageFields = {
+  deliveryId: RequestId,
+  beforeOrdinal: Schema.optionalKey(NonNegativeInt),
+};
+export const GroupRunItemFields = {
+  deliveryId: RequestId,
+  itemId: TurnItemId,
+  revision: Schema.optionalKey(Schema.String),
+};
+export const GroupRunRespondFields = {
+  deliveryId: RequestId,
+  requestId: RuntimeRequestId,
+  clientRequestId: RequestId,
+  dismiss: Schema.optionalKey(Schema.Literal(true)),
+  decision: Schema.optionalKey(ProviderApprovalDecision),
+  feedback: Schema.optionalKey(Schema.String),
+  answers: Schema.optionalKey(ProviderUserInputAnswers),
+  attachmentsByQuestionId: Schema.optionalKey(UserInputAttachments),
+};
+export const GroupRunRespondInput = Schema.Struct({ groupId: GroupId, ...GroupRunRespondFields });
+export type GroupRunRespondInput = typeof GroupRunRespondInput.Type;
+export const GroupRunAssetFields = {
+  ...GroupRunItemFields,
+  kind: Schema.Literals(["html", "image"]),
+  index: Schema.optionalKey(NonNegativeInt),
+};
+export const GroupRunAssetInput = Schema.Struct({ groupId: GroupId, ...GroupRunAssetFields });
+export type GroupRunAssetInput = typeof GroupRunAssetInput.Type;
+export const GroupRunBodyFields = {
+  ...GroupRunItemFields,
+  field: Schema.Literals(["text", "markdown"]),
+  before: NonNegativeInt,
+  revision: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+};
+export const GroupRunPageInput = Schema.Struct({ groupId: GroupId, ...GroupRunPageFields });
+export type GroupRunPageInput = typeof GroupRunPageInput.Type;
+export const GroupRunItemInput = Schema.Struct({ groupId: GroupId, ...GroupRunItemFields });
+export type GroupRunItemInput = typeof GroupRunItemInput.Type;
+export const GroupRunBodyInput = Schema.Struct({ groupId: GroupId, ...GroupRunBodyFields });
+export type GroupRunBodyInput = typeof GroupRunBodyInput.Type;
+export { GroupRunProjection } from "./groupTranscript.ts";
 const PeerMembershipFields = { groupId: GroupId, memberId: RequestId, threadId: ThreadId };
 /** Called only over a paired host session; caller identity comes from that session. */
 export const GroupPeerRequest = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("runtime-response"),
+    ...PeerMembershipFields,
+    ...GroupRunRespondFields,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("run-asset"),
+    ...PeerMembershipFields,
+    ...GroupRunAssetFields,
+    offset: NonNegativeInt,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("run-page"),
+    ...PeerMembershipFields,
+    ...GroupRunPageFields,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("run-item"),
+    ...PeerMembershipFields,
+    ...GroupRunItemFields,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("run-body-range"),
+    ...PeerMembershipFields,
+    ...GroupRunBodyFields,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("attachment-put"),
+    ...PeerMembershipFields,
+    chunk: GroupAttachmentChunk,
+  }),
   Schema.Struct({ type: Schema.Literal("describe"), threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("reserve"), ...PeerMembershipFields }),
   Schema.Struct({ type: Schema.Literal("release"), ...PeerMembershipFields }),
@@ -189,6 +328,7 @@ export const GroupPeerRequest = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("dispatch"),
+    ...GroupPeerPayloadFields,
     ...PeerMembershipFields,
     deliveryId: RequestId,
     prompt: TrimmedNonEmptyString.check(Schema.isMaxLength(160_000)),
@@ -207,9 +347,20 @@ export const GroupPeerRequest = Schema.Union([
 ]);
 export type GroupPeerRequest = typeof GroupPeerRequest.Type;
 export const GroupPeerResponse = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("capabilities"), supportsRichMessages: Schema.Boolean }),
+  Schema.Struct({ type: Schema.Literal("run-asset"), chunk: GroupAttachmentChunk }),
+  Schema.Struct({ type: Schema.Literal("run-page"), projection: GroupRunProjection }),
+  Schema.Struct({ type: Schema.Literal("run-item"), result: OrchestrationV2GetTurnItemResult }),
+  Schema.Struct({
+    type: Schema.Literal("run-body-range"),
+    result: Schema.NullOr(OrchestrationV2BodyRangeResult),
+  }),
+  Schema.Struct({ type: Schema.Literal("attachment-stored"), attachment: ChatAttachment }),
   Schema.Struct({ type: Schema.Literal("ok") }),
   Schema.Struct({
     type: Schema.Literal("description"),
+    supportsRichMessages: Schema.optionalKey(Schema.Boolean),
+    supportsPlanMode: Schema.optionalKey(Schema.Boolean),
     threadId: ThreadId,
     projectId: ProjectId,
     modelSelection: ModelSelection,
@@ -221,6 +372,8 @@ export const GroupPeerResponse = Schema.Union([
   Schema.Struct({ type: Schema.Literal("dispatch"), runId: RunId, queued: Schema.Boolean }),
   Schema.Struct({
     type: Schema.Literal("run"),
+    projection: Schema.optionalKey(GroupRunProjection),
+    sourceMessageId: Schema.optionalKey(MessageId),
     runId: RunId,
     status: Schema.Literals(["queued", "running", "completed", "failed", "cancelled"]),
     text: Schema.String.check(Schema.isMaxLength(120_000)),

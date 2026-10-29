@@ -132,7 +132,7 @@ export function ComposerControlsBar(props: {
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+    ...(routeKind === "server" && routeThreadRef ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
     models: selectedProviderModels,
@@ -245,29 +245,31 @@ export function ComposerControlsBar(props: {
         />
       ) : null}
       {composerModelPicker}
-      <RetainedWorkflowLauncher
-        key={scopedThreadKey(routeThreadRef)}
-        environmentId={environmentId}
-        composerTarget={composerDraftTarget}
-        routeThreadKey={scopedThreadKey(routeThreadRef)}
-        selections={
-          multipleModelSelections?.length
-            ? multipleModelSelections.map((selection) =>
-                selection.instanceId === selectedModelSelection.instanceId &&
-                selection.model === selectedModelSelection.model
-                  ? selectedModelSelection
-                  : selection,
-              )
-            : [selectedModelSelection]
-        }
-        runtimeMode={compatibleRuntimeMode}
-        interactionMode={interactionMode}
-        size={composerControlsCollapsed ? "xs" : "sm"}
-        disabled={isSendBusy}
-      />
+      {routeThreadRef ? (
+        <RetainedWorkflowLauncher
+          key={scopedThreadKey(routeThreadRef)}
+          environmentId={environmentId}
+          composerTarget={composerDraftTarget}
+          routeThreadKey={scopedThreadKey(routeThreadRef)}
+          selections={
+            multipleModelSelections?.length
+              ? multipleModelSelections.map((selection) =>
+                  selection.instanceId === selectedModelSelection.instanceId &&
+                  selection.model === selectedModelSelection.model
+                    ? selectedModelSelection
+                    : selection,
+                )
+              : [selectedModelSelection]
+          }
+          runtimeMode={compatibleRuntimeMode}
+          interactionMode={interactionMode}
+          size={composerControlsCollapsed ? "xs" : "sm"}
+          disabled={isSendBusy}
+        />
+      ) : null}
       {providerTraitsPicker}
 
-      {multipleModelSelections && multipleModelSelections.length > 1 ? (
+      {routeThreadRef && multipleModelSelections && multipleModelSelections.length > 1 ? (
         <WorkflowPicker
           routeKey={scopedThreadKey(routeThreadRef)}
           selections={multipleModelSelections}

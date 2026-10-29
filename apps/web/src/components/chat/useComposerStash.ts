@@ -687,12 +687,14 @@ export function useComposerStash(input: {
   // dialog even when a focused widget (the model picker search) stops the key.
   const backgroundThread = use(BackgroundThreadContext);
   const readShortcutContext = useStableCallback(() => ({
-    terminalOpen: Boolean(
-      selectThreadTerminalUiState(
-        useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-        routeThreadRef,
-      ).terminalOpen,
-    ),
+    terminalOpen:
+      routeThreadRef !== null &&
+      Boolean(
+        selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          routeThreadRef,
+        ).terminalOpen,
+      ),
   }));
   useEffect(() => {
     if (backgroundThread) return;

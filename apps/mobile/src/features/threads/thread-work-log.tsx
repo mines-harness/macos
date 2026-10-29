@@ -25,6 +25,7 @@ import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import {
   useEffect,
+  useContext,
   useEffectEvent,
   useId,
   useLayoutEffect,
@@ -106,6 +107,7 @@ import Animated, {
 import { useAssetUrl } from "../../state/assets";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
+import { ConversationTurnItemAccess } from "../../state/conversationTurnItemAccess";
 
 const SHIMMER_WIDTH = 72;
 const SHIMMER_SWEEP_MS = 1_350;
@@ -484,6 +486,7 @@ interface ThreadWorkLogProps {
 }
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
+  const groupAccess = useContext(ConversationTurnItemAccess);
   const renderRow = (row: ThreadFeedActivity) => (
     <ThreadWorkLogRow
       key={row.id}
@@ -521,12 +524,13 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
           workspaceRoot={props.workspaceRoot}
           markdown={plan.markdown}
           renderMarkdown={props.renderReasoning}
+          allowWorkspaceSave={groupAccess === null}
         />
       </View>
     );
   }
 
-  if (props.activities[0]?.projectedItem.item.type === "subagent") {
+  if (props.activities[0]?.projectedItem.item.type === "subagent" && groupAccess === null) {
     return <ThreadSubagentGroup {...props} />;
   }
 
@@ -882,6 +886,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
   },
 ) {
   const { row, expanded } = props;
+  const groupAccess = useContext(ConversationTurnItemAccess);
   const openLinkedThread = useOpenLinkedThread();
   const streamsOutput =
     useCommandOutputStreaming(props.environmentId) &&
@@ -953,7 +958,8 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               {failureItem.failure.message}
             </Text>
           ) : null}
-          {failureItem.failure.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE &&
+          {groupAccess === null &&
+          failureItem.failure.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE &&
           failureItem.runId !== null ? (
             <WorkspacePreparationRetryButton
               environmentId={props.environmentId}
@@ -966,7 +972,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
     );
   }
   const notifiedSubagentThreadId =
-    row.projectedItem.item.type === "notification"
+    groupAccess === null && row.projectedItem.item.type === "notification"
       ? notificationChildThreadId(row.projectedItem.item.source)
       : undefined;
   const canExpand = row.canExpand && notifiedSubagentThreadId === undefined;
@@ -1077,12 +1083,12 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             label={displayText}
             showIcon
             themeAppearance={props.themeAppearance}
-            toolIcon={toolIcon}
+            toolIcon={groupAccess === null ? toolIcon : undefined}
           />
         ) : (
           <>
             <WorkLogIconSlot>
-              {toolIcon ? (
+              {toolIcon && groupAccess === null ? (
                 <ToolActivityIconView
                   environmentId={props.environmentId}
                   icon={toolIcon}
@@ -1175,7 +1181,11 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
           {row.workEntry.questionAnswer ? (
             <QuestionAnswerHistory
               environmentId={props.environmentId}
-              answer={row.workEntry.questionAnswer}
+              answer={
+                groupAccess === null
+                  ? row.workEntry.questionAnswer
+                  : { ...row.workEntry.questionAnswer, attachmentsByQuestionId: {} }
+              }
             />
           ) : null}
           {viewedImagePath ? (
@@ -1184,20 +1194,28 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             </View>
           ) : null}
           <FilePreviewGallery
-            value={outputImages.map((resource) => ({
-              kind: "image",
-              environmentId: props.environmentId,
-              resource,
-            }))}
+            value={
+              groupAccess
+                ? []
+                : outputImages.map((resource) => ({
+                    kind: "image",
+                    environmentId: props.environmentId,
+                    resource,
+                  }))
+            }
           >
             {outputImages.map((resource) => (
               <View key={resource.index} className="pb-1.5">
-                <ThreadMarkdownImage
-                  environmentId={props.environmentId}
-                  resource={resource}
-                  alt={null}
-                  onPressPreview={props.onPressPreview}
-                />
+                {groupAccess ? (
+                  groupAccess.renderOutputImage?.(resource)
+                ) : (
+                  <ThreadMarkdownImage
+                    environmentId={props.environmentId}
+                    resource={resource}
+                    alt={null}
+                    onPressPreview={props.onPressPreview}
+                  />
+                )}
               </View>
             ))}
           </FilePreviewGallery>

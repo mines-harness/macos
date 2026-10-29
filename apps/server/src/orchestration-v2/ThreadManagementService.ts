@@ -11,6 +11,8 @@ import type {
 } from "./ProjectionStore.ts";
 import {
   type ChatAttachment,
+  type OrchestrationMessageContext,
+  type ProviderInteractionMode,
   CommandId,
   MessageId,
   OrchestrationV2StopWorkflowError,
@@ -131,6 +133,8 @@ export interface ThreadManagementSendInput {
   readonly catalogContextRevision?: CatalogContextRevision;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
+  readonly context?: OrchestrationMessageContext;
+  readonly interactionMode?: ProviderInteractionMode;
   readonly modelSelection?: ModelSelection;
   readonly mode: ThreadManagementSendMode;
   readonly createdBy: OrchestrationV2Actor;
@@ -818,6 +822,8 @@ const make = Effect.gen(function* () {
         : { contextContinuationOfRunId: input.contextContinuationOfRunId }),
       text: input.text,
       attachments: input.attachments,
+      ...(input.context ? { context: input.context } : {}),
+      ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
       dispatchMode,
       createdBy: input.createdBy,

@@ -6,6 +6,7 @@ import type {
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
   DesktopSnapShotEvent,
+  DesktopDictationState,
 } from "@t3tools/contracts";
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 
@@ -97,6 +98,16 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 }
 
 contextBridge.exposeInMainWorld("desktopBridge", {
+  getDictationCapability: (locale) =>
+    ipcRenderer.invoke(IpcChannels.GET_DICTATION_CAPABILITY_CHANNEL, locale),
+  startDictation: (input) => ipcRenderer.invoke(IpcChannels.START_DICTATION_CHANNEL, input),
+  stopDictation: (input) => ipcRenderer.invoke(IpcChannels.STOP_DICTATION_CHANNEL, input),
+  onDictationState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: DesktopDictationState) =>
+      listener(state);
+    ipcRenderer.on(IpcChannels.DICTATION_STATE_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.DICTATION_STATE_CHANNEL, handler);
+  },
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {

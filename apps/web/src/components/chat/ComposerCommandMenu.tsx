@@ -32,6 +32,7 @@ import { ComposerBanner } from "./ComposerBanner";
 import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
 
 export type ComposerCommandItem =
+  | { id: string; type: "group-member"; alias: string; label: string; description: string }
   | {
       id: string;
       type: "path";

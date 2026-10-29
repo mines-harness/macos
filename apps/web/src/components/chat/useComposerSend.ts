@@ -453,14 +453,7 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     if (isLocalDraftThread && participantGroupSend.hasParticipants) {
-      if (directAnnotation) {
-        setThreadError(
-          activeThread.id,
-          "Groups accept text and workspace references. Remove the annotation before sending to participants.",
-        );
-        return;
-      }
-      await participantGroupSend.send(activeThread.id);
+      await participantGroupSend.send(activeThread.id, directAnnotation);
       return;
     }
     if (needsLoadBalancing) {

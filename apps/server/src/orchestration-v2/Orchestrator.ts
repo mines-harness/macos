@@ -5731,6 +5731,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           });
 
     if (dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active") {
+      if (command.interactionMode !== undefined) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "A per-turn mode requires a new turn. Queue this message instead of steering the active turn.",
+        });
+      }
       yield* dispatchSteerIntoRun({
         command,
         events,
@@ -5919,6 +5927,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         modelSelection,
         ...(command.liveVoice === undefined ? {} : { liveVoice: command.liveVoice }),
         providerThreadId: queuedProviderThread.id,
+        ...(command.interactionMode === undefined
+          ? {}
+          : { interactionMode: command.interactionMode }),
         userMessageId: command.messageId,
         rootNodeId,
         activeAttemptId: attemptId,
@@ -6287,6 +6298,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         modelSelection,
         providerThreadId,
         userMessageId: command.messageId,
+        ...(command.interactionMode === undefined
+          ? {}
+          : { interactionMode: command.interactionMode }),
         rootNodeId,
         activeAttemptId: attemptId,
         status: dispatchMode.type === "defer_start" ? "preparing" : "starting",
@@ -6980,6 +6994,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       modelSelection,
       ...(command.liveVoice === undefined ? {} : { liveVoice: command.liveVoice }),
       providerThreadId: providerThread.id,
+      ...(command.interactionMode === undefined
+        ? {}
+        : { interactionMode: command.interactionMode }),
       userMessageId: command.messageId,
       rootNodeId,
       activeAttemptId: attemptId,
@@ -12536,7 +12553,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const shell = yield* projectionStore
         .getThreadShell(threadId)
         .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
-      if (shell !== null) yield* refuseAboveDispatchModeLimit(command, threadId, shell);
+      if (shell !== null)
+        yield* refuseAboveDispatchModeLimit(
+          command,
+          threadId,
+          command.type === "message.dispatch" && command.interactionMode !== undefined
+            ? { ...shell, interactionMode: command.interactionMode }
+            : shell,
+        );
     }
 
     const plan = yield* dispatchOnce(command).pipe(

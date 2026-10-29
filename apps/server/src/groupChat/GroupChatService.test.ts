@@ -1,6 +1,8 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  ChatAttachmentId,
+  ComposerContextId,
   EnvironmentId,
   GroupChatError,
   GroupId,
@@ -25,6 +27,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as GroupChatService from "./GroupChatService.ts";
+import * as GroupAttachments from "./GroupAttachments.ts";
 import * as GroupPeerStore from "./GroupPeerStore.ts";
 import * as SharedGroupService from "./SharedGroupService.ts";
 import * as SharedGroupTransport from "./SharedGroupTransport.ts";
@@ -70,7 +73,19 @@ const fixture = (
     displayName: undefined,
     enabled: true,
     snapshot: {
-      getSnapshot: unused(),
+      getSnapshot: Effect.succeed({
+        instanceId,
+        driver: driverKind,
+        enabled: true,
+        installed: true,
+        version: null,
+        status: "ready" as const,
+        auth: { status: "authenticated" as const },
+        checkedAt: IsoDateTime.make("2026-10-26T00:00:00.000Z"),
+        models: [],
+        slashCommands: [],
+        skills: [],
+      }),
       refresh: unused(),
       streamChanges: Stream.empty,
       resolveMaintenance: unused,
@@ -230,6 +245,23 @@ const fixture = (
           SqlitePersistence.layerMemory,
           NodeCrypto.layer,
           threads,
+          Layer.mock(GroupAttachments.GroupAttachments)({
+            transfer: (payload, _send) =>
+              Effect.succeed({
+                attachments: payload.attachments ?? [],
+                ...(payload.context ? { context: payload.context } : {}),
+              }),
+            retain: (_owner, payload) =>
+              Effect.succeed({
+                attachments: payload.attachments ?? [],
+                ...(payload.context ? { context: payload.context } : {}),
+              }),
+            forThread: (_threadId, payload) =>
+              Effect.succeed({
+                attachments: payload.attachments ?? [],
+                ...(payload.context ? { context: payload.context } : {}),
+              }),
+          }),
           Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.empty }),
           Layer.mock(ProjectStore.ProjectStoreV2)({
             get: (projectId) =>
@@ -307,6 +339,7 @@ it.effect("persists the authorized shared service lifecycle without starting nat
       updatedAt: created.group.updatedAt,
     };
     const dependencies = Layer.mergeAll(
+      Layer.mock(GroupAttachments.GroupAttachments)({}),
       Layer.succeed(GroupChatService.GroupChatService, groups),
       GroupPeerStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
       Layer.mock(PeerTrustStore.PeerTrustStore)({ identity: Effect.succeed(identity) }),
@@ -487,6 +520,77 @@ it.effect("runs shared AI only on explicit request without private catalog conte
     assert.equal(completed.messages[0]?.authorFriendId, "mines-11111111111111111111");
   }).pipe(Effect.provide(native.layer));
 });
+
+it.effect(
+  "durably preserves group attachments and context and forwards both to original native runs",
+  () => {
+    const native = fixture();
+    return Effect.gen(function* () {
+      const groups = yield* GroupChatService.GroupChatService;
+      const created = yield* groups.create({
+        name: "Files",
+        workflow: "team",
+        members: [{ threadId: ux, alias: "UX" }],
+        clientRequestId: "files-create",
+      });
+      const payload = {
+        attachments: [
+          {
+            type: "file",
+            id: ChatAttachmentId.make("pending-00000000-0000-0000-0000-000000000001-txt"),
+            name: "hello.txt",
+            mimeType: "text/plain",
+            sizeBytes: 5,
+          },
+        ],
+        context: {
+          version: 1 as const,
+          records: [
+            {
+              version: 1 as const,
+              kind: "mention" as const,
+              contextId: ComposerContextId.make("ctx1"),
+              label: "README",
+              path: "README.md",
+            },
+          ],
+        },
+      };
+      const sent = yield* groups.send({
+        groupId: created.group.id,
+        message: "@UX read this",
+        clientRequestId: "files-send",
+        ...payload,
+      });
+      assert.deepEqual(sent.messages[0]?.attachments, payload.attachments);
+      assert.deepEqual(sent.messages[0]?.context, payload.context);
+      yield* until(
+        groups,
+        created.group.id,
+        (snapshot) => snapshot.rounds[0]?.deliveries[0]?.status === "running",
+      );
+      assert.deepEqual(native.sends[0]?.attachments, payload.attachments);
+      assert.deepEqual(native.sends[0]?.context, payload.context);
+      const replay = yield* groups.send({
+        groupId: created.group.id,
+        message: "@UX read this",
+        clientRequestId: "files-send",
+        ...payload,
+      });
+      assert.equal(replay.messages.length, 1);
+      const conflict = yield* groups
+        .send({
+          groupId: created.group.id,
+          message: "@UX read this",
+          clientRequestId: "files-send",
+          ...payload,
+          attachments: [],
+        })
+        .pipe(Effect.flip);
+      assert.equal(conflict.code, "invalid-members");
+    }).pipe(Effect.provide(native.layer));
+  },
+);
 
 it.effect("removes shared AI membership without deleting history or original conversations", () => {
   const native = fixture();

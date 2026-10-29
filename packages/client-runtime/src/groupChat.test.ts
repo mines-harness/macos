@@ -12,12 +12,25 @@ import {
   type GroupRound,
 } from "@t3tools/contracts/groupChat";
 import { describe, expect, it } from "vite-plus/test";
-import { groupActivity, groupRecipients } from "./groupChat.ts";
+import { groupActivity, groupPlanModeBlockReason, groupRecipients } from "./groupChat.ts";
 
 const members = [
   { id: "a", alias: "Alice" },
   { id: "b", alias: "builder_2" },
 ];
+
+it("checks Plan support only for addressed mines and preserves unknown old member capabilities", () => {
+  const members = [
+    { id: "plan", alias: "planner", supportsPlanMode: true },
+    { id: "build", alias: "builder", supportsPlanMode: false },
+  ];
+  expect(groupPlanModeBlockReason("@planner Investigate", members)).toBeNull();
+  expect(groupPlanModeBlockReason("Investigate", members)).toContain("@builder");
+  expect(groupPlanModeBlockReason("@everyone Investigate", members)).toContain("@builder");
+  expect(groupPlanModeBlockReason("`@builder` @planner Investigate", members)).toBeNull();
+  expect(groupPlanModeBlockReason("Plan", [{ id: "old", alias: "old" }])).toBeNull();
+  expect(groupPlanModeBlockReason("Plan", [])).toBe("Bring a mine to use Plan mode.");
+});
 
 describe("group addressing", () => {
   it("addresses real prose mentions once and ignores email fragments and escaped mentions", () => {

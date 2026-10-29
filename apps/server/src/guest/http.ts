@@ -12,6 +12,7 @@ import {
   GuestSubmitRequest,
   GuestEditRequest,
   GuestDeleteRequest,
+  GuestActivityRequest,
   guestSessionCookieName,
   isProviderSendTurnSupportedImageMimeType,
   OrchestrationV2CommandOutputFrame,
@@ -44,6 +45,7 @@ const decodeRedeem = Schema.decodeUnknownEffect(GuestRedeemRequest);
 const decodeSubmit = Schema.decodeUnknownEffect(GuestSubmitRequest);
 const decodeEdit = Schema.decodeUnknownEffect(GuestEditRequest);
 const decodeDelete = Schema.decodeUnknownEffect(GuestDeleteRequest);
+const decodeActivity = Schema.decodeUnknownEffect(GuestActivityRequest);
 // The owner's thread types hold DateTime values; the JSON codec writes them as strings.
 const encodeStreamEvent = Schema.encodeEffect(
   Schema.fromJsonString(Schema.toCodecJson(GuestStreamEvent)),
@@ -247,6 +249,24 @@ const submitRoute = HttpRouter.add(
   ),
 );
 
+const activityRoute = HttpRouter.add(
+  "POST",
+  `${GUEST_ROUTE_PREFIX}/activity`,
+  Effect.gen(function* () {
+    const body = yield* readJson.pipe(Effect.flatMap(decodeActivity), Effect.option);
+    if (body._tag === "None") return yield* badRequest;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    if (body.value.shareId !== requestedShareId(request)) return yield* badRequest;
+    const guestShares = yield* GuestShareService;
+    yield* guestShares.publishGuestActivity(
+      yield* sessionToken,
+      body.value,
+      yield* requestIpAddress,
+    );
+    return HttpServerResponse.empty({ status: 204, headers: NO_STORE });
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
+);
+
 const editRoute = HttpRouter.add(
   "PATCH",
   `${GUEST_ROUTE_PREFIX}/messages`,
@@ -398,6 +418,7 @@ export const layer = Layer.mergeAll(
   redeemRoute,
   sessionRoute,
   submitRoute,
+  activityRoute,
   editRoute,
   deleteRoute,
   streamRoute,

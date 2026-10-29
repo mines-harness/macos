@@ -1,3 +1,5 @@
+import { useStableCallback } from "../../hooks/useStableCallback";
+import type { LegendListRef } from "@legendapp/list/react";
 import { catalogHostId, minesAccountEnvironmentIdsAtom } from "@t3tools/client-runtime/catalog";
 import { useMinesCatalog } from "../../catalog/useMinesCatalog";
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
@@ -11,7 +13,7 @@ import * as Schema from "effect/Schema";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { groupHostRoutes } from "../../state/groupHostRoutes";
-import { ArrowUpIcon, UsersIcon, SquareIcon } from "lucide-react";
+import { UsersIcon, SquareIcon } from "lucide-react";
 import {
   groupCreate,
   groupArchive,
@@ -30,9 +32,11 @@ import { SidebarInset } from "../ui/sidebar";
 import { groupRecipients } from "@t3tools/client-runtime/group-chat";
 import { refreshGroupMemberships } from "../../state/groupMemberships";
 import { GroupParticipantsControl } from "./GroupParticipantsControl";
-import type { ComposerPromptEditorHandle } from "../ComposerPromptEditor";
-import { GroupMessageComposer } from "./GroupMessageComposer";
+import type { ChatComposerHandle } from "../chat/ChatComposer";
+import { GroupMessageComposer, type GroupComposerMessage } from "./GroupMessageComposer";
 import { GroupConversationSidebar } from "./GroupConversationSidebar";
+import { GroupConversationTimeline } from "./GroupConversationTimeline";
+import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
 
 export const GROUP_WORKFLOWS: ReadonlyArray<{
   id: GroupWorkflow;
@@ -184,7 +188,19 @@ export function GroupWorkspace({
     initialMessage,
     GroupMessageDraft,
   );
-  const editorRef = useRef<ComposerPromptEditorHandle>(null);
+  const editorRef = useRef<ChatComposerHandle>(null);
+  const timelineRef = useRef<LegendListRef | null>(null);
+  const addDroppedFiles = useStableCallback((files: File[]) =>
+    editorRef.current?.addDroppedFiles(files),
+  );
+  const addDroppedFolders = useStableCallback((folders: File[]) =>
+    editorRef.current?.addDroppedFolders(folders),
+  );
+  const fileDrop = makeWorkspaceFileDropHandlers({
+    setDragActive: () => {},
+    addFiles: addDroppedFiles,
+    addFolders: addDroppedFolders,
+  });
   const prompt = draft.text;
   const setPrompt = (value: string | ((previous: string) => string)) =>
     setDraft((current) => ({
@@ -231,18 +247,25 @@ export function GroupWorkspace({
   }, [snapshot, catalog, owned, environmentId]);
   const archived = snapshot?.group.archivedAt != null;
   const activeRounds = snapshot?.rounds.filter((round) => round.status === "active") ?? [];
-  const submit = async () => {
-    if (sending || !prompt.trim() || !snapshot || archived || !sendAllowed) return;
+  const submit = async (payload: GroupComposerMessage) => {
+    if (
+      sending ||
+      (!payload.message.trim() &&
+        !payload.attachments?.length &&
+        !payload.context?.records.length) ||
+      !snapshot ||
+      archived ||
+      !sendAllowed
+    )
+      return false;
     setSending(true);
     setError(null);
-    const addressing = groupRecipients(prompt, snapshot.members);
-    const requestId = draft.requestId;
+    const addressing = groupRecipients(payload.message, snapshot.members);
     const result = await send({
       environmentId,
       input: {
         groupId,
-        message: prompt,
-        clientRequestId: requestId,
+        ...payload,
         ...(addressing.mentionEveryone
           ? { mentionEveryone: true }
           : addressing.recipientMemberIds.length
@@ -250,19 +273,26 @@ export function GroupWorkspace({
             : {}),
       },
     });
-    if (result._tag === "Success")
-      setDraft((current) =>
-        current.requestId === requestId ? { text: "", requestId: randomUUID() } : current,
-      );
-    else
+    if (result._tag !== "Success") {
+      const cause = squashAtomCommandFailure(result);
       setError(
-        "The message could not be accepted. Your draft is saved here; check the device connection before retrying.",
+        cause instanceof Error
+          ? cause.message
+          : "The message could not be accepted. Your draft is saved here; check the device connection before retrying.",
       );
+    }
     setSending(false);
+    return result._tag === "Success";
   };
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
-      <main className="flex h-full min-h-0 flex-1 flex-col bg-background text-foreground">
+      <main
+        className="flex h-full min-h-0 flex-1 flex-col bg-background text-foreground"
+        onDragEnter={fileDrop.onDragEnter}
+        onDragOver={fileDrop.onDragOver}
+        onDragLeave={fileDrop.onDragLeave}
+        onDrop={fileDrop.onDrop}
+      >
         <header className="flex min-h-16 shrink-0 items-center gap-3 border-b border-border px-6">
           <UsersIcon className="size-5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
@@ -562,44 +592,33 @@ export function GroupWorkspace({
         ) : (
           <>
             <div className="relative flex min-h-0 flex-1">
-              <div
-                className="min-h-0 min-w-0 flex-1 overflow-y-auto scrollbar-gutter-both px-6 py-6 pr-14 lg:pr-6"
-                aria-live="polite"
-                aria-relevant="additions text"
-              >
-                <div className="mx-auto max-w-3xl space-y-7">
-                  {snapshot?.messages.map((message) => (
-                    <article key={message.id} className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        {message.memberId
-                          ? (snapshot.members.find((member) => member.id === message.memberId)
-                              ?.alias ?? "Member")
-                          : message.kind === "user"
-                            ? "You"
-                            : "Group"}
-                      </div>
-                      <div className="whitespace-pre-wrap break-words text-sm leading-7">
-                        {message.text}
-                      </div>
-                      {message.truncated ? (
-                        <p className="text-xs text-muted-foreground">
-                          Open the original mine for the complete reply.
-                        </p>
-                      ) : null}
-                    </article>
-                  ))}
-                  {snapshot?.rounds.slice(-1).flatMap((round) =>
-                    round.deliveries.map((delivery) => (
-                      <div
-                        key={delivery.id}
-                        className="flex items-center gap-3 text-xs text-muted-foreground"
-                      >
-                        <span>
-                          {round.members.find((member) => member.id === delivery.memberId)?.alias} ·{" "}
-                          {delivery.stage} · {delivery.status}
-                        </span>
-                        {delivery.error ? <span role="status">{delivery.error}</span> : null}
-                        {["failed", "unavailable"].includes(delivery.status) ? (
+              {snapshot ? (
+                <GroupConversationTimeline
+                  key={`${environmentId}:${snapshot.group.id}`}
+                  environmentId={environmentId}
+                  snapshot={snapshot}
+                  listRef={timelineRef}
+                  onCiteAssistantText={(citation, anchor) =>
+                    editorRef.current?.citeAssistantText(citation, anchor) ?? false
+                  }
+                  onOpenThread={(ref) =>
+                    void navigate({ to: "/$environmentId/$threadId", params: ref })
+                  }
+                  footer={snapshot.rounds.slice(-1).flatMap((round) =>
+                    round.deliveries
+                      .filter(
+                        (delivery) =>
+                          delivery.status === "failed" || delivery.status === "unavailable",
+                      )
+                      .map((delivery) => (
+                        <div
+                          key={delivery.id}
+                          className="chat-content-lane flex items-center gap-3 py-2 text-xs text-muted-foreground"
+                        >
+                          <span>
+                            {round.members.find((member) => member.id === delivery.memberId)?.alias}{" "}
+                            · {delivery.error ?? delivery.status}
+                          </span>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -613,28 +632,20 @@ export function GroupWorkspace({
                           >
                             Retry
                           </Button>
-                        ) : null}
-                      </div>
-                    )),
+                        </div>
+                      )),
                   )}
-                  {!snapshot && !query.error ? (
-                    <p className="text-sm text-muted-foreground">
-                      Connecting to the group coordinator…
-                    </p>
-                  ) : null}
-                  {snapshot?.messages.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Send a message to start. Mention someone, use @everyone for one reply each, or
-                      let members decide whether to participate.
-                    </p>
-                  ) : null}
+                />
+              ) : (
+                <div className="min-h-0 flex-1 px-6 py-6 pr-14 text-sm text-muted-foreground">
+                  {query.error ?? "Connecting to the group coordinator…"}
                 </div>
-              </div>
+              )}
               <GroupConversationSidebar
                 snapshot={snapshot ?? null}
                 onMention={(alias) => {
-                  setPrompt((value) => `${value}${value ? " " : ""}@${alias} `);
-                  editorRef.current?.focus();
+                  editorRef.current?.insertTextAtEnd(`@${alias} `, { ensureLeadingBoundary: true });
+                  editorRef.current?.focusAtEnd();
                 }}
                 users={
                   hasMinesIdentityConfig() ? (
@@ -660,11 +671,31 @@ export function GroupWorkspace({
             </div>
             <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pt-3 pb-6">
               <GroupMessageComposer
+                environmentId={environmentId}
+                snapshot={snapshot ?? null}
+                getTimelineScrollableNode={() => timelineRef.current?.getScrollableNode() ?? null}
+                isSendBusy={sending}
+                onOpenMember={(member) =>
+                  void navigate({
+                    to: "/$environmentId/$threadId",
+                    params: {
+                      environmentId: member.environmentId ?? environmentId,
+                      threadId: member.threadId,
+                    },
+                  })
+                }
+                sendDisabledReason={
+                  !snapshot
+                    ? "Connecting to the group coordinator…"
+                    : !sendAllowed
+                      ? "This connection cannot send to this group."
+                      : null
+                }
                 editorRef={editorRef}
                 draftKey={JSON.stringify([accountId, environmentId, groupId])}
                 value={prompt}
                 onChange={setPrompt}
-                onSubmit={() => void submit()}
+                onSubmit={(_alternate, payload) => submit(payload)}
                 ariaLabel="Message the group"
                 placeholder="What should we work on together?"
                 submitOnEnter
@@ -676,14 +707,6 @@ export function GroupWorkspace({
                     : "Team"}{" "}
                   · Shared context · Private history stays in each mine
                 </p>
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!prompt.trim() || sending || !snapshot || archived || !sendAllowed}
-                  aria-label="Send to group"
-                >
-                  <ArrowUpIcon />
-                </Button>
               </GroupMessageComposer>
             </div>
           </>

@@ -58,6 +58,7 @@ import {
  */
 export function useComposerAttachmentIntake(input: {
   readonly activeThreadId: ChatComposerProps["activeThreadId"];
+  readonly acceptsUnboundDraft?: boolean;
   readonly activePendingProgress: ChatComposerProps["activePendingProgress"];
   readonly activePendingIsResponding: boolean;
   readonly pendingUserInputs: ReadonlyArray<PendingUserInput>;
@@ -122,7 +123,12 @@ export function useComposerAttachmentIntake(input: {
       readonly skipImageInlineChip?: boolean;
     },
   ): Promise<boolean> => {
-    if (!activeThreadId || files.length === 0 || isRevertingCheckpointRef.current) return false;
+    if (
+      (!activeThreadId && !input.acceptsUnboundDraft) ||
+      files.length === 0 ||
+      isRevertingCheckpointRef.current
+    )
+      return false;
     if (
       pendingUserInputs.length > 0 &&
       (!supportsQuestionAttachments ||
@@ -390,7 +396,7 @@ export function useComposerAttachmentIntake(input: {
     }
 
     const canStageAttachment =
-      Boolean(activeThreadId) &&
+      (Boolean(activeThreadId) || input.acceptsUnboundDraft === true) &&
       !isRevertingCheckpointRef.current &&
       questionCanAttach &&
       hasAttachmentSlot;

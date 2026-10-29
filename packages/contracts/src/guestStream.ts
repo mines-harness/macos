@@ -4,6 +4,7 @@ import { GuestSessionId, GuestShareId, IsoDateTime, TrimmedNonEmptyString } from
 import { GuestSharePermission, GUEST_SHARE_MAX_GUESTS, ThreadGuestMessage } from "./guestShare.ts";
 import { OrchestrationV2ThreadStreamItem } from "./orchestrationV2.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
+import { ConversationActivity } from "./conversationActivity.ts";
 
 // This lives apart from guestShare.ts because orchestrationV2.ts imports that file.
 
@@ -47,6 +48,7 @@ export type GuestShareView = typeof GuestShareView.Type;
  * share itself, sent first and again when it changes.
  */
 export const GuestStreamEvent = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("activity"), activity: ConversationActivity }),
   Schema.Struct({ type: Schema.Literal("view"), view: GuestShareView }),
   Schema.Struct({ type: Schema.Literal("thread"), item: OrchestrationV2ThreadStreamItem }),
   Schema.Struct({ type: Schema.Literal("ended") }),

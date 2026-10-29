@@ -138,6 +138,7 @@ function useFetchedTurnItem(
       output: turnItemOutputText(item),
       images: turnItemOutputImages(item),
       environmentId,
+      renderImage: source?.renderOutputImage,
       pending: item === wireItem && detail.isPending,
       error:
         item !== wireItem
@@ -158,19 +159,24 @@ interface ToolOutputState {
   readonly error: string | null;
   readonly empty: boolean;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
+  readonly renderImage?: TurnItemSource["renderOutputImage"];
 }
 
 function ToolOutput(props: ToolOutputState) {
-  const images = props.images.map((resource) => (
-    <ChatMarkdownAssetImage
-      key={resource.index}
-      environmentId={props.environmentId}
-      resource={resource}
-      alt="Tool output image"
-      maxHeightRem={16}
-      onImageExpand={props.onImageExpand}
-    />
-  ));
+  const images = props.images.map((resource) =>
+    props.renderImage ? (
+      <div key={resource.index}>{props.renderImage(resource)}</div>
+    ) : (
+      <ChatMarkdownAssetImage
+        key={resource.index}
+        environmentId={props.environmentId}
+        resource={resource}
+        alt="Tool output image"
+        maxHeightRem={16}
+        onImageExpand={props.onImageExpand}
+      />
+    ),
+  );
   const text = props.output ? (
     <div className="max-h-80 overflow-auto text-muted-foreground">{props.output}</div>
   ) : props.pending ? (

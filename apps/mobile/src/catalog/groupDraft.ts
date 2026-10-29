@@ -1,10 +1,12 @@
 import * as Schema from "effect/Schema";
 import type { MobilePrivateStore } from "./encryptedStorage";
+import type { ComposerDraft } from "../state/use-composer-drafts";
 
 const Draft = Schema.Struct({
   text: Schema.String,
   requestId: Schema.String,
   attempted: Schema.Boolean,
+  contentKey: Schema.optional(Schema.String),
 });
 type Draft = typeof Draft.Type;
 const decodeDraft = Schema.decodeUnknownSync(Schema.fromJsonString(Draft));
@@ -67,6 +69,10 @@ export async function openGroupDraft(input: {
       if (text === snapshot.draft.text) return;
       persist({ text, requestId: input.createId(), attempted: false });
     },
+    setContent: (text: string, contentKey: string) => {
+      if (text === snapshot.draft.text && contentKey === snapshot.draft.contentKey) return;
+      persist({ text, contentKey, requestId: input.createId(), attempted: false });
+    },
     markAttempted: () => {
       const draft = { ...snapshot.draft, attempted: true };
       persist(draft);
@@ -86,4 +92,31 @@ export async function openGroupDraft(input: {
       }
     },
   };
+}
+
+export function groupComposerContentKey(draft: ComposerDraft, requestAiResponse?: boolean) {
+  return JSON.stringify({
+    attachments: draft.attachments.map(({ id, type, name, mimeType, sizeBytes }) => ({
+      id,
+      type,
+      name,
+      mimeType,
+      sizeBytes,
+    })),
+    context: draft.context,
+    interactionMode: draft.interactionMode,
+    requestAiResponse,
+  });
+}
+
+export function groupRichSendBlockReason(
+  draft: Pick<ComposerDraft, "attachments" | "context" | "interactionMode">,
+  supported: boolean,
+): string | null {
+  return supported ||
+    (draft.attachments.length === 0 &&
+      !draft.context?.records.length &&
+      draft.interactionMode === undefined)
+    ? null
+    : "Update Mines on this computer from Devices before sending files, context, or Plan mode to this group.";
 }

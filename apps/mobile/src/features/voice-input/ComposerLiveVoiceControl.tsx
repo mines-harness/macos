@@ -37,8 +37,10 @@ export function ComposerLiveVoiceControl(props: {
   readonly startDisabled: boolean;
   readonly size: "regular" | "large";
   readonly onActiveChange: (active: boolean) => void;
+  readonly onCaptureChange?: (active: boolean) => void;
 }) {
-  const { environmentId, threadId, modelSelection, connected, onActiveChange } = props;
+  const { environmentId, threadId, modelSelection, connected, onActiveChange, onCaptureChange } =
+    props;
   const permitted = useAtomValue(voiceStart.permissionAtom(environmentId));
   const localDictation = useGlobalVoiceInput();
   const startCommand = useAtomCommand(voiceStart, { reportFailure: false });
@@ -72,12 +74,13 @@ export function ComposerLiveVoiceControl(props: {
       current.media?.close();
       if (current.runId) stopRun(current.runId);
       onActiveChange(false);
+      onCaptureChange?.(false);
       if (!mounted.current) return;
       setRunId(null);
       setPhase("idle");
       if (message) Dialog.alert("Voice stopped", message);
     },
-    [onActiveChange, stopRun],
+    [onActiveChange, onCaptureChange, stopRun],
   );
   // oxlint-disable-next-line mines/react-effect-budget -- Unmounting must close the native media peer and stop its provider run.
   useEffect(() => {
@@ -135,6 +138,9 @@ export function ComposerLiveVoiceControl(props: {
     try {
       const media = await createNativeLiveVoicePeer({
         signal: current.abort.signal,
+        onCaptureChange: (capturing) => {
+          if (active.current === current) onCaptureChange?.(capturing);
+        },
         onConnected: () => {
           if (active.current !== current) return;
           clearTimeout(current.timeout);

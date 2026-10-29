@@ -1,6 +1,7 @@
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import {
   type EnvironmentId,
+  type AssetResource,
   type MessageId,
   type OrchestrationV2TurnItem,
   type RunAttemptId,
@@ -30,6 +31,9 @@ import { type HandoffTimelineRun } from "./V2LifecycleRow";
  */
 export interface TurnItemSource {
   readonly detail: TurnItemDetailSource;
+  readonly renderOutputImage?: (
+    resource: Extract<AssetResource, { readonly _tag: "tool-output-image" }>,
+  ) => ReactNode;
   readonly commandOutput: (target: {
     readonly threadId: ThreadId;
     readonly itemId: TurnItemId;
@@ -40,6 +44,15 @@ export interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
+  messageAuthorLabel?: string;
+  messageTruncated?: boolean;
+  citationMessageId?: MessageId | null;
+  canUseMcpApps?: boolean;
+  renderViewedImage?: (entry: TimelineWorkEntry) => ReactNode;
+  sourceProjectedItem?: import("@t3tools/contracts").OrchestrationV2ProjectedTurnItem;
+  onLoadEarlierBody?: (
+    row: import("@t3tools/contracts").OrchestrationV2ProjectedTurnItem,
+  ) => Promise<void>;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;

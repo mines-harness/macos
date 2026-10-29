@@ -46,3 +46,39 @@ export const groupLaunchThread = createEnvironmentRpcCommand(connectionAtomRunti
   label: "mines:groups:launch-thread",
   tag: ORCHESTRATION_V2_WS_METHODS.launchThread,
 });
+
+export const groupRunPage = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "mines:groups:run-page",
+  tag: WS_METHODS.groupsGetRunPage,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+});
+export const groupRunItem = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "mines:groups:run-item",
+  tag: WS_METHODS.groupsGetRunItem,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+  refreshTrigger: (target) =>
+    groupSubscription({
+      environmentId: target.environmentId,
+      input: { groupId: target.input.groupId },
+    }),
+});
+export const groupRunBodyRange = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "mines:groups:run-body",
+  tag: WS_METHODS.groupsGetRunBodyRange,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+});
+
+export const groupRunAsset = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "mines:groups:run-asset",
+  tag: WS_METHODS.groupsGetRunAsset,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+});
+
+export const groupRespondToRuntimeRequest = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "mines:groups:respond-runtime-request",
+  tag: WS_METHODS.groupsRespondToRuntimeRequest,
+});

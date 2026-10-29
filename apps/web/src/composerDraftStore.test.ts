@@ -2478,3 +2478,46 @@ describe("composerDraftStore attachment references", () => {
     );
   });
 });
+
+it("keeps real terminal source identities in a group draft without creating a server thread", () => {
+  resetComposerDraftStore();
+  const groupDraft = DraftId.make("group:environment:team");
+  const terminal = makeTerminalContext({ id: "group-terminal" });
+  const store = useComposerDraftStore.getState();
+  store.addTerminalContexts(groupDraft, [terminal]);
+  expect(store.getComposerDraft(groupDraft)?.terminalContexts).toEqual([terminal]);
+  store.setTerminalContexts(groupDraft, [{ ...terminal, text: "updated output" }]);
+  expect(store.getComposerDraft(groupDraft)?.terminalContexts[0]?.text).toBe("updated output");
+  expect(store.getDraftSession(groupDraft)).toBeNull();
+});
+
+it("keeps identical terminal ranges from distinct member mines in one group draft", () => {
+  resetComposerDraftStore();
+  const groupDraft = DraftId.make("group:environment:two-mines");
+  const first = makeTerminalContext({ id: "first-member-terminal" });
+  const second = {
+    ...makeTerminalContext({ id: "second-member-terminal" }),
+    threadId: ThreadId.make("other-member"),
+  };
+  const store = useComposerDraftStore.getState();
+  store.addTerminalContexts(groupDraft, [first, second]);
+  expect(
+    store.getComposerDraft(groupDraft)?.terminalContexts.map((context) => context.threadId),
+  ).toEqual([first.threadId, second.threadId]);
+});
+
+it("restores copied terminal output with an unknown source in a group draft without inventing a mine", () => {
+  resetComposerDraftStore();
+  const groupDraft = DraftId.make("group:copied-output");
+  const terminal = { ...makeTerminalContext({ id: "copied-terminal" }), threadId: null };
+  const merged = useComposerDraftStore.persist.getOptions().merge!(
+    {
+      draftsByThreadKey: {
+        [groupDraft]: { prompt: "Keep this output", attachments: [], terminalContexts: [terminal] },
+      },
+    },
+    useComposerDraftStore.getState(),
+  );
+  expect(merged.draftsByThreadKey[groupDraft]?.terminalContexts).toEqual([terminal]);
+  expect(merged.draftThreadsByThreadKey[groupDraft]).toBeUndefined();
+});

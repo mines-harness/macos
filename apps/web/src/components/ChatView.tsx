@@ -353,6 +353,9 @@ import { assetEnvironment } from "../state/assets";
 import { readEnvironmentScope, readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
+import { guestSharePublishActivity } from "../state/conversationActivity";
+import { useConversationActivityPublisher } from "../hooks/useConversationActivity";
+import { useDeadlinePassed } from "../hooks/useDeadline";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
@@ -480,6 +483,21 @@ export default function ChatView(props: ChatViewProps) {
   });
   const serverThreadProjection = useQuietThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
+  const guestShareExpired = useDeadlinePassed(
+    serverProjection?.thread.guestShare
+      ? Date.parse(serverProjection.thread.guestShare.expiresAt)
+      : null,
+  );
+  const publishGuestActivity = useAtomCommand(guestSharePublishActivity, { reportFailure: false });
+  const guestActivity = useConversationActivityPublisher({
+    targetKey: JSON.stringify([environmentId, threadId, serverProjection?.thread.guestShare?.id]),
+    enabled:
+      routeKind === "server" &&
+      canOperateThread &&
+      !guestShareExpired &&
+      !!serverProjection?.thread.guestShare,
+    publish: (kind) => publishGuestActivity({ environmentId, input: { threadId, kind } }),
+  });
   // Subagent rows, an open child's own row and its ancestors come from the family when the shell
   // leaves idle children out. Every source agrees on the root, so the key never flips.
   useThreadFamily(
@@ -3556,6 +3574,11 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
+                              onDraftActivity={(kind) => {
+                                if (kind === "typing") guestActivity.typing();
+                                else if (kind === "voice") guestActivity.voice(true);
+                                else guestActivity.clear();
+                              }}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}

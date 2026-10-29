@@ -41,7 +41,7 @@ const Frame = Schema.Union([
   Schema.Struct({ type: Schema.Literal("error"), id: Schema.String }),
   Schema.Struct({ type: Schema.Literal("cancel"), id: Schema.String }),
 ]);
-const FrameJson = Schema.fromJsonString(Frame);
+const FrameJson = Schema.fromJsonString(Schema.toCodecJson(Frame));
 const decodeFrame = Schema.decodeUnknownSync(FrameJson);
 const encodeFrame = Schema.encodeSync(FrameJson);
 const Metadata = Schema.Struct({
@@ -87,6 +87,11 @@ export class SharedGroupTransport extends Context.Service<
       request: GroupPeerRequest,
     ) => Effect.Effect<GroupPeerResponse, GroupChatError>;
     readonly selected: (groupKey: string) => Effect.Effect<ReadonlyArray<ThreadId>, GroupChatError>;
+    readonly routeFriendId: (
+      groupKey: string,
+      environmentId: EnvironmentId,
+      fresh?: boolean,
+    ) => Effect.Effect<SharedGroupDeviceGrant["toFriendId"] | undefined, GroupChatError>;
     readonly revokedRoutes: (
       groupKey: string,
       environmentIds: ReadonlySet<EnvironmentId>,
@@ -110,6 +115,7 @@ const make = Effect.gen(function* () {
   const connections = new Map<string, Connection>();
   const opening = new Map<string, Semaphore.Semaphore>();
   const metadataLock = yield* Semaphore.make(1);
+  const verifiedOwners = new Map<EnvironmentId, SharedGroupDeviceGrant["toFriendId"]>();
   let handler: Handler = () => Effect.fail(unavailable());
   let cleanup: Cleanup = () => Effect.void;
   const authorize = Effect.fn("SharedGroupTransport.authorize")(
@@ -341,6 +347,23 @@ const make = Effect.gen(function* () {
         .filter((item) => item.groupKey === groupKey)
         .map((item) => item.threadId);
     }),
+    routeFriendId: Effect.fn("SharedGroupTransport.routeFriendId")(function* (
+      groupKey,
+      environmentId,
+      fresh = true,
+    ) {
+      if (!fresh) return verifiedOwners.get(environmentId);
+      const { data } = yield* read();
+      const route = data.routes.find(
+        (candidate) =>
+          candidate.groupKey === groupKey &&
+          sharedGroupEnvironmentId(groupKey, candidate.deviceId) === environmentId,
+      );
+      if (!route) return undefined;
+      const grant = yield* authorize(groupKey, route.deviceId);
+      verifiedOwners.set(environmentId, grant.toFriendId);
+      return grant.toFriendId;
+    }),
     revokedRoutes: Effect.fn("SharedGroupTransport.revokedRoutes")(
       function* (groupKey, environmentIds) {
         if (environmentIds.size === 0) return [];
@@ -354,11 +377,19 @@ const make = Effect.gen(function* () {
           (route) =>
             authorize(groupKey, route.deviceId).pipe(
               Effect.match({
-                onFailure: (error) =>
-                  error.code === "not-group-turn"
-                    ? [sharedGroupEnvironmentId(groupKey, route.deviceId)]
-                    : [],
-                onSuccess: () => [],
+                onFailure: (error) => {
+                  if (error.code !== "not-group-turn") return [];
+                  const id = sharedGroupEnvironmentId(groupKey, route.deviceId);
+                  verifiedOwners.delete(id);
+                  return [id];
+                },
+                onSuccess: (grant) => {
+                  verifiedOwners.set(
+                    sharedGroupEnvironmentId(groupKey, route.deviceId),
+                    grant.toFriendId,
+                  );
+                  return [];
+                },
               }),
             ),
           { concurrency: 4 },

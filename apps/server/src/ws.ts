@@ -2224,6 +2224,8 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.rotateWebhookToken(input)),
           ),
+        [WS_METHODS.guestSharePublishActivity]: (input) => guestShares.publishOwnerActivity(input),
+        [WS_METHODS.guestShareActivitySubscribe]: (input) => guestShares.activityStream(input),
         [WS_METHODS.guestShareCreate]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(guestShares.create(input)),
@@ -2895,6 +2897,24 @@ export const layerWsRpc = (
         [WS_METHODS.voiceStart]: (input) => voice.start(input),
         [WS_METHODS.voiceSubscribe]: (input) => voice.subscribe(input),
         [WS_METHODS.voiceStop]: (input) => voice.stop(input),
+        [WS_METHODS.sharedGroupsPublishActivity]: (input) => sharedGroups.publishActivity(input),
+        [WS_METHODS.sharedGroupsActivitySubscribe]: (input) => sharedGroups.activityStream(input),
+        [WS_METHODS.groupsGetRunPage]: (input) => groupChat.getRunPage(input),
+        [WS_METHODS.groupsGetRunItem]: (input) => groupChat.getRunItem(input),
+        [WS_METHODS.groupsGetRunBodyRange]: (input) => groupChat.getRunBodyRange(input),
+        [WS_METHODS.sharedGroupsGetRunPage]: (input) => sharedGroups.getRunPage(input),
+        [WS_METHODS.sharedGroupsGetRunItem]: (input) => sharedGroups.getRunItem(input),
+        [WS_METHODS.sharedGroupsGetRunBodyRange]: (input) => sharedGroups.getRunBodyRange(input),
+        [WS_METHODS.groupsGetHistory]: (input) => groupChat.getHistory(input),
+        [WS_METHODS.groupsGetMessageChunk]: (input) => groupChat.getMessageChunk(input),
+        [WS_METHODS.sharedGroupsGetHistory]: (input) => sharedGroups.getHistory(input),
+        [WS_METHODS.sharedGroupsGetMessageChunk]: (input) => sharedGroups.getMessageChunk(input),
+        [WS_METHODS.groupsGetRunAsset]: (input) => groupChat.getRunAsset(input),
+        [WS_METHODS.sharedGroupsGetRunAsset]: (input) => sharedGroups.getRunAsset(input),
+        [WS_METHODS.groupsRespondToRuntimeRequest]: (input) =>
+          groupChat.respondToRuntimeRequest(input),
+        [WS_METHODS.sharedGroupsRespondToRuntimeRequest]: (input) =>
+          sharedGroups.respondToRuntimeRequest(input),
         [WS_METHODS.sharedGroupsGet]: (input) => sharedGroups.get(input),
         [WS_METHODS.sharedGroupsSubscribe]: (input) => sharedGroups.subscribe(input),
         [WS_METHODS.sharedGroupsSend]: (input) => sharedGroups.send(input),
