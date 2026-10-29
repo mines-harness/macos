@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   guestShareGuests,
+  guestSessionPermission,
   guestSharePermission,
   type ChatAttachment,
   type GuestMessageId,
@@ -15,8 +16,16 @@ import {
   type ThreadGuestShare,
 } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
-import { CheckIcon, CopyIcon, HammerIcon, LinkIcon, UsersIcon, XIcon } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import {
+  CheckIcon,
+  CopyIcon,
+  HammerIcon,
+  LinkIcon,
+  SendIcon,
+  UsersIcon,
+  XIcon,
+} from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -432,17 +441,41 @@ function GuestParticipantList({
   const guests = guestShareGuests(share);
   const canKick = useAtomValue(threadEnvironment.kickGuest.permissionAtom(threadRef.environmentId));
   const canBan = useAtomValue(threadEnvironment.banGuest.permissionAtom(threadRef.environmentId));
+  const canSetPermission = useAtomValue(
+    threadEnvironment.setGuestPermission.permissionAtom(threadRef.environmentId),
+  );
+  const setGuestPermission = useAtomCommand(threadEnvironment.setGuestPermission, {
+    label: "update guest permission",
+  });
   const kickGuest = useAtomCommand(threadEnvironment.kickGuest, { label: "kick guest" });
   const banGuest = useAtomCommand(threadEnvironment.banGuest, { label: "ban guest IP" });
   const [busyId, setBusyId] = useState<GuestSessionId | null>(null);
+  const busyRef = useRef(false);
+  const setPermission = async (guestId: GuestSessionId) => {
+    if (busyRef.current || !canSetPermission) return;
+    busyRef.current = true;
+    setBusyId(guestId);
+    await setGuestPermission({
+      environmentId: threadRef.environmentId,
+      input: {
+        threadId: threadRef.threadId,
+        guestId,
+        permission: guestSessionPermission(share, guestId) === "viewer" ? "confirm" : "viewer",
+      },
+    });
+    busyRef.current = false;
+    setBusyId(null);
+  };
   const moderate = async (guestId: GuestSessionId, action: "kick" | "ban") => {
-    if (busyId !== null || !(action === "kick" ? canKick : canBan)) return;
+    if (busyRef.current || !(action === "kick" ? canKick : canBan)) return;
+    busyRef.current = true;
     setBusyId(guestId);
     const command = action === "kick" ? kickGuest : banGuest;
     await command({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, guestId },
     });
+    busyRef.current = false;
     setBusyId(null);
   };
 
@@ -459,11 +492,54 @@ function GuestParticipantList({
     <ul className="space-y-2" aria-label="Guest participants">
       {guests.map((guest) => (
         <li key={guest.id} className="flex items-center gap-2">
-          <UsersIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          <span dir="auto" className="min-w-0 flex-1 truncate text-sm">
-            {guest.name}
+          <span
+            aria-hidden
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground"
+          >
+            {guest.name.slice(0, 2).toUpperCase()}
           </span>
-          <span className="text-muted-foreground text-xs">Guest</span>
+          <div className="min-w-0 flex-1">
+            <p dir="auto" className="truncate text-sm">
+              {guest.name}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {guestSessionPermission(share, guest.id) === "viewer"
+                ? "View only"
+                : guestSessionPermission(share, guest.id) === "send"
+                  ? "Can send directly"
+                  : "Can suggest messages"}
+            </p>
+          </div>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={`${guestSessionPermission(share, guest.id) === "viewer" ? "Allow" : "Disable"} messages from ${guest.name}`}
+                  aria-pressed={guestSessionPermission(share, guest.id) !== "viewer"}
+                  disabled={!canSetPermission || busyId !== null}
+                  onClick={() => void setPermission(guest.id)}
+                />
+              }
+            >
+              <span className="relative">
+                <SendIcon aria-hidden />
+                <span className="absolute -right-1 -bottom-1 rounded-full bg-background">
+                  {guestSessionPermission(share, guest.id) === "viewer" ? (
+                    <XIcon aria-hidden className="size-2" />
+                  ) : (
+                    <CheckIcon aria-hidden className="size-2" />
+                  )}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipPopup>
+              {guestSessionPermission(share, guest.id) === "viewer"
+                ? "Allow messages for your approval"
+                : "Disable new messages"}
+            </TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -506,27 +582,70 @@ function GuestParticipantList({
   );
 }
 
+export function GuestConversationSidebar({
+  threadRef,
+  share,
+  bottomInset,
+}: {
+  readonly threadRef: ScopedThreadRef;
+  readonly share: ThreadGuestShare;
+  readonly bottomInset: number;
+}) {
+  return (
+    <aside
+      aria-label="Guests in this conversation"
+      className="hidden min-h-0 w-64 shrink-0 flex-col overflow-y-auto border-s border-border bg-sidebar/40 px-4 py-5 lg:flex"
+      style={{ marginBottom: bottomInset }}
+    >
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="text-xs font-medium text-muted-foreground">
+          Users · {guestShareGuests(share).length}
+        </h2>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label="Manage guest link"
+                onClick={() => openGuestShareDialog(threadRef)}
+              />
+            }
+          >
+            <LinkIcon aria-hidden />
+          </TooltipTrigger>
+          <TooltipPopup>Manage guest link</TooltipPopup>
+        </Tooltip>
+      </div>
+      <GuestParticipantList threadRef={threadRef} share={share} />
+      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+        The send icon controls who can suggest messages for your approval.
+      </p>
+    </aside>
+  );
+}
+
 export function GuestShareParticipants({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const share = useThreadGuestShare(threadRef);
-  const names = share ? guestShareGuests(share).map((guest) => guest.name) : [];
-  if (share?.guests === undefined && share?.guestName) names.push(share.guestName);
-  if (share === null || names.length === 0) return null;
+  if (share === null) return null;
+  const guests = guestShareGuests(share);
   return (
-    <Popover>
-      <PopoverTrigger
-        render={<Button size="xs" variant="ghost-muted" aria-label="Guest participants" />}
-      >
-        <UsersIcon aria-hidden />
-        <span className="max-w-48 truncate">{names.join(", ")}</span>
-        <span>{names.length === 1 ? "guest" : `${names.length} guests`}</span>
-      </PopoverTrigger>
-      <PopoverPopup width="md" align="start">
-        <div className="space-y-3">
-          <PopoverTitle>Guest participants</PopoverTitle>
-          <GuestParticipantList threadRef={threadRef} share={share} />
-        </div>
-      </PopoverPopup>
-    </Popover>
+    <div className="lg:hidden">
+      <Popover>
+        <PopoverTrigger
+          render={<Button size="xs" variant="ghost-muted" aria-label="Guest participants" />}
+        >
+          <UsersIcon aria-hidden />
+          Guests{guests.length > 0 ? ` · ${guests.length}` : ""}
+        </PopoverTrigger>
+        <PopoverPopup width="md" align="start">
+          <div className="space-y-3">
+            <PopoverTitle>Users</PopoverTitle>
+            <GuestParticipantList threadRef={threadRef} share={share} />
+          </div>
+        </PopoverPopup>
+      </Popover>
+    </div>
   );
 }
 
@@ -568,7 +687,8 @@ export function GuestPendingMessages({
     label: "resolve guest message",
   });
   const [busyIds, setBusyIds] = useState<ReadonlySet<GuestMessageId>>(new Set());
-  const pending = share?.messages.filter((message) => message.status === "pending") ?? [];
+  const pending =
+    share?.messages.filter((message) => message.status === "pending" && !message.deletedAt) ?? [];
   // The files are the thread's attachments, which the owner's environment serves like any other.
   const images = pending.flatMap((message) => message.attachments ?? []).filter(isImageAttachment);
   const imageUrls = useAssetUrls(
@@ -590,11 +710,15 @@ export function GuestPendingMessages({
     if (preview) onImageExpand(preview);
   };
 
-  const resolve = async (guestMessageId: GuestMessageId, decision: "send" | "dismiss") => {
+  const resolve = async (
+    guestMessageId: GuestMessageId,
+    revision: number,
+    decision: "send" | "dismiss",
+  ) => {
     setBusyIds((ids) => new Set(ids).add(guestMessageId));
     await resolveGuestMessage({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, guestMessageId, decision },
+      input: { threadId: threadRef.threadId, guestMessageId, decision, expectedRevision: revision },
     });
     setBusyIds((ids) => {
       const next = new Set(ids);
@@ -640,7 +764,7 @@ export function GuestPendingMessages({
                   variant="ghost-muted"
                   disabled={busy}
                   aria-label={`Dismiss message from ${guestName}`}
-                  onClick={() => void resolve(message.id, "dismiss")}
+                  onClick={() => void resolve(message.id, message.revision ?? 0, "dismiss")}
                 >
                   Dismiss
                 </Button>
@@ -648,7 +772,7 @@ export function GuestPendingMessages({
                   size="xs"
                   disabled={busy}
                   aria-label={`Send message from ${guestName}`}
-                  onClick={() => void resolve(message.id, "send")}
+                  onClick={() => void resolve(message.id, message.revision ?? 0, "send")}
                 >
                   Send
                 </Button>

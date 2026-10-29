@@ -757,3 +757,131 @@ it.effect("brings a settled thread back when its guest sends a request", () =>
     assert.isNull(thread.settledAt);
   }).pipe(Effect.provide(layerTest)),
 );
+
+it.effect(
+  "changes one guest's send permission without granting direct send or changing the link",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* setup;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      yield* openConfigured(orchestrator, "viewer");
+      yield* redeemIdentity(orchestrator, "redeem-first");
+      yield* redeemIdentity(orchestrator, "redeem-second", otherGuestId, "192.0.2.2", "Alex");
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.permission.set",
+        commandId: CommandId.make("allow-first"),
+        threadId,
+        guestId,
+        permission: "confirm",
+      });
+      yield* submitIdentity(orchestrator, "submit-allowed");
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(submitIdentity(orchestrator, "submit-viewer", "No", otherGuestId)),
+        ),
+      );
+      const { thread } = yield* projections.getThreadProjection(threadId);
+      assert.equal(thread.guestShare?.permission, "viewer");
+      assert.equal(thread.guestShare?.messages[0]?.direct, undefined);
+      assert.equal(thread.guestShare?.messages[0]?.status, "pending");
+      yield* orchestrator.dispatch({
+        type: "thread.guest-share.permission.set",
+        commandId: CommandId.make("forbid-first"),
+        threadId,
+        guestId,
+        permission: "viewer",
+      });
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(submitIdentity(orchestrator, "submit-revoked"))),
+      );
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "revises only an author's pending request and rejects approval of an outdated revision",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* setup;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      yield* openConfigured(orchestrator, "confirm");
+      yield* redeemIdentity(orchestrator, "redeem-first");
+      yield* redeemIdentity(orchestrator, "redeem-second", otherGuestId, "192.0.2.2", "Alex");
+      yield* submitIdentity(orchestrator, "submit-first", "Original");
+      const edit = {
+        type: "thread.guest-message.edit" as const,
+        commandId: CommandId.make("edit-first"),
+        threadId,
+        shareId,
+        guestId,
+        guestMessageId,
+        text: "Revised",
+        expectedRevision: 0,
+      };
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(
+            orchestrator.dispatch({
+              ...edit,
+              commandId: CommandId.make("edit-other"),
+              guestId: otherGuestId,
+            }),
+          ),
+        ),
+      );
+      yield* orchestrator.dispatch(edit);
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(sendGuestMessage(orchestrator, "stale-send"))),
+      );
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("fresh-send"),
+        threadId,
+        messageId: MessageId.make("fresh-send"),
+        guestMessageId,
+        guestMessageRevision: 1,
+        text: "",
+        attachments: [],
+        dispatchMode: { type: "defer_start" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(
+            orchestrator.dispatch({
+              ...edit,
+              commandId: CommandId.make("edit-sent"),
+              text: "Too late",
+              expectedRevision: 1,
+            }),
+          ),
+        ),
+      );
+      const projection = yield* projections.getThreadProjection(threadId);
+      assert.equal(projection.thread.guestShare?.messages[0]?.text, "Revised");
+      assert.equal(
+        projection.messages.find((message) => message.id === "fresh-send")?.context?.guest?.text,
+        "Revised",
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.guest-message.delete",
+        commandId: CommandId.make("delete-sent"),
+        threadId,
+        shareId,
+        guestId,
+        guestMessageId,
+      });
+      const deleted = yield* projections.getThreadProjection(threadId);
+      assert.isDefined(
+        deleted.messages.find((message) => message.id === "fresh-send")?.context?.guest?.deletedAt,
+      );
+      assert.isDefined(
+        deleted.turnItems.find(
+          (item) =>
+            item.type === "user_message" &&
+            item.messageId === "fresh-send" &&
+            item.context?.guest?.deletedAt,
+        ),
+      );
+    }).pipe(Effect.provide(layerTest)),
+);

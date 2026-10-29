@@ -108,7 +108,7 @@ export function bindGuestProxyBridge(socket: WebSocket, port: number): () => voi
 
   const forward = async (
     id: string,
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     headers: Headers,
     body: Buffer | undefined,

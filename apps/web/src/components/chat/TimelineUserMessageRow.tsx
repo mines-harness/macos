@@ -122,6 +122,9 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 
 export function UserMessageRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
+  if (row.message.context?.guest?.deletedAt) {
+    return <p className="text-right text-sm text-muted-foreground">Message deleted</p>;
+  }
   const body =
     ctx.workflowOpening?.messageId === row.message.id ? (
       <WorkflowOpeningBlock
@@ -650,6 +653,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               </TooltipPopup>
             </Tooltip>
             <div className="flex items-center gap-0.5">
+              {ctx.renderUserMessageActions?.(row)}
               {typeof revertTurnCount === "number" && (
                 <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
               )}

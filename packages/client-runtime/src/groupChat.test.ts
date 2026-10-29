@@ -1,5 +1,18 @@
+import {
+  EnvironmentId,
+  IsoDateTime,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import {
+  GroupId,
+  type GroupDelivery,
+  type GroupMember,
+  type GroupRound,
+} from "@t3tools/contracts/groupChat";
 import { describe, expect, it } from "vite-plus/test";
-import { groupRecipients } from "./groupChat.ts";
+import { groupActivity, groupRecipients } from "./groupChat.ts";
 
 const members = [
   { id: "a", alias: "Alice" },
@@ -56,4 +69,74 @@ describe("group addressing", () => {
       recipientMemberIds: [],
     });
   });
+});
+
+const now = IsoDateTime.make("2026-10-29T10:00:00.000Z");
+const member = (id: string): GroupMember => ({
+  id,
+  groupId: GroupId.make("group"),
+  threadId: ThreadId.make(id),
+  projectId: ProjectId.make("project"),
+  environmentId: EnvironmentId.make("local"),
+  alias: id,
+  role: "",
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt" },
+  joinedAt: now,
+});
+const delivery = (
+  memberId: string,
+  status: GroupDelivery["status"],
+  id = memberId,
+): GroupDelivery => ({
+  id,
+  memberId,
+  status,
+  stage: "initial",
+  runId: null,
+  hop: 0,
+  parentDeliveryId: null,
+  request: "Review",
+  contextThroughMessageId: null,
+  error: null,
+});
+const round = (deliveries: readonly GroupDelivery[], active = true): GroupRound => ({
+  id: "round",
+  groupId: GroupId.make("group"),
+  userMessageId: "message",
+  routing: "everyone",
+  workflow: "team",
+  status: active ? "active" : "completed",
+  members: [],
+  deliveries,
+  createdAt: now,
+  completedAt: active ? null : now,
+});
+
+it("shows only current mines actually running in active rounds", () => {
+  const members = [member("working"), member("waiting"), member("assessing")];
+  expect(
+    groupActivity(members, [
+      round([
+        delivery("working", "running"),
+        delivery("working", "running", "duplicate"),
+        delivery("waiting", "queued"),
+        delivery("assessing", "assessing"),
+        delivery("removed", "running"),
+      ]),
+      round([delivery("waiting", "running")], false),
+    ]),
+  ).toEqual([{ member: members[0], startedAt: null }]);
+});
+
+it("uses actual run start times and keeps old-server activity honest when unknown", () => {
+  const members = [member("working"), member("old-server")];
+  const startedAt = IsoDateTime.make("2026-10-29T10:03:00.000Z");
+  expect(
+    groupActivity(members, [
+      round([{ ...delivery("working", "running"), startedAt }, delivery("old-server", "running")]),
+    ]),
+  ).toEqual([
+    { member: members[0], startedAt },
+    { member: members[1], startedAt: null },
+  ]);
 });

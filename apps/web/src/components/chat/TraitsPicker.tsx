@@ -131,11 +131,7 @@ function getSelectedTraits(
     provider === "opencode" &&
     !models.some((candidate) => candidate.slug === normalizeModelSlug(model, provider));
   const descriptors = modelIsUnavailable
-    ? buildUnavailableModelOptionDescriptors(
-        planModeEnabled
-          ? modelOptions
-          : modelOptions?.filter((option) => option.id !== "agent" || option.value !== "plan"),
-      )
+    ? buildUnavailableModelOptionDescriptors(modelOptions)
     : getProviderOptionDescriptors({
         caps,
         selections: modelOptions,

@@ -2840,6 +2840,14 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     guestMessageId: GuestMessageId,
+    expectedRevision: Schema.optional(NonNegativeInt),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.guest-share.permission.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    guestId: GuestSessionId,
+    permission: Schema.Literals(["viewer", "confirm"]),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.guest-share.kick"),
@@ -3057,6 +3065,7 @@ export const OrchestrationV2Command = Schema.Union([
     notification: Schema.optional(OrchestrationV2Notification),
     /** Sends this pending guest message; the server uses the guest's text, not `text`. */
     guestMessageId: Schema.optional(GuestMessageId),
+    guestMessageRevision: Schema.optional(NonNegativeInt),
     ...OrchestrationV2CreationFields,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
@@ -3285,6 +3294,25 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
 // Excluded from dispatchCommand so only the server can send these.
 const OrchestrationV2InternalCommand = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("thread.guest-message.edit"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    shareId: GuestShareId,
+    guestId: GuestSessionId,
+    guestMessageId: GuestMessageId,
+    text: Schema.String,
+    expectedRevision: NonNegativeInt,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.guest-message.delete"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    shareId: GuestShareId,
+    guestId: GuestSessionId,
+    guestMessageId: GuestMessageId,
+    messageId: Schema.optional(MessageId),
+  }),
   // Guest share commands the server issues after checking T3 Connect and the guest token.
   Schema.Struct({
     type: Schema.Literal("thread.guest-share.open"),

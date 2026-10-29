@@ -7,8 +7,42 @@ import {
 } from "@t3tools/client-runtime/catalog";
 import { buildLibraryRows } from "./MinesLibrary.logic";
 
+it("shows pinned sections, projects, and mines only in their pinned placements", () => {
+  const catalog = new MinesCatalog();
+  catalog.upsert({ id: "section", kind: "section", title: "Work" });
+  catalog.upsert({ id: "project", kind: "project", title: "App" }, { parentId: "section" });
+  catalog.upsert({ id: "mine", kind: "thread", title: "Build" }, { parentId: "project" });
+  const originalRoots = catalog.getSnapshot().roots;
+  catalog.pin("section");
+  catalog.pin("project");
+  catalog.pin("mine");
+  const rows = buildLibraryRows(
+    catalog.getSnapshot(),
+    new Set(),
+    new Set(["pins/project", "pins/section/project", "library/section/project"]),
+    new Set(),
+  ).filter((row) => "entry" in row);
+  expect(rows.map((row) => row.key)).toEqual(["pins/section", "pins/project", "pins/mine"]);
+  expect(rows.every((row) => !row.hasChildren)).toBe(true);
+  expect(catalog.getSnapshot().roots).toEqual(originalRoots);
+
+  catalog.unpin("project");
+  const unpinned = buildLibraryRows(
+    catalog.getSnapshot(),
+    new Set(),
+    new Set(["pins/section/project"]),
+    new Set(),
+  ).filter((row) => "entry" in row);
+  expect(unpinned.map((row) => row.key)).toEqual([
+    "pins/section",
+    "pins/section/project",
+    "pins/mine",
+  ]);
+  expect(catalog.getSnapshot().roots).toEqual(originalRoots);
+});
+
 describe("library row identity", () => {
-  it("keeps pinned shortcuts and their repeated descendants distinct", () => {
+  it("keeps pinned containers and descendants in one visible placement each", () => {
     let id = 0;
     const catalog = new MinesCatalog({ createId: () => `placement-${++id}` });
     catalog.upsert({ id: "section", kind: "section", title: "Work" });
@@ -23,11 +57,43 @@ describe("library row identity", () => {
       new Set(),
     );
     const entries = rows.filter((row) => "entry" in row);
-    expect(entries.filter((row) => row.entry.entity.id === "thread")).toHaveLength(3);
+    expect(entries.filter((row) => row.entry.entity.id === "thread")).toHaveLength(1);
     expect(new Set(entries.map((row) => row.key)).size).toBe(entries.length);
     expect(entries.filter((row) => row.pinned).map((row) => row.entry.entity.id)).toEqual([
       "section",
       "project",
+    ]);
+  });
+
+  it("keeps an unpinned container and its other children when a nested mine is pinned", () => {
+    const catalog = new MinesCatalog();
+    catalog.upsert({ id: "section", kind: "section", title: "Work" });
+    catalog.upsert({ id: "project", kind: "project", title: "App" }, { parentId: "section" });
+    catalog.upsert({ id: "mine", kind: "thread", title: "Build" }, { parentId: "project" });
+    catalog.upsert({ id: "other", kind: "thread", title: "Review" }, { parentId: "project" });
+    catalog.pin("mine");
+    const listed = () =>
+      buildLibraryRows(
+        catalog.getSnapshot(),
+        new Set(),
+        new Set(["library/section/project"]),
+        new Set(),
+      ).filter((row) => "entry" in row);
+    const pinned = listed();
+    expect(pinned.map((row) => row.key)).toEqual([
+      "pins/mine",
+      "library/section",
+      "library/section/project",
+      "library/section/project/other",
+    ]);
+    expect(pinned.at(-1)?.siblings.map((entry) => entry.entity.id)).toEqual(["other"]);
+    expect(pinned.at(-1)?.index).toBe(0);
+    catalog.unpin("mine");
+    expect(listed().map((row) => row.key)).toEqual([
+      "library/section",
+      "library/section/project",
+      "library/section/project/mine",
+      "library/section/project/other",
     ]);
   });
 });
@@ -65,11 +131,10 @@ describe("thread hierarchy", () => {
     const rows = buildLibraryRows(nestedThreadSnapshot(), new Set(), new Set(), new Set());
     expect(rows.filter((row) => "entry" in row).map((row) => [row.key, row.open])).toEqual([
       ["pins/parent", false],
-      ["library/parent", false],
     ]);
   });
 
-  it("expands nested threads with independent pinned shortcut paths", () => {
+  it("expands nested threads only in their pinned family", () => {
     const rows = buildLibraryRows(
       nestedThreadSnapshot(),
       new Set(),
@@ -81,28 +146,20 @@ describe("thread hierarchy", () => {
       ["pins/parent", 0],
       ["pins/parent/child", 1],
       ["pins/parent/child/grandchild", 2],
-      ["library/parent", 0],
-      ["library/parent/child", 1],
-      ["library/parent/child/grandchild", 2],
     ]);
   });
 
-  it("collapses only the chosen parent path and filters hidden descendants", () => {
+  it("filters hidden descendants inside an expanded pinned family", () => {
     const rows = buildLibraryRows(
       nestedThreadSnapshot(),
       new Set(),
-      new Set(["library/parent", "library/parent/child"]),
+      new Set(["pins/parent", "pins/parent/child"]),
       new Set(["grandchild"]),
     );
     const entries = rows.filter((row) => "entry" in row);
-    expect(entries.map((row) => row.key)).toEqual([
-      "pins/parent",
-      "library/parent",
-      "library/parent/child",
-    ]);
-    expect(entries.find((row) => row.key === "pins/parent")?.open).toBe(false);
-    expect(entries.find((row) => row.key === "library/parent")?.open).toBe(true);
-    expect(entries.find((row) => row.key === "library/parent/child")?.hasChildren).toBe(false);
+    expect(entries.map((row) => row.key)).toEqual(["pins/parent", "pins/parent/child"]);
+    expect(entries.find((row) => row.key === "pins/parent")?.open).toBe(true);
+    expect(entries.find((row) => row.key === "pins/parent/child")?.hasChildren).toBe(false);
   });
 
   it("lists subagents only under mines or as pinned aliases, keeping forks and other environments", () => {
@@ -138,10 +195,7 @@ describe("thread hierarchy", () => {
       listed()
         .filter((row) => row.entry.entity.id === childId)
         .map((row) => [row.pinned, row.depth]),
-    ).toEqual([
-      [true, 0],
-      [false, 1],
-    ]);
+    ).toEqual([[true, 0]]);
   });
 
   it("hides archived children in both pinned and nested placements", () => {

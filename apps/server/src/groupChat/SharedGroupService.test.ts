@@ -4,6 +4,8 @@ import {
   GroupChatError,
   GroupId,
   IsoDateTime,
+  ProjectId,
+  ProviderInstanceId,
   ThreadId,
   type GroupSnapshot,
   type GroupSendInput,
@@ -78,6 +80,12 @@ const fixture = (coordinator = true) => {
   const sends: Array<{ input: GroupSendInput; author: string }> = [];
   const native: Array<{ environmentId: EnvironmentId; request: GroupPeerRequest }> = [];
   const additions: ReadonlyArray<unknown>[] = [];
+  const removals: Array<{
+    groupId: GroupId;
+    memberIds: ReadonlyArray<string>;
+    cancelActive?: boolean;
+  }> = [];
+  let revokedRoutes: ReadonlyArray<EnvironmentId> = [];
   const dependencies = Layer.mergeAll(
     GroupPeerStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
     Layer.mock(GroupChatService.GroupChatService)({
@@ -93,7 +101,14 @@ const fixture = (coordinator = true) => {
           additions.push(input.members);
           return snapshot;
         }),
-      removeMembers: () => Effect.succeed(snapshot),
+      removeMembers: (input) =>
+        Effect.sync(() => {
+          removals.push(input);
+          Object.assign(snapshot, {
+            members: snapshot.members.filter((member) => !input.memberIds.includes(member.id)),
+          });
+          return snapshot;
+        }),
       peer: (environmentId, request) =>
         Effect.sync(() => {
           native.push({ environmentId, request });
@@ -125,6 +140,7 @@ const fixture = (coordinator = true) => {
             : Effect.succeed(snapshot),
         ),
       selected: () => Effect.sync(() => selections),
+      revokedRoutes: () => Effect.sync(() => revokedRoutes),
       select: (_key, ids, selected) =>
         Effect.sync(() => {
           selections = selected
@@ -146,6 +162,10 @@ const fixture = (coordinator = true) => {
     sends,
     native,
     additions,
+    removals,
+    revokeRoutes: (routes: ReadonlyArray<EnvironmentId>) => {
+      revokedRoutes = routes;
+    },
     environmentId,
     get selections() {
       return selections;
@@ -166,6 +186,50 @@ const fixture = (coordinator = true) => {
 };
 
 describe("shared group service", () => {
+  it.effect("removes every mine from revoked device routes and preserves the other members", () => {
+    const h = fixture();
+    const revoked = sharedGroupEnvironmentId(h.input.groupKey, h.grant().to.deviceId);
+    const anotherDevice = sharedGroupEnvironmentId(h.input.groupKey, "another-removed-device");
+    const keep = sharedGroupEnvironmentId(h.input.groupKey, "remaining-friend");
+    const member = (id: string, environmentId: EnvironmentId | null) => ({
+      id,
+      groupId: h.groupId,
+      threadId: ThreadId.make(id),
+      projectId: ProjectId.make("project"),
+      environmentId,
+      alias: id,
+      role: "",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5",
+      },
+      joinedAt: h.snapshot.group.createdAt,
+    });
+    Object.assign(h.snapshot, {
+      members: [
+        member("removedone", revoked),
+        member("removedtwo", revoked),
+        member("removedotherdevice", anotherDevice),
+        member("friend", keep),
+        member("owner", null),
+      ],
+    });
+    h.revokeRoutes([revoked, anotherDevice]);
+    return Effect.gen(function* () {
+      const service = yield* SharedGroupService.SharedGroupService;
+      const result = yield* service.get(h.input);
+      expect(result.snapshot?.members.map((member) => member.id)).toEqual(["friend", "owner"]);
+      expect(h.removals).toEqual([
+        {
+          groupId: h.groupId,
+          memberIds: ["removedone", "removedtwo", "removedotherdevice"],
+          cancelActive: true,
+        },
+      ]);
+      yield* service.get(h.input);
+      expect(h.removals).toHaveLength(1);
+    }).pipe(Effect.provide(h.layer));
+  });
   it.effect("preserves prior selections and reservations when adding another chat fails", () => {
     const h = fixture(false);
     return Effect.gen(function* () {

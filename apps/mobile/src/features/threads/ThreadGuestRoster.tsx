@@ -5,13 +5,15 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   guestShareGuests,
+  guestSessionPermission,
   type GuestSessionId,
   type ScopedThreadRef,
   type ThreadGuestShare,
 } from "@t3tools/contracts";
 import { useRef, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
@@ -32,6 +34,12 @@ export function ThreadGuestRoster(props: {
   const canUnban = useAtomValue(
     threadEnvironment.unbanGuest.permissionAtom(threadRef.environmentId),
   );
+  const canSetPermission = useAtomValue(
+    threadEnvironment.setGuestPermission.permissionAtom(threadRef.environmentId),
+  );
+  const setPermission = useAtomCommand(threadEnvironment.setGuestPermission, {
+    reportFailure: false,
+  });
   const kick = useAtomCommand(threadEnvironment.kickGuest, { reportFailure: false });
   const ban = useAtomCommand(threadEnvironment.banGuest, { reportFailure: false });
   const unban = useAtomCommand(threadEnvironment.unbanGuest, { reportFailure: false });
@@ -43,24 +51,47 @@ export function ThreadGuestRoster(props: {
     action:
       | { readonly type: "kick" | "ban"; readonly guestId: GuestSessionId }
       | {
+          readonly type: "permission";
+          readonly guestId: GuestSessionId;
+          readonly permission: "viewer" | "confirm";
+        }
+      | {
           readonly type: "unban";
           readonly ipAddress: string;
         },
   ) => {
     if (busyRef.current) return;
-    if (action.type === "kick" ? !canKick : action.type === "ban" ? !canBan : !canUnban) return;
+    if (
+      action.type === "kick"
+        ? !canKick
+        : action.type === "ban"
+          ? !canBan
+          : action.type === "permission"
+            ? !canSetPermission
+            : !canUnban
+    )
+      return;
     busyRef.current = true;
     setBusy(true);
     const result =
-      action.type === "unban"
-        ? await unban({
+      action.type === "permission"
+        ? await setPermission({
             environmentId: threadRef.environmentId,
-            input: { threadId: threadRef.threadId, ipAddress: action.ipAddress },
+            input: {
+              threadId: threadRef.threadId,
+              guestId: action.guestId,
+              permission: action.permission,
+            },
           })
-        : await (action.type === "kick" ? kick : ban)({
-            environmentId: threadRef.environmentId,
-            input: { threadId: threadRef.threadId, guestId: action.guestId },
-          });
+        : action.type === "unban"
+          ? await unban({
+              environmentId: threadRef.environmentId,
+              input: { threadId: threadRef.threadId, ipAddress: action.ipAddress },
+            })
+          : await (action.type === "kick" ? kick : ban)({
+              environmentId: threadRef.environmentId,
+              input: { threadId: threadRef.threadId, guestId: action.guestId },
+            });
     busyRef.current = false;
     setBusy(false);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
@@ -75,14 +106,58 @@ export function ThreadGuestRoster(props: {
     <View className="gap-2">
       {guests.slice(0, shownGuests).map((guest) => (
         <View key={guest.id} className="flex-row items-center gap-2">
+          <View className="size-8 items-center justify-center rounded-full bg-subtle-strong">
+            <Text className="text-xs text-foreground-muted">
+              {guest.name.slice(0, 2).toUpperCase()}
+            </Text>
+          </View>
           <View className="min-w-0 flex-1 gap-1">
             <Text className="text-sm font-mines-medium" numberOfLines={1}>
               {guest.name}
             </Text>
-            {!guest.ipAddress ? (
-              <Text className="text-xs text-foreground-muted">IP unavailable</Text>
-            ) : null}
+            <Text className="text-xs text-foreground-muted">
+              {guestSessionPermission(props.share, guest.id) === "viewer"
+                ? "View only"
+                : guestSessionPermission(props.share, guest.id) === "send"
+                  ? "Can send directly"
+                  : "Can suggest messages"}
+            </Text>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${guestSessionPermission(props.share, guest.id) === "viewer" ? "Allow" : "Disable"} messages from ${guest.name}`}
+            accessibilityState={{
+              disabled: busy || !canSetPermission,
+              selected: guestSessionPermission(props.share, guest.id) !== "viewer",
+            }}
+            disabled={busy || !canSetPermission}
+            className="size-11 items-center justify-center"
+            onPress={() =>
+              void moderate({
+                type: "permission",
+                guestId: guest.id,
+                permission:
+                  guestSessionPermission(props.share, guest.id) === "viewer" ? "confirm" : "viewer",
+              })
+            }
+          >
+            <SymbolView
+              name="paperplane"
+              size={22}
+              tintColorClassName={
+                busy || !canSetPermission ? "accent-icon-subtle" : "accent-foreground-muted"
+              }
+            />
+            <View className="absolute bottom-1 right-1 rounded-full bg-screen">
+              <SymbolView
+                name={
+                  guestSessionPermission(props.share, guest.id) === "viewer" ? "xmark" : "checkmark"
+                }
+                size={11}
+                tintColorClassName="accent-foreground-muted"
+              />
+            </View>
+          </Pressable>
           <IconButton
             icon="xmark"
             tintColorClassName="accent-danger-foreground"

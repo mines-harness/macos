@@ -311,7 +311,7 @@ export function makeGuestProxy(config: GuestProxyConfig) {
         !config.publicUrl ||
         !deviceId ||
         !guestProxyPath(targetPath, method) ||
-        (method !== "GET" && method !== "POST")
+        (method !== "GET" && method !== "POST" && method !== "PATCH" && method !== "DELETE")
       ) {
         failResponse(response, 404);
         return true;

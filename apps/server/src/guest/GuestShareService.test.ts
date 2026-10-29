@@ -323,6 +323,29 @@ it.effect(
       yield* guestShares.submit(sam.token, { shareId: share.id, text: "Sam's note" }, []);
       const before = (yield* orchestrator.getThreadRecords(threadId, [])).thread.guestShare!;
       assert.equal(before.messages[0]?.guestName, "Sam");
+      const note = before.messages[0]!;
+      const edit = {
+        shareId: share.id,
+        guestMessageId: note.id,
+        text: "Sam's revised note",
+        expectedRevision: 0,
+        requestId: "revise-sam",
+      };
+      assert.equal(
+        (yield* Effect.flip(guestShares.edit(eve.token, edit, "203.0.113.2"))).reason,
+        "rejected",
+      );
+      assert.equal(
+        (yield* Effect.flip(
+          guestShares.deleteMessage(
+            eve.token,
+            { shareId: share.id, guestMessageId: note.id, requestId: "delete-sam" },
+            "203.0.113.2",
+          ),
+        )).reason,
+        "rejected",
+      );
+      yield* guestShares.edit(sam.token, { ...edit, requestId: "owner-revise-sam" }, "203.0.113.1");
       const samId = before.guests!.find((guest) => guest.name === "Sam")!.id;
       const events = yield* guestShares.stream(sam.token);
       yield* orchestrator.dispatch({
@@ -1149,4 +1172,118 @@ it.effect("serves the shared thread's files to its guest, never another thread's
     );
     assert.isDefined(shareId);
   }).pipe(Effect.scoped, Effect.provide(layerTest)),
+);
+
+it.effect(
+  "authenticates guest edits, preserves attachments and removes deleted pending requests",
+  () =>
+    Effect.gen(function* () {
+      const { guestShares, orchestrator, session, shareId } = yield* joinedGuest;
+      yield* guestShares.submit(
+        session,
+        { shareId, text: "First", requestId: "original" },
+        yield* uploadsOf([png("edit.png")]),
+      );
+      const original = (yield* waitingMessages)[0]!;
+      const edit = {
+        shareId,
+        guestMessageId: original.id,
+        text: "Updated",
+        expectedRevision: 0,
+        requestId: "edit-1",
+      };
+      const denied = yield* Effect.flip(guestShares.edit("bad-session", edit, "203.0.113.1"));
+      assert.equal(denied.reason, "invalid");
+      yield* guestShares.edit(session, edit, "203.0.113.1");
+      yield* guestShares.edit(session, edit, "203.0.113.1");
+      const updated = (yield* waitingMessages)[0]!;
+      assert.equal(updated.text, "Updated");
+      assert.equal(updated.revision, 1);
+      assert.deepEqual(updated.attachments, original.attachments);
+      assert.equal((yield* storedFiles).length, 1);
+      const stale = yield* Effect.flip(
+        guestShares.edit(session, { ...edit, text: "Stale", requestId: "stale" }, "203.0.113.1"),
+      );
+      assert.equal(stale.reason, "rejected");
+      yield* guestShares.deleteMessage(
+        session,
+        { shareId, guestMessageId: original.id, requestId: "delete" },
+        "203.0.113.1",
+      );
+      const current = (yield* waitingMessages)[0]!;
+      assert.isDefined(current.deletedAt);
+      assert.equal(current.status, "dismissed");
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(
+            orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make("approve-deleted"),
+              threadId,
+              messageId: MessageId.make("deleted"),
+              guestMessageId: original.id,
+              guestMessageRevision: 1,
+              text: "",
+              attachments: [],
+              dispatchMode: { type: "defer_start" },
+              createdBy: "user",
+              creationSource: "web",
+            }),
+          ),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+);
+
+it.effect("deletes an owned sent message after its moderation record was trimmed", () =>
+  Effect.gen(function* () {
+    const { guestShares, orchestrator, session, shareId } = yield* joinedGuest;
+    yield* guestShares.submit(session, { shareId, text: "Old sent message" }, []);
+    const original = (yield* waitingMessages)[0]!;
+    const messageId = MessageId.make("old-accepted");
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("accept-old"),
+      threadId,
+      messageId,
+      guestMessageId: original.id,
+      text: "",
+      attachments: [],
+      dispatchMode: { type: "defer_start" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    for (let index = 0; index < 21; index += 1) {
+      yield* guestShares.submit(session, { shareId, text: `Note ${index}` }, []);
+      const pending = (yield* waitingMessages).find((message) => message.status === "pending")!;
+      yield* orchestrator.dispatch({
+        type: "thread.guest-message.dismiss",
+        commandId: CommandId.make(`dismiss-${index}`),
+        threadId,
+        guestMessageId: pending.id,
+      });
+    }
+    assert.isFalse((yield* waitingMessages).some((message) => message.id === original.id));
+    yield* guestShares.deleteMessage(
+      session,
+      { shareId, messageId, guestMessageId: original.id, requestId: "delete-old" },
+      "203.0.113.1",
+    );
+    assert.isAtMost(
+      (yield* waitingMessages).filter((message) => message.status !== "pending").length,
+      20,
+    );
+    const records = yield* orchestrator.getThreadRecords(threadId, ["messages", "turnItems"]);
+    assert.isDefined(
+      records.messages.find((message) => message.id === messageId)?.context?.guest?.deletedAt,
+    );
+    assert.isDefined(
+      records.turnItems.find(
+        (item) =>
+          item.type === "user_message" &&
+          item.messageId === messageId &&
+          item.context?.guest?.deletedAt,
+      ),
+    );
+  }).pipe(Effect.provide(layerTest)),
 );

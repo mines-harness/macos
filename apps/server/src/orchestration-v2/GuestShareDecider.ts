@@ -5,9 +5,10 @@ import {
   GUEST_PENDING_MESSAGE_LIMIT,
   GUEST_RESOLVED_MESSAGE_LIMIT,
   guestShareGuests,
-  guestSharePermission,
+  guestSessionPermission,
   type GuestMessageAttribution,
   type GuestMessageId,
+  type MessageId,
   type OrchestrationMessageContext,
   type OrchestrationV2AppThread,
   type OrchestrationV2ServerCommand,
@@ -29,7 +30,10 @@ export type GuestShareCommand = Extract<
       | "thread.guest-share.kick"
       | "thread.guest-share.ban"
       | "thread.guest-share.unban"
+      | "thread.guest-share.permission.set"
       | "thread.guest-message.submit"
+      | "thread.guest-message.edit"
+      | "thread.guest-message.delete"
       | "thread.guest-message.dismiss";
   }
 >;
@@ -54,7 +58,7 @@ const guestShareUseCount = (share: ThreadGuestShare) =>
 
 const pendingAttachments = (share: ThreadGuestShare | null) =>
   share?.messages.flatMap((message) =>
-    message.status === "pending" ? (message.attachments ?? []) : [],
+    message.status === "pending" && !message.deletedAt ? (message.attachments ?? []) : [],
   ) ?? [];
 
 /**
@@ -68,7 +72,7 @@ export function releasedGuestAttachmentIds(
   const kept = new Set(
     after !== null && after.id === before?.id
       ? after.messages.flatMap((message) =>
-          message.status === "dismissed"
+          message.status === "dismissed" || (message.deletedAt && message.status !== "sent")
             ? []
             : (message.attachments ?? []).map((attachment) => attachment.id),
         )
@@ -99,7 +103,7 @@ const resolveMessage = (
   status: "sent" | "dismissed",
 ): Result.Result<ThreadGuestShare, string> => {
   const message = share.messages.find((candidate) => candidate.id === guestMessageId);
-  if (message === undefined || message.status !== "pending") {
+  if (message === undefined || message.status !== "pending" || message.deletedAt) {
     return Result.fail(`Guest message ${guestMessageId} is not pending.`);
   }
   return Result.succeed({
@@ -127,6 +131,68 @@ export function decideGuestShareCommand(input: {
     Result.succeed({ ...thread, guestShare, updatedAt: now });
 
   switch (command.type) {
+    case "thread.guest-share.permission.set": {
+      if (share === null || isExpired(share, now)) return Result.fail(GUEST_FAILURE.inactive);
+      const guests = guestShareGuests(share);
+      const guest = guests.find((candidate) => candidate.id === command.guestId);
+      if (!guest) return Result.fail(GUEST_FAILURE.inactive);
+      if (guest.permission === command.permission) return Result.succeed(thread);
+      return withShare({
+        ...share,
+        guests: guests.map((candidate) =>
+          candidate.id === guest.id ? { ...candidate, permission: command.permission } : candidate,
+        ),
+      });
+    }
+    case "thread.guest-message.edit":
+    case "thread.guest-message.delete": {
+      if (share === null || share.id !== command.shareId || isExpired(share, now))
+        return Result.fail(GUEST_FAILURE.inactive);
+      const guest = guestShareGuests(share).find((candidate) => candidate.id === command.guestId);
+      if (!guest || (guest.ipAddress && thread.guestBannedIps?.includes(guest.ipAddress)))
+        return Result.fail(GUEST_FAILURE.inactive);
+      const message = share.messages.find((candidate) => candidate.id === command.guestMessageId);
+      if (!message || message.guestId !== guest.id)
+        return Result.fail("This is not your guest message.");
+      if (command.type === "thread.guest-message.delete") {
+        if (message.deletedAt) return Result.succeed(thread);
+        return withShare({
+          ...share,
+          messages: trimResolved(
+            share.messages.map((candidate) =>
+              candidate.id === message.id
+                ? {
+                    ...candidate,
+                    deletedAt: DateTime.formatIso(now),
+                    ...(candidate.status === "pending" ? { status: "dismissed" as const } : {}),
+                  }
+                : candidate,
+            ),
+          ),
+        });
+      }
+      if (message.status !== "pending" || message.deletedAt || message.direct)
+        return Result.fail("Only pending guest messages can be edited.");
+      if (guestSessionPermission(share, guest.id) === "viewer")
+        return Result.fail(GUEST_FAILURE.viewer);
+      if ((message.revision ?? 0) !== command.expectedRevision)
+        return Result.fail("This guest message changed. Reload it before editing.");
+      if (!command.text.trim() && !message.attachments?.length)
+        return Result.fail("A guest message needs text or an attachment.");
+      return withShare({
+        ...share,
+        messages: share.messages.map((candidate) =>
+          candidate.id === message.id
+            ? {
+                ...candidate,
+                text: command.text,
+                revision: (candidate.revision ?? 0) + 1,
+                editedAt: DateTime.formatIso(now),
+              }
+            : candidate,
+        ),
+      });
+    }
     case "thread.guest-share.open": {
       if (thread.archivedAt !== null) return Result.fail("Archived mines cannot be shared.");
       return withShare({
@@ -249,7 +315,7 @@ export function decideGuestShareCommand(input: {
         (guest?.ipAddress !== undefined && thread.guestBannedIps?.includes(guest.ipAddress))
       )
         return Result.fail(GUEST_FAILURE.inactive);
-      const permission = guestSharePermission(share);
+      const permission = guestSessionPermission(share, command.guestId);
       if (permission === "viewer") return Result.fail(GUEST_FAILURE.viewer);
       const attachments = command.attachments ?? [];
       const existing = share.messages.find((message) => message.id === command.guestMessageId);
@@ -261,8 +327,8 @@ export function decideGuestShareCommand(input: {
           : Result.fail("This guest message retry does not match the original message.");
       }
       if (
-        share.messages.filter((message) => message.status === "pending").length >=
-        GUEST_PENDING_MESSAGE_LIMIT
+        share.messages.filter((message) => message.status === "pending" && !message.deletedAt)
+          .length >= GUEST_PENDING_MESSAGE_LIMIT
       ) {
         return Result.fail(GUEST_FAILURE.busy);
       }
@@ -302,6 +368,9 @@ export function decideGuestShareCommand(input: {
     }
     case "thread.guest-message.dismiss": {
       if (share === null) return Result.fail("This mine has no guest link.");
+      const message = share.messages.find((candidate) => candidate.id === command.guestMessageId);
+      if ((message?.revision ?? 0) !== (command.expectedRevision ?? 0))
+        return Result.fail("This guest message changed. Review it again before dismissing.");
       return Result.map(resolveMessage(share, command.guestMessageId, "dismissed"), (next) => ({
         ...thread,
         guestShare: next,
@@ -319,6 +388,8 @@ export function decideGuestShareCommand(input: {
 export function decideGuestMessageSend(input: {
   readonly thread: OrchestrationV2AppThread;
   readonly guestMessageId: GuestMessageId;
+  readonly expectedRevision?: number;
+  readonly messageId?: MessageId;
   readonly now: DateTime.Utc;
 }): Result.Result<
   {
@@ -331,11 +402,13 @@ export function decideGuestMessageSend(input: {
   const share = input.thread.guestShare ?? null;
   if (share === null) return Result.fail("This mine has no guest link.");
   const message = share.messages.find((candidate) => candidate.id === input.guestMessageId);
+  if ((message?.revision ?? 0) !== (input.expectedRevision ?? 0))
+    return Result.fail("This guest message changed. Review it again before sending.");
   if (message?.direct === true) {
     const author = guestShareGuests(share).find((guest) => guest.id === message.guestId);
     if (
       author === undefined ||
-      guestSharePermission(share) !== "send" ||
+      guestSessionPermission(share, author.id) !== "send" ||
       isExpired(share, input.now) ||
       (author.ipAddress !== undefined && input.thread.guestBannedIps?.includes(author.ipAddress))
     )
@@ -344,7 +417,18 @@ export function decideGuestMessageSend(input: {
   const name = message?.guestName ?? share.guestName ?? "Guest";
   const guestText = message?.text ?? "";
   return Result.map(resolveMessage(share, input.guestMessageId, "sent"), (next) => ({
-    thread: { ...input.thread, guestShare: next, updatedAt: input.now },
+    thread: {
+      ...input.thread,
+      guestShare: {
+        ...next,
+        messages: next.messages.map((candidate) =>
+          candidate.id === input.guestMessageId && input.messageId !== undefined
+            ? { ...candidate, sentMessageId: input.messageId }
+            : candidate,
+        ),
+      },
+      updatedAt: input.now,
+    },
     text: `Message from guest ${name}${message?.direct === true ? "" : ", sent by the owner"}:\n\n${guestText}`,
     guest: {
       guestMessageId: input.guestMessageId,

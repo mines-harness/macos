@@ -37,6 +37,7 @@ it.live(
       const streamClosed = Promise.withResolvers<void>();
       const hosted = Promise.withResolvers<void>();
       const observed: Array<{
+        method: string;
         path: string;
         ip: string | null;
         headers: NodeHttp.IncomingHttpHeaders;
@@ -53,6 +54,7 @@ it.live(
             if (typeof value === "string") headers[name] = value;
           const ip = verifiedGuestProxyIp(headers, request.socket.remoteAddress);
           observed.push({
+            method: request.method ?? "",
             path: request.url ?? "",
             ip,
             headers: request.headers,
@@ -186,6 +188,33 @@ it.live(
         const uploaded = observed.find((request) => request.path.startsWith("/api/guest/messages"));
         expect(uploaded?.body.includes(binary)).toBe(true);
         expect(uploaded?.headers["content-type"]).toMatch(/^multipart\/form-data; boundary=/);
+        for (const method of ["PATCH", "DELETE"]) {
+          const payload = {
+            shareId: "share_001",
+            guestMessageId: "message",
+            text: "Revised",
+            expectedRevision: 0,
+            requestId: method,
+          };
+          const mutation = await fetch(`${base}/messages?share=share_001`, {
+            method,
+            headers: { cookie, "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          expect(mutation.status).toBe(204);
+          const forwarded = observed.find((request) => request.method === method);
+          expect(forwarded?.path).toBe("/api/guest/messages?share=share_001");
+          expect(JSON.parse(forwarded!.body.toString())).toEqual(payload);
+          const foreign = await fetch(`${base}/messages?share=share_001`, {
+            method,
+            headers: {
+              cookie: "mines_guest_share_001=foreign",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+          expect(foreign.status).toBe(403);
+        }
         expect((await fetch(`${base}/devices`)).status).toBe(404);
         expect(observed.some((request) => request.path.includes("devices"))).toBe(false);
 

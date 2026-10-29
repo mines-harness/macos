@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { GuestMessageId } from "@t3tools/contracts";
 
-import { resolveUserMessagePresentation } from "./userMessage.ts";
+import { redactDeletedGuestMessage, resolveUserMessagePresentation } from "./userMessage.ts";
 
 describe("resolveUserMessagePresentation", () => {
   const legacyText = "[Triggered by schedule task: Daily audit]\n\nCheck for crashes.\n";
@@ -38,6 +38,23 @@ describe("resolveUserMessagePresentation", () => {
     ).toEqual({ text: "Why?", attribution: "guest", scheduledTaskId: undefined, guestName: "Sam" });
   });
 
+  it("hides a deleted guest's text while retaining attribution", () => {
+    expect(
+      resolveUserMessagePresentation({
+        role: "user",
+        text: "Message from guest Sam: private text",
+        context: {
+          guest: {
+            guestMessageId: GuestMessageId.make("deleted"),
+            name: "Sam",
+            text: "private text",
+            deletedAt: "2026-10-29T00:00:00.000Z",
+          },
+        },
+      }),
+    ).toEqual({ text: "", attribution: "guest", scheduledTaskId: undefined, guestName: "Sam" });
+  });
+
   it("attributes older server-sent restart continuations to T3 Code, not another agent", () => {
     const text = "Note: the T3 server restarted.";
     expect(
@@ -70,5 +87,49 @@ describe("resolveUserMessagePresentation", () => {
         scheduledTaskId: "task:daily-audit",
       });
     }
+  });
+});
+
+describe("redactDeletedGuestMessage", () => {
+  it("removes deleted message content from display actions without mutating provider context", () => {
+    const message = {
+      text: "Attributed private text",
+      attachments: [
+        {
+          id: "file",
+          type: "file" as const,
+          name: "private.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+        },
+      ],
+      context: {
+        version: 1 as const,
+        records: [],
+        guest: {
+          guestMessageId: GuestMessageId.make("removed"),
+          name: "Sam",
+          text: "private text",
+          deletedAt: "2026-10-29T00:00:00.000Z",
+        },
+      },
+    };
+    const redacted = redactDeletedGuestMessage(message);
+    expect(redacted).toMatchObject({
+      text: "",
+      attachments: [],
+      context: {
+        records: [],
+        guest: { text: "", name: "Sam", deletedAt: message.context.guest.deletedAt },
+      },
+    });
+    expect(message.text).toBe("Attributed private text");
+    expect(message.context.guest.text).toBe("private text");
+    expect(message.attachments).toHaveLength(1);
+  });
+
+  it("preserves identity and content for messages that are still visible", () => {
+    const message = { text: "Visible", attachments: [] };
+    expect(redactDeletedGuestMessage(message)).toBe(message);
   });
 });

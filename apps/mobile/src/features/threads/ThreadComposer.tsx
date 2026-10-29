@@ -75,7 +75,11 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/Vid
 import { GlassSurface } from "../../components/ui/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { fileRoutePathSegments } from "../files/filePath";
-import { ComposerActionButton, ComposerToolbarRow } from "../../components/ComposerToolbar";
+import {
+  ComposerActionButton,
+  ComposerInlineControl,
+  ComposerToolbarRow,
+} from "../../components/ComposerToolbar";
 import { ComposerModelControl } from "../../components/ComposerModelControl";
 import {
   composerStripAttachments,
@@ -795,6 +799,21 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     </View>
   );
 
+  const planControl =
+    props.selectedThread.interactionMode === "plan" &&
+    selectedProviderStatus?.showInteractionModeToggle !== false &&
+    props.onUpdateInteractionMode ? (
+      <ComposerInlineControl
+        label="Plan"
+        accessibilityLabel="Exit plan mode"
+        icon="pencil"
+        selected
+        showChevron={false}
+        disabled={isSubmissionLocked}
+        onPress={() => props.onUpdateInteractionMode?.("default")}
+      />
+    ) : null;
+
   return (
     <Animated.View
       onLayout={(event) => props.onHeightChange?.(event.nativeEvent.layout.height)}
@@ -937,6 +956,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 }
               >
                 {modelControl}
+                {planControl}
                 {!props.isDraft && selectedProviderStatus?.driver === "codex" ? (
                   <ComposerLiveVoiceControl
                     key={`${props.environmentId}:${props.selectedThread.id}:${currentModelSelection.instanceId}:${currentModelSelection.model}`}
@@ -1170,7 +1190,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    {modelControl}
+                    <View className="min-w-0 shrink flex-row items-center">
+                      {modelControl}
+                      {planControl}
+                    </View>
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">

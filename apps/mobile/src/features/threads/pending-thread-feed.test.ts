@@ -60,6 +60,19 @@ describe("waiting guest messages", () => {
     ]);
   });
 
+  it("removes deleted guest suggestions from the approval queue", () => {
+    const removed = {
+      id: GuestMessageId.make("removed"),
+      text: "Removed suggestion",
+      status: "pending" as const,
+      submittedAt: "2026-10-26T11:00:00.000Z",
+      deletedAt: "2026-10-26T11:01:00.000Z",
+    };
+    const retained = { ...removed, id: GuestMessageId.make("retained"), deletedAt: undefined };
+    const rows = appendGuestPendingMessages([], { ...share, messages: [removed, retained] });
+    expect(rows.map((row) => row.id)).toEqual(["guest-pending:retained"]);
+  });
+
   it("keeps legacy attribution and leaves resolved messages out of moderation", () => {
     const message = {
       id: GuestMessageId.make("legacy-message"),

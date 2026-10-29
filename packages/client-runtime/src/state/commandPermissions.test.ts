@@ -79,6 +79,7 @@ describe("command permissions", () => {
   it.effect.each([
     { name: "closeGuestShare", type: "thread.guest-share.close" },
     { name: "kickGuest", type: "thread.guest-share.kick" },
+    { name: "setGuestPermission", type: "thread.guest-share.permission.set" },
     { name: "banGuest", type: "thread.guest-share.ban" },
     { name: "unbanGuest", type: "thread.guest-share.unban" },
     { name: "resolveGuestMessage", type: "thread.guest-message.dismiss" },
@@ -141,6 +142,7 @@ describe("command permissions", () => {
         guestId: GuestSessionId.make("guest"),
         guestMessageId: GuestMessageId.make("guest-message"),
         ipAddress: "192.0.2.1",
+        permission: "confirm" as const,
         decision: action.type === "message.dispatch" ? ("send" as const) : ("dismiss" as const),
       };
       registry.set(

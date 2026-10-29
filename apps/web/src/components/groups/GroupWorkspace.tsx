@@ -1,8 +1,10 @@
 import { catalogHostId, minesAccountEnvironmentIdsAtom } from "@t3tools/client-runtime/catalog";
 import { useMinesCatalog } from "../../catalog/useMinesCatalog";
+import { useMinesAuth } from "../../cloud/MinesAuthProvider";
+import { hasMinesIdentityConfig } from "../../cloud/publicConfig";
 import { useAtomValue } from "@effect/atom-react";
 import { randomUUID } from "../../lib/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { EnvironmentId, GroupId, GroupWorkflow, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -28,7 +30,9 @@ import { SidebarInset } from "../ui/sidebar";
 import { groupRecipients } from "@t3tools/client-runtime/group-chat";
 import { refreshGroupMemberships } from "../../state/groupMemberships";
 import { GroupParticipantsControl } from "./GroupParticipantsControl";
+import type { ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { GroupMessageComposer } from "./GroupMessageComposer";
+import { GroupConversationSidebar } from "./GroupConversationSidebar";
 
 export const GROUP_WORKFLOWS: ReadonlyArray<{
   id: GroupWorkflow;
@@ -91,6 +95,29 @@ function suggestedAlias(title: string, members: ReadonlyArray<DraftMember>): str
   while (members.some((member) => member.alias.toLowerCase() === value))
     value = `${base}-${suffix++}`;
   return value;
+}
+
+function GroupCurrentUser() {
+  const { user } = useMinesAuth();
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground">
+        {user?.image && failedImage !== user.image ? (
+          <img
+            src={user.image}
+            alt=""
+            className="size-full object-cover"
+            referrerPolicy="no-referrer"
+            onError={() => setFailedImage(user.image ?? null)}
+          />
+        ) : (
+          (user?.name || "You").slice(0, 2).toUpperCase()
+        )}
+      </span>
+      <span className="min-w-0 truncate text-sm">{user?.name || "You"}</span>
+    </div>
+  );
 }
 
 export function GroupWorkspace({
@@ -157,6 +184,7 @@ export function GroupWorkspace({
     initialMessage,
     GroupMessageDraft,
   );
+  const editorRef = useRef<ComposerPromptEditorHandle>(null);
   const prompt = draft.text;
   const setPrompt = (value: string | ((previous: string) => string)) =>
     setDraft((current) => ({
@@ -233,21 +261,14 @@ export function GroupWorkspace({
     setSending(false);
   };
   return (
-    <SidebarInset>
-      <main className="flex h-dvh min-h-0 flex-1 flex-col bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
+      <main className="flex h-full min-h-0 flex-1 flex-col bg-background text-foreground">
         <header className="flex min-h-16 shrink-0 items-center gap-3 border-b border-border px-6">
           <UsersIcon className="size-5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold">
               {isNew ? "Create a group" : (snapshot?.group.name ?? "Group")}
             </h1>
-            {snapshot ? (
-              <GroupParticipantsControl
-                key={`${environmentId}:${snapshot.group.id}`}
-                environmentId={environmentId}
-                snapshot={snapshot}
-              />
-            ) : null}
             <p className="text-xs text-muted-foreground">
               Coordinator · {environment?.label ?? "Saved computer"}
             </p>
@@ -540,107 +561,113 @@ export function GroupWorkspace({
           </section>
         ) : (
           <>
-            <div
-              className="flex shrink-0 flex-wrap gap-2 border-b border-border px-6 py-3"
-              aria-label="Group members"
-            >
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setPrompt((value) => `${value}${value ? " " : ""}@everyone `)}
+            <div className="relative flex min-h-0 flex-1">
+              <div
+                className="min-h-0 min-w-0 flex-1 overflow-y-auto scrollbar-gutter-both px-6 py-6 pr-14 lg:pr-6"
+                aria-live="polite"
+                aria-relevant="additions text"
               >
-                @everyone
-              </Button>
-              {snapshot?.members.map((member) => (
-                <Button
-                  key={member.id}
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    setPrompt((value) => `${value}${value ? " " : ""}@${member.alias} `)
-                  }
-                >
-                  @{member.alias}
-                  <span className="text-muted-foreground">{member.modelSelection.model}</span>
-                </Button>
-              ))}
-            </div>
-            <div
-              className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both px-6 py-6"
-              aria-live="polite"
-              aria-relevant="additions text"
-            >
-              <div className="mx-auto max-w-3xl space-y-7">
-                {snapshot?.messages.map((message) => (
-                  <article key={message.id} className="space-y-2">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      {message.memberId
-                        ? (snapshot.members.find((member) => member.id === message.memberId)
-                            ?.alias ?? "Member")
-                        : message.kind === "user"
-                          ? "You"
-                          : "Group"}
-                    </div>
-                    <div className="whitespace-pre-wrap break-words text-sm leading-7">
-                      {message.text}
-                    </div>
-                    {message.truncated ? (
-                      <p className="text-xs text-muted-foreground">
-                        Open the original mine for the complete reply.
-                      </p>
-                    ) : null}
-                  </article>
-                ))}
-                {snapshot?.rounds.slice(-1).flatMap((round) =>
-                  round.deliveries.map((delivery) => (
-                    <div
-                      key={delivery.id}
-                      className="flex items-center gap-3 text-xs text-muted-foreground"
-                    >
-                      <span>
-                        {round.members.find((member) => member.id === delivery.memberId)?.alias} ·{" "}
-                        {delivery.stage} · {delivery.status}
-                      </span>
-                      {delivery.error ? <span role="status">{delivery.error}</span> : null}
-                      {["failed", "unavailable"].includes(delivery.status) ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={archived || !retryAllowed}
-                          onClick={() =>
-                            void retry({
-                              environmentId,
-                              input: { groupId, roundId: round.id, deliveryId: delivery.id },
-                            })
-                          }
-                        >
-                          Retry
-                        </Button>
+                <div className="mx-auto max-w-3xl space-y-7">
+                  {snapshot?.messages.map((message) => (
+                    <article key={message.id} className="space-y-2">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        {message.memberId
+                          ? (snapshot.members.find((member) => member.id === message.memberId)
+                              ?.alias ?? "Member")
+                          : message.kind === "user"
+                            ? "You"
+                            : "Group"}
+                      </div>
+                      <div className="whitespace-pre-wrap break-words text-sm leading-7">
+                        {message.text}
+                      </div>
+                      {message.truncated ? (
+                        <p className="text-xs text-muted-foreground">
+                          Open the original mine for the complete reply.
+                        </p>
                       ) : null}
-                    </div>
-                  )),
-                )}
-                {!snapshot && !query.error ? (
-                  <p className="text-sm text-muted-foreground">
-                    Connecting to the group coordinator…
-                  </p>
-                ) : null}
-                {snapshot?.messages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Send a message to start. Mention someone, use @everyone for one reply each, or
-                    let members decide whether to participate.
-                  </p>
-                ) : null}
+                    </article>
+                  ))}
+                  {snapshot?.rounds.slice(-1).flatMap((round) =>
+                    round.deliveries.map((delivery) => (
+                      <div
+                        key={delivery.id}
+                        className="flex items-center gap-3 text-xs text-muted-foreground"
+                      >
+                        <span>
+                          {round.members.find((member) => member.id === delivery.memberId)?.alias} ·{" "}
+                          {delivery.stage} · {delivery.status}
+                        </span>
+                        {delivery.error ? <span role="status">{delivery.error}</span> : null}
+                        {["failed", "unavailable"].includes(delivery.status) ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={archived || !retryAllowed}
+                            onClick={() =>
+                              void retry({
+                                environmentId,
+                                input: { groupId, roundId: round.id, deliveryId: delivery.id },
+                              })
+                            }
+                          >
+                            Retry
+                          </Button>
+                        ) : null}
+                      </div>
+                    )),
+                  )}
+                  {!snapshot && !query.error ? (
+                    <p className="text-sm text-muted-foreground">
+                      Connecting to the group coordinator…
+                    </p>
+                  ) : null}
+                  {snapshot?.messages.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Send a message to start. Mention someone, use @everyone for one reply each, or
+                      let members decide whether to participate.
+                    </p>
+                  ) : null}
+                </div>
               </div>
+              <GroupConversationSidebar
+                snapshot={snapshot ?? null}
+                onMention={(alias) => {
+                  setPrompt((value) => `${value}${value ? " " : ""}@${alias} `);
+                  editorRef.current?.focus();
+                }}
+                users={
+                  hasMinesIdentityConfig() ? (
+                    <GroupCurrentUser />
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <span className="flex size-9 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
+                        YO
+                      </span>
+                      <span className="text-sm">You</span>
+                    </div>
+                  )
+                }
+              >
+                {snapshot ? (
+                  <GroupParticipantsControl
+                    key={`${environmentId}:${snapshot.group.id}`}
+                    environmentId={environmentId}
+                    snapshot={snapshot}
+                  />
+                ) : null}
+              </GroupConversationSidebar>
             </div>
-            <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pb-6">
+            <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pt-3 pb-6">
               <GroupMessageComposer
+                editorRef={editorRef}
                 draftKey={JSON.stringify([accountId, environmentId, groupId])}
                 value={prompt}
                 onChange={setPrompt}
                 onSubmit={() => void submit()}
                 ariaLabel="Message the group"
                 placeholder="What should we work on together?"
+                submitOnEnter
                 disabled={archived}
               >
                 <p className="min-w-0 flex-1 text-xs text-muted-foreground">

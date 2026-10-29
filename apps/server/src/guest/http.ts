@@ -10,6 +10,8 @@ import {
   GuestRedeemRequest,
   GuestStreamEvent,
   GuestSubmitRequest,
+  GuestEditRequest,
+  GuestDeleteRequest,
   guestSessionCookieName,
   isProviderSendTurnSupportedImageMimeType,
   OrchestrationV2CommandOutputFrame,
@@ -40,6 +42,8 @@ const NO_STORE = { "cache-control": "no-store" };
 
 const decodeRedeem = Schema.decodeUnknownEffect(GuestRedeemRequest);
 const decodeSubmit = Schema.decodeUnknownEffect(GuestSubmitRequest);
+const decodeEdit = Schema.decodeUnknownEffect(GuestEditRequest);
+const decodeDelete = Schema.decodeUnknownEffect(GuestDeleteRequest);
 // The owner's thread types hold DateTime values; the JSON codec writes them as strings.
 const encodeStreamEvent = Schema.encodeEffect(
   Schema.fromJsonString(Schema.toCodecJson(GuestStreamEvent)),
@@ -243,6 +247,34 @@ const submitRoute = HttpRouter.add(
   ),
 );
 
+const editRoute = HttpRouter.add(
+  "PATCH",
+  `${GUEST_ROUTE_PREFIX}/messages`,
+  Effect.gen(function* () {
+    const body = yield* readJson.pipe(Effect.flatMap(decodeEdit), Effect.option);
+    if (body._tag === "None") return yield* badRequest;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    if (body.value.shareId !== requestedShareId(request)) return yield* badRequest;
+    const guestShares = yield* GuestShareService;
+    yield* guestShares.edit(yield* sessionToken, body.value, yield* requestIpAddress);
+    return HttpServerResponse.empty({ status: 204, headers: NO_STORE });
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
+);
+
+const deleteRoute = HttpRouter.add(
+  "DELETE",
+  `${GUEST_ROUTE_PREFIX}/messages`,
+  Effect.gen(function* () {
+    const body = yield* readJson.pipe(Effect.flatMap(decodeDelete), Effect.option);
+    if (body._tag === "None") return yield* badRequest;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    if (body.value.shareId !== requestedShareId(request)) return yield* badRequest;
+    const guestShares = yield* GuestShareService;
+    yield* guestShares.deleteMessage(yield* sessionToken, body.value, yield* requestIpAddress);
+    return HttpServerResponse.empty({ status: 204, headers: NO_STORE });
+  }).pipe(Effect.catchTags({ GuestShareAccessError: errorResponse })),
+);
+
 const streamRoute = HttpRouter.add(
   "GET",
   `${GUEST_ROUTE_PREFIX}/stream`,
@@ -366,6 +398,8 @@ export const layer = Layer.mergeAll(
   redeemRoute,
   sessionRoute,
   submitRoute,
+  editRoute,
+  deleteRoute,
   streamRoute,
   renderRoute,
   itemRoute,

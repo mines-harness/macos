@@ -15,6 +15,7 @@ import { openGroupDraft } from "../../catalog/groupDraft";
 
 const state = vi.hoisted(() => ({
   view: null as SharedGroupView | null,
+  refresh: vi.fn(),
   store: null as Awaited<ReturnType<typeof openGroupDraft>> | null,
   send: vi.fn(async (_target: { input: { requestAiResponse?: boolean } }) =>
     AsyncResult.success(state.view!),
@@ -27,6 +28,22 @@ vi.mock("react-native", () => {
     SafeAreaView: Container,
     KeyboardAvoidingView: Container,
     View: Container,
+    ScrollView: Container,
+    Pressable: ({
+      children,
+      onPress,
+      accessibilityLabel,
+      disabled,
+    }: {
+      children: ReactNode;
+      onPress: () => void;
+      accessibilityLabel?: string;
+      disabled?: boolean;
+    }) => (
+      <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>
+        {children}
+      </button>
+    ),
     Platform: { OS: "ios" },
     FlatList: () => null,
   };
@@ -85,7 +102,7 @@ vi.mock("../../state/query", () => ({
     data: state.view,
     isPending: false,
     error: null,
-    refresh: () => {},
+    refresh: state.refresh,
   }),
 }));
 vi.mock("../../state/entities", () => ({ useThreadShells: () => [] }));
@@ -174,6 +191,7 @@ async function setup(withMine = true) {
   state.store.setText("@everyone a note for friends");
   await state.store.flush();
   state.send.mockClear();
+  state.refresh.mockClear();
   const acknowledged = Promise.withResolvers<void>();
   const unsubscribe = state.store.subscribe(() => {
     if (state.store!.getSnapshot().draft.text === "") acknowledged.resolve();
@@ -183,15 +201,15 @@ async function setup(withMine = true) {
   const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
-  act(() =>
+  const renderGroup = (nextGroup = group) =>
     root.render(
       <SharedGroupModal
         environmentId={environmentId}
-        group={group}
+        group={nextGroup}
         profile={profile}
         contacts={{
           accountId: "account",
-          data: { profile, contacts: [], groups: [group], invitations: [] },
+          data: { profile, contacts: [], groups: [nextGroup], invitations: [] },
           pending: false,
           error: null,
           isLoaded: true,
@@ -202,11 +220,27 @@ async function setup(withMine = true) {
         }}
         onClose={() => {}}
       />,
-    ),
-  );
+    );
+  act(() => renderGroup());
   const toggle = () => container.querySelector<HTMLInputElement>('input[aria-label="Ask AI"]')!;
   return {
     toggle,
+    updateMembership() {
+      act(() => renderGroup({ ...group, members: [] }));
+      return state.store!.getSnapshot().draft.text;
+    },
+    mention(alias: string) {
+      const open = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "Participants",
+      )!;
+      act(() => open.click());
+      const mention = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="Mention ${alias}"]`,
+      )!;
+      expect(mention).not.toBeNull();
+      act(() => mention.click());
+      return state.store!.getSnapshot().draft.text;
+    },
     async send() {
       const button = [...container.querySelectorAll("button")].find(
         (button) => button.textContent === "Send",
@@ -248,4 +282,19 @@ it("allows human notes while Ask AI stays disabled in an empty group", async () 
   expect(ui.toggle().disabled).toBe(true);
   await ui.send();
   expect(state.send.mock.calls[0]?.[0].input.requestAiResponse).toBe(false);
+});
+
+it("inserts a participant mention into the saved draft without enabling AI", async () => {
+  using ui = await setup();
+  expect(ui.mention("helper")).toBe("@everyone a note for friends @helper ");
+  expect(ui.toggle().checked).toBe(false);
+  expect(state.send).not.toHaveBeenCalled();
+});
+
+it("refreshes the mine roster when Contacts membership changes while preserving the draft", async () => {
+  using ui = await setup();
+  expect(state.refresh).not.toHaveBeenCalled();
+  expect(ui.updateMembership()).toBe("@everyone a note for friends");
+  expect(state.refresh).toHaveBeenCalledTimes(1);
+  expect(state.send).not.toHaveBeenCalled();
 });

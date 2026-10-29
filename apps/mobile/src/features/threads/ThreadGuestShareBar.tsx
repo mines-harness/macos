@@ -11,8 +11,12 @@ import {
   type ThreadGuestMessage,
 } from "@t3tools/contracts";
 import { type ReactNode, useState } from "react";
-import { View } from "react-native";
+import { Modal, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
+import { SheetHeader } from "../../components/ui/SheetHeader";
+import { ThreadGuestRoster } from "./ThreadGuestRoster";
 import { Button } from "../../components/ui/Button";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -39,25 +43,59 @@ export function ThreadGuestShareBar(props: { readonly threadRef: ScopedThreadRef
   const share = useThreadGuestShare(threadRef);
   const bannedIps = useThreadGuestBannedIps(threadRef);
   const expired = useGuestShareExpired(share);
+  const [showPeople, setShowPeople] = useState(false);
   if (threadRef === null || (share === null && bannedIps.length === 0)) return null;
-  const guestNames = share === null ? [] : guestShareGuests(share).map((guest) => guest.name);
+  const guestCount = guestShareGuests(share).length;
 
   return (
-    <View className="flex-row items-center gap-2 px-4 pb-2">
-      <SymbolView name="person.2" size={12} tintColorClassName="accent-foreground-muted" />
-      <Text className="min-w-0 flex-1 text-xs text-foreground-muted" numberOfLines={1}>
-        {share === null
-          ? `${bannedIps.length} banned ${bannedIps.length === 1 ? "IP" : "IPs"} in this chat`
-          : expired
-            ? "Guest link expired"
-            : guestNames.length > 0
-              ? guestNames.join(", ")
-              : share.guests === undefined
-                ? (share.guestName ?? "Guest link active")
-                : "Guest link active"}
-      </Text>
-      <Button label="Guests" tone="text" onPress={() => openGuestShareDialog(threadRef)} />
-    </View>
+    <>
+      <View className="flex-row items-center gap-2 px-4 py-2">
+        <SymbolView name="person.2" size={12} tintColorClassName="accent-foreground-muted" />
+        <Text className="min-w-0 flex-1 text-xs text-foreground-muted" numberOfLines={1}>
+          {share === null
+            ? `${bannedIps.length} banned ${bannedIps.length === 1 ? "IP" : "IPs"} in this chat`
+            : expired
+              ? "Guest link expired"
+              : "Guest link active"}
+        </Text>
+        <Button
+          label={`Users${guestCount > 0 ? ` · ${guestCount}` : ""}`}
+          tone="text"
+          onPress={() => setShowPeople(true)}
+        />
+      </View>
+      <Modal
+        visible={showPeople}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowPeople(false)}
+      >
+        <SafeAreaView className="flex-1 bg-screen">
+          <SheetHeader presentation="inline" title="Users" onClose={() => setShowPeople(false)} />
+          <ScreenScrollView contentContainerClassName="gap-4 p-4">
+            <Text className="text-sm text-foreground-muted">
+              The send icon controls who can suggest messages for your approval.
+            </Text>
+            <ThreadGuestRoster threadRef={threadRef} share={share} />
+            {guestCount === 0 ? (
+              <Text className="text-sm text-foreground-muted">
+                {share?.guests === undefined && share?.guestName
+                  ? `${share.guestName} joined as a guest.`
+                  : "No guests are currently joined."}
+              </Text>
+            ) : null}
+            <Button
+              label="Manage guest link"
+              tone="text"
+              onPress={() => {
+                setShowPeople(false);
+                openGuestShareDialog(threadRef);
+              }}
+            />
+          </ScreenScrollView>
+        </SafeAreaView>
+      </Modal>
+    </>
   );
 }
 
@@ -89,6 +127,7 @@ export function ThreadGuestPendingMessage(props: {
         threadId: threadRef.threadId,
         guestMessageId: message.id,
         decision,
+        expectedRevision: message.revision ?? 0,
         creationSource: "mobile",
       },
     });

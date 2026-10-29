@@ -1,4 +1,4 @@
-import { guestShareGuests, guestSharePermission } from "@t3tools/contracts";
+import { guestShareGuests, guestSessionPermission } from "@t3tools/contracts";
 import type {
   GuestSessionId,
   GuestShareView,
@@ -38,11 +38,16 @@ export function guestShareView(
     shareId: share.id,
     title: thread.title,
     guestName,
-    permission: guestSharePermission(share),
+    permission: guestSessionPermission(share, guestId),
     ...(guestId === undefined ? {} : { guestId }),
-    guests: guests.map(({ id, name, joinedAt }) => ({ id, name, joinedAt })),
+    guests: guests.map(({ id, name, joinedAt, permission }) => ({
+      id,
+      name,
+      joinedAt,
+      ...(permission === undefined ? {} : { permission }),
+    })),
     expiresAt: share.expiresAt,
-    messages: share.messages,
+    messages: share.messages.filter((message) => !message.deletedAt),
     model,
   };
 }

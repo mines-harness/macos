@@ -176,3 +176,44 @@ it("transfers legacy group pins once and permits unpinning after migration", asy
   expect(catalog.getSnapshot().pins.map((entry) => entry.entity.id)).toEqual(["personal-mine"]);
   expect(catalog.getEntity(legacyId)).toBeDefined();
 });
+
+it("keeps pinned sections, projects and mines out of other placements and restores them on unpin", async () => {
+  const catalog = setup();
+  const sectionId = catalog
+    .getSnapshot()
+    .entities.find((entity) => entity.title === "Personal section")!.id;
+  catalog.upsert(
+    { id: "project", kind: "project", title: "Pinned project" },
+    { parentId: sectionId },
+  );
+  catalog.upsert({ id: "child", kind: "thread", title: "Unpinned child" }, { parentId: "project" });
+  catalog.pin(sectionId);
+  catalog.pin("project");
+  await using screen = await render(
+    <MinesCatalogTree onActivateThread={vi.fn()} activeThreadKey={null} />,
+  );
+  const pins = screen.getByRole("list", { name: "Pinned items" });
+  const library = screen.getByRole("list", { name: "Library", exact: true });
+  await expect
+    .element(library.getByText("Personal section", { exact: true }))
+    .not.toBeInTheDocument();
+  await expect.element(pins.getByText("Pinned project", { exact: true })).toBeVisible();
+  await expect.element(pins.getByText("Personal mine", { exact: true })).toBeVisible();
+  await userEvent.click(pins.getByText("Pinned project", { exact: true }));
+  await expect.element(pins.getByText("Unpinned child", { exact: true })).toBeVisible();
+  await userEvent.click(pins.getByRole("button", { name: "Arrange Pinned project", exact: true }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Unpin", exact: true }));
+  await expect.element(pins.getByText("Pinned project", { exact: true })).toBeVisible();
+  await expect
+    .element(library.getByText("Pinned project", { exact: true }))
+    .not.toBeInTheDocument();
+  await userEvent.hover(pins.getByText("Personal section", { exact: true }));
+  await userEvent.click(
+    pins.getByRole("button", { name: "Arrange Personal section", exact: true }),
+  );
+  await userEvent.click(page.getByRole("menuitem", { name: "Unpin", exact: true }));
+  await expect.element(pins.getByText("Personal section", { exact: true })).not.toBeInTheDocument();
+  await expect.element(library.getByText("Personal section", { exact: true })).toBeVisible();
+  await expect.element(library.getByText("Pinned project", { exact: true })).toBeVisible();
+  await expect.element(library.getByText("Personal mine", { exact: true })).not.toBeInTheDocument();
+});

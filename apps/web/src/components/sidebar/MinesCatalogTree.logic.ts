@@ -18,11 +18,14 @@ export function isCatalogLibraryEntryVisible(input: {
       }
     | undefined;
   readonly pinned: boolean;
+  readonly pinnedIds?: ReadonlySet<string>;
+  readonly pinRoot?: boolean;
   readonly mode?: "personal" | "workgroups";
   readonly primaryEnvironmentId?: string | null;
   readonly nestedUnderMine?: boolean;
 }) {
   if (input.thread && input.thread.archivedAt !== null) return false;
+  if (input.pinnedIds?.has(input.entity.id) && !input.pinRoot) return false;
   if (!input.pinned) {
     const workgroup = catalogWorkgroupKey(input.entity.id) !== null;
     if (workgroup !== (input.mode === "workgroups")) return false;

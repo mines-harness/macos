@@ -31,6 +31,7 @@ export const GuestShareView = Schema.Struct({
         id: GuestSessionId,
         name: TrimmedNonEmptyString,
         joinedAt: IsoDateTime,
+        permission: Schema.optional(GuestSharePermission),
       }),
     ).check(Schema.isMaxLength(GUEST_SHARE_MAX_GUESTS)),
   ),

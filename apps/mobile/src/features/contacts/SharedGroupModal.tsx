@@ -5,7 +5,7 @@ import { contactGroupMembershipInvitationId } from "@t3tools/shared/minesContact
 import type { ContactProfile, SharedContactGroup } from "@t3tools/contracts/contacts";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { GroupMemberInput, GroupSnapshot } from "@t3tools/contracts/groupChat";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -28,6 +28,7 @@ import {
 } from "../../state/sharedGroups";
 import { useGroupDraft } from "../../catalog/useGroupDraft";
 import { nextGroupAlias } from "../../catalog/groupParticipants";
+import { MobileGroupRoster } from "../../catalog/MobileGroupRoster";
 import { uuidv4 } from "../../lib/uuid";
 import { ContactAvatar } from "./ContactAvatar";
 import type { useContacts } from "./useContacts";
@@ -61,12 +62,35 @@ export function SharedGroupModal({
   const [askAi, setAskAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const view = query.data;
   const snapshot = view?.snapshot;
   const online = view?.status === "online" && !!snapshot;
   const archived = snapshot?.group.archivedAt != null;
   const canAskAi = !!snapshot?.members.length;
+  const currentGroup =
+    contacts.data?.groups.find((candidate) => candidate.key === group.key) ?? group;
+  const membershipKey = JSON.stringify([
+    currentGroup.key,
+    currentGroup.members.map((member) => member.friendId).sort(),
+    currentGroup.memberships.map(({ friendId, invitationId }) => [friendId, invitationId]).sort(),
+  ]);
+  const previousMembershipKey = useRef(membershipKey);
+  const refreshGroup = query.refresh;
+  // oxlint-disable-next-line mines/react-effect-budget -- Contacts membership updates must refresh the environment roster without replacing the conversation draft.
+  useEffect(() => {
+    if (previousMembershipKey.current === membershipKey) return;
+    previousMembershipKey.current = membershipKey;
+    refreshGroup();
+  }, [membershipKey, refreshGroup]);
+  const removableUsers = new Set(
+    currentGroup.owner.friendId === profile.friendId
+      ? currentGroup.memberships
+          .filter((membership) => membership.friendId !== currentGroup.owner.friendId)
+          .map((membership) => membership.friendId)
+      : [],
+  );
   const membershipId = contactGroupMembershipInvitationId(
     group,
     profile.friendId,
@@ -114,6 +138,23 @@ export function SharedGroupModal({
       setBusy(false);
     }
   };
+  const removeUser = async (user: ContactProfile) => {
+    const invitationId = contactGroupMembershipInvitationId(
+      currentGroup,
+      user.friendId,
+      contacts.data?.invitations ?? [],
+    );
+    if (!invitationId || !removableUsers.has(user.friendId) || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (await contacts.run((client) => client.respond(invitationId, "revoke"))) query.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The member could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  };
   if (adding && snapshot)
     return (
       <SharedGroupMinesPicker
@@ -141,6 +182,11 @@ export function SharedGroupModal({
             <Text className="min-w-0 flex-1 text-lg font-mines-bold" numberOfLines={1}>
               {group.groupName}
             </Text>
+            <Button
+              label="Participants"
+              tone="text"
+              onPress={() => setRosterOpen((open) => !open)}
+            />
             {membershipId ? (
               <Menu
                 actions={[
@@ -165,18 +211,6 @@ export function SharedGroupModal({
               </Menu>
             ) : null}
           </View>
-          <View className="flex-row items-center gap-2 px-4 py-3">
-            {group.members.slice(0, 6).map((member) => (
-              <ContactAvatar key={member.friendId} profile={member} size={28} />
-            ))}
-            <View className="flex-1" />
-            <Button
-              label="Your mines"
-              icon="plus"
-              disabled={!online || archived || busy || !addAllowed}
-              onPress={() => setAdding(true)}
-            />
-          </View>
           {!online ? (
             <View className="gap-2 px-4 pb-3">
               <Text className="text-foreground-muted">
@@ -195,34 +229,60 @@ export function SharedGroupModal({
               {error ?? query.error ?? draftError ?? contacts.error}
             </Text>
           ) : null}
-          <FlatList
-            data={snapshot?.messages ?? []}
-            keyExtractor={(message) => message.id}
-            contentContainerStyle={{ padding: 16, gap: 16 }}
-            renderItem={({ item }) => {
-              const author =
-                item.authorFriendId === profile.friendId
-                  ? profile
-                  : group.members.find((member) => member.friendId === item.authorFriendId);
-              const mine = snapshot?.members.find((member) => member.id === item.memberId);
-              return (
-                <View className="gap-2">
-                  <View className="flex-row items-center gap-2">
-                    {author && item.kind === "user" ? (
-                      <ContactAvatar profile={author} size={24} />
-                    ) : null}
-                    <Text className="text-xs text-foreground-muted">
-                      {item.kind === "user"
-                        ? (author?.displayName ?? "Member")
-                        : (mine?.alias ?? "Group")}
-                    </Text>
+          <View className="min-h-0 flex-1">
+            <FlatList
+              style={{ flex: 1 }}
+              data={snapshot?.messages ?? []}
+              keyExtractor={(message) => message.id}
+              contentContainerStyle={{ padding: 16, gap: 16 }}
+              renderItem={({ item }) => {
+                const author =
+                  item.authorFriendId === profile.friendId
+                    ? profile
+                    : group.members.find((member) => member.friendId === item.authorFriendId);
+                const mine = snapshot?.members.find((member) => member.id === item.memberId);
+                return (
+                  <View className="gap-2">
+                    <View className="flex-row items-center gap-2">
+                      {author && item.kind === "user" ? (
+                        <ContactAvatar profile={author} size={24} />
+                      ) : null}
+                      <Text className="text-xs text-foreground-muted">
+                        {item.kind === "user"
+                          ? (author?.displayName ?? "Member")
+                          : (mine?.alias ?? "Group")}
+                      </Text>
+                    </View>
+                    <Text selectable>{item.text}</Text>
                   </View>
-                  <Text selectable>{item.text}</Text>
-                </View>
-              );
-            }}
-          />
-          <View className="gap-3 border-t border-border p-4">
+                );
+              }}
+            />
+            {rosterOpen ? (
+              <MobileGroupRoster
+                snapshot={snapshot}
+                users={currentGroup.members}
+                removeUserIds={removableUsers}
+                onClose={() => setRosterOpen(false)}
+                disabled={busy || contacts.pending || archived || !store}
+                onMention={(alias) => {
+                  store?.setText(
+                    (text) => `${text}${text && !/\s$/.test(text) ? " " : ""}@${alias} `,
+                  );
+                  setRosterOpen(false);
+                }}
+                onRemoveUser={(user) => void removeUser(user)}
+              >
+                <Button
+                  label="Your mines"
+                  icon="plus"
+                  disabled={!online || archived || busy || !addAllowed}
+                  onPress={() => setAdding(true)}
+                />
+              </MobileGroupRoster>
+            ) : null}
+          </View>
+          <View className="shrink-0 gap-3 border-t border-border p-4">
             <ComposerEditor
               key={JSON.stringify([profile.friendId, environmentId, group.key])}
               accessibilityLabel="Shared group message"

@@ -27,6 +27,14 @@ Guests enter a nickname when they join. Their nickname appears in the guest list
 their messages. Messages awaiting confirmation appear at the end of the conversation;
 choose **Send** or **Dismiss**. The same controls are available on mobile.
 
+Manage guests directly from the conversation's **Users** panel. The paper-plane control
+switches an individual guest between viewing and writing with your confirmation.
+
+Guests can use the pencil beside a waiting message to edit it, or press **↑** in an empty
+composer to recall their latest waiting message and **Enter** to save. Approved messages
+cannot be edited. Deleting a sent message hides it from the conversation; work the agent
+has already performed is retained.
+
 Creating another link ends the previous one. **Stop sharing** ends it immediately. Expiry,
 archiving the mine, or disabling Guest links also stops access. Turning Guest links back on
 restores links that have not otherwise ended.

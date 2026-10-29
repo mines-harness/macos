@@ -146,7 +146,9 @@ it("sends mentions as human notes until Ask AI is explicitly enabled and resets 
   await using screen = await render(
     <SharedGroupConversation group={group} environmentId={environmentId} />,
   );
-  await expect.element(screen.getByText("Bob", { exact: true })).toBeVisible();
+  await expect
+    .element(screen.getByRole("log", { name: "Group messages" }).getByText("Bob", { exact: true }))
+    .toBeVisible();
   await screen.getByRole("textbox", { name: "Message your group" }).fill("@everyone hello");
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() =>

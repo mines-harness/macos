@@ -1,6 +1,7 @@
 import {
   EventId,
   GuestMessageId,
+  GuestSessionId,
   GuestShareId,
   MessageId,
   ProviderDriverKind,
@@ -20,6 +21,7 @@ import {
   formatGuestExpiry,
   guestFilesProblem,
   initialGuestStreamState,
+  latestEditableGuestMessage,
   inviteShareId,
   parseGuestStreamEvent,
   unplacedGuestMessages,
@@ -189,6 +191,45 @@ describe("unplacedGuestMessages", () => {
       "dismissed",
       "late",
     ]);
+  });
+});
+
+describe("latestEditableGuestMessage", () => {
+  const ownId = GuestSessionId.make("sam");
+  const own = (id: string, submittedAt: string): ThreadGuestMessage => ({
+    id: GuestMessageId.make(id),
+    guestId: ownId,
+    text: id,
+    status: "pending",
+    submittedAt,
+  });
+
+  it("selects the latest own waiting message regardless of stream order", () => {
+    const first = own("first", "2026-10-23T10:00:00.000Z");
+    const latest = own("latest", "2026-10-23T10:01:00.000Z");
+    expect(
+      latestEditableGuestMessage(
+        [latest, first, { ...latest, guestId: GuestSessionId.make("alex"), text: "other" }],
+        ownId,
+      ),
+    ).toBe(latest);
+  });
+
+  it("never picks an approved, dismissed, or unattributed message for another session", () => {
+    const message = own("approved", "2026-10-23T10:00:00.000Z");
+    expect(
+      latestEditableGuestMessage(
+        [
+          { ...message, status: "sent" },
+          { ...message, status: "dismissed" },
+          { ...message, guestId: undefined },
+        ],
+        ownId,
+      ),
+    ).toBeNull();
+    expect(latestEditableGuestMessage([{ ...message, guestId: undefined }], undefined)?.id).toBe(
+      message.id,
+    );
   });
 });
 

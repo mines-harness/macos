@@ -1454,6 +1454,13 @@ function renderFeedEntry(
 
   if (entry.type === "message") {
     const { message } = entry;
+    if (message.context?.guest?.deletedAt) {
+      return (
+        <View className="mb-5 items-end px-1">
+          <Text className="text-sm text-foreground-muted">Message deleted</Text>
+        </View>
+      );
+    }
     const isUser = message.role === "user";
     const presentation = resolveUserMessagePresentation(message);
     const renderedText = renderAssistantCitationsAsText(presentation.text);
@@ -3380,7 +3387,7 @@ function MessageImageGalleryScope(props: {
 }) {
   const { entry, environmentId, threadId, workspaceRoot } = props;
   const images =
-    entry.type === "message"
+    entry.type === "message" && !entry.message.context?.guest?.deletedAt
       ? [
           ...messageImageGallery(entry.message, { environmentId, threadId, workspaceRoot }),
           ...composerImageGallery(entry.pendingMessage?.attachments ?? []),

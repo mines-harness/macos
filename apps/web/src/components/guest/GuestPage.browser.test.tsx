@@ -13,6 +13,7 @@ import {
   type GuestShareView,
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
+  type ThreadGuestMessage,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
@@ -116,6 +117,16 @@ const view: GuestShareView = {
   model: { driver: ProviderDriverKind.make("codex"), name: "GPT-5.4", shortName: "5.4" },
 };
 
+const waitingMessage = (id = "sam-question", text = "Check the settings"): ThreadGuestMessage => ({
+  id: GuestMessageId.make(id),
+  guestId: GuestSessionId.make("sam"),
+  guestName: "Sam",
+  text,
+  status: "pending",
+  revision: 2,
+  submittedAt: "2026-10-23T10:01:00.000Z",
+});
+
 /** The stream's opening, as the server sends it: the share, then the owner's snapshot. */
 const opening = (
   runs: ReadonlyArray<OrchestrationV2Run>,
@@ -218,6 +229,246 @@ function visit(path: string): Disposable {
 }
 
 describe("GuestPage", () => {
+  it("edits a waiting message with the pen and preserves the unsent draft", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using fetchSpy = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    const message = waitingMessage();
+    using _stream = vi.spyOn(window, "EventSource").mockImplementation(
+      fakeEventSource(
+        opening([], [], {
+          ...view,
+          guestId: message.guestId,
+          permission: "confirm",
+          messages: [message],
+        }),
+      ) as never,
+    );
+    await using screen = await render(<GuestPage />);
+
+    await userEvent.type(screen.getByLabelText("Message", { exact: true }), "Unsent draft");
+    await userEvent.click(screen.getByRole("button", { name: "Edit your message" }));
+    await expect
+      .element(screen.getByLabelText("Message", { exact: true }))
+      .toHaveValue(message.text);
+    await userEvent.fill(screen.getByLabelText("Message", { exact: true }), "Check login instead");
+    await userEvent.click(screen.getByRole("button", { name: "Save edit" }));
+    await vi.waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `/api/guest/messages?share=${SHARE_ID}`,
+        expect.objectContaining({ method: "PATCH", body: expect.any(String) }),
+      ),
+    );
+    const body = fetchSpy.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body;
+    expect(JSON.parse(String(body))).toEqual({
+      shareId: SHARE_ID,
+      guestMessageId: message.id,
+      text: "Check login instead",
+      expectedRevision: 2,
+      requestId: expect.any(String),
+    });
+    await expect
+      .element(screen.getByLabelText("Message", { exact: true }))
+      .toHaveValue("Unsent draft");
+  });
+
+  it("recalls the latest own pending message with Up, cancels with Escape, and saves with Enter", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using fetchSpy = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    const latest = waitingMessage("latest", "Latest question");
+    using _stream = vi.spyOn(window, "EventSource").mockImplementation(
+      fakeEventSource(
+        opening([], [], {
+          ...view,
+          guestId: latest.guestId,
+          permission: "confirm",
+          messages: [
+            latest,
+            {
+              ...waitingMessage("earlier", "Earlier question"),
+              submittedAt: "2026-10-23T10:00:00.000Z",
+            },
+            {
+              ...latest,
+              id: GuestMessageId.make("other"),
+              guestId: GuestSessionId.make("alex"),
+              text: "Other question",
+            },
+          ],
+        }),
+      ) as never,
+    );
+    await using screen = await render(<GuestPage />);
+    await userEvent.click(screen.getByLabelText("Message", { exact: true }));
+    await userEvent.keyboard("{ArrowUp}");
+    await expect
+      .element(screen.getByLabelText("Message", { exact: true }))
+      .toHaveValue(latest.text);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(screen.getByLabelText("Message", { exact: true })).toHaveValue("");
+    await userEvent.keyboard("{ArrowUp}");
+    await userEvent.fill(screen.getByLabelText("Message", { exact: true }), "Changed question");
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() =>
+      expect(fetchSpy.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true),
+    );
+    await expect.element(screen.getByRole("button", { name: "Save edit" })).not.toBeInTheDocument();
+  });
+
+  it("stops editing when the owner approves and offers no edits for other guests", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using _fetch = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    const message = waitingMessage();
+    const guestView: GuestShareView = {
+      ...view,
+      guestId: message.guestId,
+      permission: "confirm",
+      messages: [message],
+    };
+    const sources: Array<EventTarget> = [];
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(fakeEventSource(opening([], [], guestView), sources) as never);
+    await using screen = await render(<GuestPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Edit your message" }));
+    sources.at(-1)!.dispatchEvent(
+      new MessageEvent("message", {
+        data: encodeEvent({
+          type: "view",
+          view: {
+            ...guestView,
+            messages: [
+              { ...message, status: "sent" },
+              {
+                ...message,
+                id: GuestMessageId.make("other"),
+                guestId: GuestSessionId.make("alex"),
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    await expect
+      .element(screen.getByRole("button", { name: "Edit your message" }))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByRole("button", { name: "Save edit" })).not.toBeInTheDocument();
+    await expect.element(screen.getByText("This message can no longer be edited.")).toBeVisible();
+  });
+
+  it("deletes an own approved transcript message beyond the waiting-message history and masks its content", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using fetchSpy = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    const message = { ...waitingMessage(), status: "sent" as const };
+    const row: OrchestrationV2TurnItem = {
+      ...itemBase("guest-row", 0),
+      type: "user_message",
+      createdBy: "user",
+      creationSource: "web",
+      messageId: MessageId.make("guest-row"),
+      inputIntent: "turn_start",
+      text: "Attributed original",
+      attachments: [],
+      context: {
+        version: 1,
+        records: [],
+        guest: {
+          guestMessageId: message.id,
+          guestId: message.guestId,
+          shareId: view.shareId,
+          name: "Sam",
+          text: message.text,
+        },
+      },
+    };
+    const sources: Array<EventTarget> = [];
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(
+        fakeEventSource(
+          opening([], [row], { ...view, guestId: message.guestId, messages: [] }),
+          sources,
+        ) as never,
+      );
+    await using screen = await render(<GuestPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Delete your message" }));
+    await vi.waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `/api/guest/messages?share=${SHARE_ID}`,
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    const body = fetchSpy.mock.calls.find(([, init]) => init?.method === "DELETE")?.[1]?.body;
+    expect(JSON.parse(String(body))).toEqual({
+      shareId: SHARE_ID,
+      guestMessageId: message.id,
+      messageId: row.messageId,
+      requestId: expect.any(String),
+    });
+    sources.at(-1)!.dispatchEvent(
+      new MessageEvent("message", {
+        data: encodeEvent(
+          threadEvent(2, {
+            type: "turn-item.updated",
+            payload: {
+              ...row,
+              context: {
+                ...row.context!,
+                guest: { ...row.context!.guest!, deletedAt: "2026-10-23T10:02:00.000Z" },
+              },
+            },
+          }),
+        ),
+      }),
+    );
+    await expect.element(screen.getByText("Message deleted", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText(message.text, { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("keeps a failed edit in the composer and reuses its request identity after a lost response", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    const edits: Array<string> = [];
+    using _fetch = vi.spyOn(window, "fetch").mockImplementation(async (_url, init) => {
+      if (init?.method === "PATCH") {
+        edits.push(String(init.body));
+        if (edits.length === 1) throw new TypeError("Connection lost");
+      }
+      return new Response(null, { status: 204 });
+    });
+    const message = waitingMessage();
+    using _stream = vi.spyOn(window, "EventSource").mockImplementation(
+      fakeEventSource(
+        opening([], [], {
+          ...view,
+          guestId: message.guestId,
+          permission: "confirm",
+          messages: [message],
+        }),
+      ) as never,
+    );
+    await using screen = await render(<GuestPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Edit your message" }));
+    await userEvent.fill(screen.getByLabelText("Message", { exact: true }), "Corrected question");
+    await userEvent.click(screen.getByRole("button", { name: "Save edit" }));
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Could not reach the server.");
+    await expect
+      .element(screen.getByLabelText("Message", { exact: true }))
+      .toHaveValue("Corrected question");
+    await userEvent.click(screen.getByRole("button", { name: "Save edit" }));
+    await expect.element(screen.getByRole("button", { name: "Save edit" })).not.toBeInTheDocument();
+    expect(edits).toHaveLength(2);
+    expect(edits[1]).toBe(edits[0]);
+  });
+
   it("lets viewers follow the conversation without a message composer", async () => {
     using _page = visit(`/guest?share=${SHARE_ID}`);
     using _session = vi

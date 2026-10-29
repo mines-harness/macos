@@ -67,6 +67,7 @@ export const GroupDelivery = Schema.Struct({
   memberId: Schema.String,
   stage: Schema.Literals(["initial", "review", "critique", "synthesis", "fix", "handoff"]),
   status: GroupDeliveryStatus,
+  startedAt: Schema.optional(IsoDateTime),
   runId: Schema.NullOr(RunId),
   contextContinuationOfRunId: Schema.optional(RunId),
   hop: Schema.Number,

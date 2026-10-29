@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { ComposerSurface } from "../chat/ComposerSurface";
 
@@ -14,6 +14,7 @@ export function GroupMessageComposer({
   placeholder,
   disabled,
   submitOnEnter = false,
+  editorRef: providedEditorRef,
   children,
 }: {
   readonly draftKey: string;
@@ -24,9 +25,11 @@ export function GroupMessageComposer({
   readonly placeholder: string;
   readonly disabled: boolean;
   readonly submitOnEnter?: boolean;
+  readonly editorRef?: RefObject<ComposerPromptEditorHandle | null>;
   readonly children: ReactNode;
 }) {
-  const editorRef = useRef<ComposerPromptEditorHandle>(null);
+  const localEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const editorRef = providedEditorRef ?? localEditorRef;
   const [selection, setSelection] = useState({ value, cursor: value.length });
   return (
     <ComposerSurface.Shell>

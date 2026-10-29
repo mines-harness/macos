@@ -1275,6 +1275,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                 : "absolute inset-0 bg-screen"
             }
           />
+          <ThreadGuestShareBar key={selectedThreadKey} threadRef={props.selectedThreadDetailRef} />
           <RenderErrorBoundary
             key={selectedThreadKey}
             resetKeys={[props.threadCwd]}
@@ -1439,7 +1440,6 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                     key={`chatgpt-limit:${props.selectedThread.latestRun?.runId}`}
                     thread={props.selectedThread}
                   />
-                  <ThreadGuestShareBar threadRef={props.selectedThreadDetailRef} />
                   {props.feedbackSubmissions.map((submission) => (
                     <ComposerFeedback
                       key={submission.id}

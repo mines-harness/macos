@@ -107,22 +107,40 @@ const make = Effect.gen(function* () {
   const snapshot = Effect.fn("SharedGroupService.snapshot")(function* (
     grant: SharedGroupDeviceGrant,
   ) {
-    const result = yield* groups.get({ groupId: GroupId.make(grant.groupId) });
+    const groupId = GroupId.make(grant.groupId);
+    let result = yield* groups.get({ groupId });
     if (result.group.visibility !== "shared" || grant.coordinatorEnvironmentId !== environmentId)
       return yield* denied();
+    const routes = new Set(
+      result.members.flatMap((member) =>
+        member.environmentId === null ? [] : [member.environmentId],
+      ),
+    );
+    const revoked = new Set(yield* transport.revokedRoutes(grant.groupKey, routes));
+    const removed = result.members.filter(
+      (member) => member.environmentId !== null && revoked.has(member.environmentId),
+    );
+    if (removed.length > 0)
+      result = yield* groups.removeMembers({
+        groupId,
+        memberIds: removed.map((member) => member.id),
+        cancelActive: true,
+      });
     return sharedGroupSnapshot(result);
   });
   const watch = Effect.fn("SharedGroupService.watch")(function* (
     grant: SharedGroupDeviceGrant,
     after: string,
   ) {
+    const current = yield* snapshot(grant);
+    if (sharedGroupRevision(current) !== after) return current;
     const next = yield* groups.subscribe({ groupId: GroupId.make(grant.groupId) }).pipe(
       Stream.filter((value) => sharedGroupRevision(value) !== after),
       Stream.runHead,
     );
     if (Option.isNone(next)) return yield* unavailable();
     if (next.value.group.visibility !== "shared") return yield* denied();
-    return sharedGroupSnapshot(next.value);
+    return yield* snapshot(grant);
   });
   const peer = Effect.fn("SharedGroupService.peer")(function* (
     grant: SharedGroupDeviceGrant,
@@ -132,14 +150,13 @@ const make = Effect.gen(function* () {
     const coordinator = grant.coordinatorDevice.deviceId;
     const groupId = GroupId.make(grant.groupId);
     if (deviceId === coordinator) {
+      if (call.type === "watch") return yield* watch(grant, call.after);
       const current = yield* snapshot(grant);
       const route = sharedGroupEnvironmentId(grant.groupKey, grant.to.deviceId);
       if (route === environmentId) return yield* denied();
       switch (call.type) {
         case "get":
           return current;
-        case "watch":
-          return yield* watch(grant, call.after);
         case "send":
           return sharedGroupSnapshot(
             yield* groups.sendShared(
@@ -183,6 +200,7 @@ const make = Effect.gen(function* () {
                     member.environmentId === route && call.threadIds.includes(member.threadId),
                 )
                 .map((member) => member.id),
+              cancelActive: true,
             }),
           );
         case "native": {
@@ -230,11 +248,25 @@ const make = Effect.gen(function* () {
     }
     return yield* groups.peer(route, safeRequest);
   });
-  const unregister = transport.register(peer, (grant, revoked) =>
-    cleanup(
-      { groupKey: grant.groupKey, coordinatorDeviceId: grant.coordinatorDevice.deviceId },
-      revoked,
-    ),
+  const unregister = transport.register(
+    peer,
+    Effect.fn("SharedGroupService.disconnected")(function* (grant, revoked) {
+      if (grant.from.deviceId === grant.coordinatorDevice.deviceId) {
+        if (!revoked) return;
+        const current = yield* groups.get({ groupId: GroupId.make(grant.groupId) });
+        const route = sharedGroupEnvironmentId(grant.groupKey, grant.to.deviceId);
+        const memberIds = current.members
+          .filter((member) => member.environmentId === route)
+          .map((member) => member.id);
+        if (memberIds.length > 0)
+          yield* groups.removeMembers({ groupId: current.group.id, memberIds, cancelActive: true });
+        return;
+      }
+      yield* cleanup(
+        { groupKey: grant.groupKey, coordinatorDeviceId: grant.coordinatorDevice.deviceId },
+        revoked,
+      );
+    }),
   );
   yield* Effect.addFinalizer(() => Effect.sync(unregister));
   const call = Effect.fn("SharedGroupService.call")(function* (
@@ -293,6 +325,7 @@ const make = Effect.gen(function* () {
     input: SharedGroupAddChatsInput,
   ) {
     const grant = yield* access(input);
+    if (grant.from.deviceId === input.coordinatorDeviceId) yield* snapshot(grant);
     const members = yield* normalized(input.members);
     const previous = yield* transport.selected(input.groupKey);
     const fresh = members.map((member) => member.threadId).filter((id) => !previous.includes(id));
@@ -336,6 +369,7 @@ const make = Effect.gen(function* () {
                 member.environmentId === null && input.threadIds.includes(member.threadId),
             )
             .map((member) => member.id),
+          cancelActive: true,
         })
       : yield* call(input, { type: "remove-chats", threadIds: input.threadIds });
     const route = sharedGroupEnvironmentId(input.groupKey, input.coordinatorDeviceId);
@@ -352,6 +386,7 @@ const make = Effect.gen(function* () {
     removeChats,
     send: Effect.fn("SharedGroupService.send")(function* (input) {
       const grant = yield* access(input);
+      if (grant.from.deviceId === input.coordinatorDeviceId) yield* snapshot(grant);
       const value =
         grant.from.deviceId === input.coordinatorDeviceId
           ? yield* groups.sendShared(

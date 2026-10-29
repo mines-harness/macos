@@ -114,9 +114,7 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
     const normalizedModel = normalizeModelSlug(model, provider);
     const modelIsInCatalog = models.some((candidate) => candidate.slug === normalizedModel);
     if (!modelIsInCatalog) {
-      const preservedOptions = modelOptions?.filter(
-        (option) => planModeEnabled || option.id !== "agent" || option.value !== "plan",
-      );
+      const preservedOptions = modelOptions;
       return {
         provider,
         promptEffort: null,

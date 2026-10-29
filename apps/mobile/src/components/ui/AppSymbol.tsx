@@ -97,6 +97,7 @@ import IconPalette from "@tabler/icons-react-native/IconPalette";
 import IconPencil from "@tabler/icons-react-native/IconPencil";
 import IconPlug from "@tabler/icons-react-native/IconPlug";
 import IconPhoto from "@tabler/icons-react-native/IconPhoto";
+import IconSend from "@tabler/icons-react-native/IconSend";
 import IconPin from "@tabler/icons-react-native/IconPin";
 import IconPinnedOff from "@tabler/icons-react-native/IconPinnedOff";
 import IconPlayerPause from "@tabler/icons-react-native/IconPlayerPause";
@@ -231,6 +232,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   mic: IconMicrophone,
   paintbrush: IconPalette,
   pencil: IconPencil,
+  paperplane: IconSend,
   "person.crop.circle": IconUserCircle,
   "person.2": IconUsers,
   "person.fill.checkmark": IconUserCheck,

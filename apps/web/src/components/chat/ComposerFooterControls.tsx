@@ -5,7 +5,7 @@ import type {
   RuntimeMode,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { BotIcon, PencilRulerIcon } from "lucide-react";
+import { PencilRulerIcon } from "lucide-react";
 import { type ComponentProps, memo } from "react";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
@@ -42,54 +42,47 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
     props.runtimeModeOptions.find((option) => option.mode === props.runtimeMode) ??
     supervisedRuntimeModeOption;
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const interactionModeTooltip =
-    props.interactionMode === "plan"
-      ? "Plan mode. Click to return to normal build mode"
-      : "Default mode. Click to enter plan mode";
+  const interactionModeTooltip = "Plan mode. Click to return to default mode";
 
-  const interactionModeToggle = props.showInteractionModeToggle ? (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <ComposerControl
-            size={size}
-            className="shrink-0 whitespace-nowrap"
-            aria-pressed={props.interactionMode === "plan"}
-            type="button"
-            onClick={props.onToggleInteractionMode}
-            aria-label={interactionModeTooltip}
-          />
-        }
-      >
-        {props.interactionMode === "plan" ? (
+  const interactionModeToggle =
+    props.showInteractionModeToggle && props.interactionMode === "plan" ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <ComposerControl
+              size={size}
+              className="shrink-0 whitespace-nowrap"
+              aria-pressed={props.interactionMode === "plan"}
+              type="button"
+              onClick={props.onToggleInteractionMode}
+              aria-label={interactionModeTooltip}
+            />
+          }
+        >
           <ComposerControlIcon
             icon={PencilRulerIcon}
             size={size}
             className="text-current opacity-100"
           />
-        ) : (
-          <ComposerControlIcon
-            icon={BotIcon}
-            size={size}
-            opticalSize={size === "xs" ? "default" : "large"}
-          />
-        )}
-        <span data-composer-control-label className="sr-only sm:not-sr-only">
-          {props.interactionMode === "plan" ? "Plan" : "Build"}
-        </span>
-      </TooltipTrigger>
-      <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
-    </Tooltip>
-  ) : null;
+          <span data-composer-control-label className="sr-only sm:not-sr-only">
+            Plan
+          </span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
+      </Tooltip>
+    ) : null;
 
   return (
     <>
       <Tooltip>
-        <Select
+        <Select<RuntimeMode | "interaction-plan">
           open={open}
           onOpenChange={setOpen}
           value={props.runtimeMode}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+          onValueChange={(value) => {
+            if (value === "interaction-plan") props.onToggleInteractionMode();
+            else if (value) props.onRuntimeModeChange(value);
+          }}
         >
           <TooltipTrigger
             render={
@@ -108,6 +101,12 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
             />
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
+            {props.showInteractionModeToggle ? (
+              <SelectItem value="interaction-plan" hideIndicator>
+                <PencilRulerIcon className="size-3.5 shrink-0" />
+                {props.interactionMode === "plan" ? "Exit plan mode" : "Plan mode"}
+              </SelectItem>
+            ) : null}
             {props.runtimeModeOptions.map((option) => {
               const OptionIcon = option.icon;
               return (

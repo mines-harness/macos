@@ -158,6 +158,22 @@ it("refuses every guest HTTP endpoint without an authoritative request IP", asyn
         message: "This guest link is not valid.",
       });
     }
+    for (const method of ["PATCH", "DELETE"]) {
+      const response = await handler(
+        new Request("http://localhost/api/guest/messages?share=share", {
+          method,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            shareId: "share",
+            guestMessageId: "message",
+            text: "Revised",
+            expectedRevision: 0,
+            requestId: method,
+          }),
+        }),
+      );
+      assert.equal(response.status, 403, method);
+    }
   } finally {
     await dispose();
   }

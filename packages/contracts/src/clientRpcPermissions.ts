@@ -114,6 +114,7 @@ export function clientRpcRequiredScopes(
       input !== null &&
       "type" in input &&
       (input.type === "thread.guest-share.close" ||
+        input.type === "thread.guest-share.permission.set" ||
         input.type === "thread.guest-share.kick" ||
         input.type === "thread.guest-share.ban" ||
         input.type === "thread.guest-share.unban" ||

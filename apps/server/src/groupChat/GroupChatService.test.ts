@@ -53,6 +53,7 @@ const fixture = (
     [ux, ui].map((id) => [id, idleThreadProjection(liveThreadShell(id))]),
   );
   const sends: Array<ThreadManagement.ThreadManagementSendInput> = [];
+  const interrupts: Array<ThreadId> = [];
   const receipts = new Map<string, ThreadManagement.ThreadManagementSendResult>();
   const projection = (id: ThreadId) => {
     const record = projections.get(id);
@@ -128,6 +129,11 @@ const fixture = (
     });
   };
   const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
+    interruptThread: (input) =>
+      Effect.sync(() => {
+        interrupts.push(input.threadId);
+        return { type: "no_active_run" as const };
+      }),
     getThreadShell: () => Effect.succeed(null),
     getThreadRecords: (id, _fields, filter) =>
       Effect.sync(() => {
@@ -202,6 +208,7 @@ const fixture = (
   });
   return {
     sends,
+    interrupts,
     projections,
     finish,
     fail: (id: ThreadId) => {
@@ -310,6 +317,7 @@ it.effect("persists the authorized shared service lifecycle without starting nat
         register: () => () => {},
         authorize: () => Effect.succeed(grant),
         selected: () => Effect.sync(() => selections),
+        revokedRoutes: () => Effect.succeed([]),
         select: (_key, ids, selected) =>
           Effect.sync(() => {
             selections = selected
@@ -567,6 +575,63 @@ it.effect(
     }).pipe(Effect.provide(native.layer));
   },
 );
+
+it.effect("cancels active shared work before removing a revoked participant's mines", () => {
+  const native = fixture();
+  return Effect.gen(function* () {
+    const groups = yield* GroupChatService.GroupChatService;
+    const created = yield* groups.create({
+      visibility: "shared",
+      name: "Friends",
+      workflow: "team",
+      members: [
+        { threadId: ux, alias: "UX" },
+        { threadId: ui, alias: "UI" },
+      ],
+      clientRequestId: "forced-removal",
+    });
+    yield* groups.sendShared(
+      {
+        groupId: created.group.id,
+        message: "@everyone start",
+        requestAiResponse: true,
+        clientRequestId: "forced-round",
+      },
+      "mines-11111111111111111111",
+    );
+    const working = yield* until(
+      groups,
+      created.group.id,
+      (snapshot) =>
+        snapshot.rounds[0]?.deliveries.every((delivery) => delivery.status === "running") ?? false,
+    );
+    assert.ok(working.rounds[0]?.deliveries[0]?.startedAt);
+    const removed = yield* groups.removeMembers({
+      groupId: created.group.id,
+      memberIds: [created.members[0]!.id],
+      cancelActive: true,
+    });
+    assert.deepEqual(
+      removed.members.map((member) => member.threadId),
+      [ui],
+    );
+    assert.equal(removed.rounds[0]?.status, "cancelled");
+    assert.equal(
+      removed.rounds[0]?.deliveries[0]?.startedAt,
+      working.rounds[0]?.deliveries[0]?.startedAt,
+    );
+    assert.ok(removed.rounds[0]?.deliveries.every((delivery) => delivery.status === "cancelled"));
+    assert.deepEqual(native.interrupts.toSorted(), [ux, ui].toSorted());
+    native.finish(ux, "Must not return after removal");
+    yield* groups.reconcile();
+    assert.ok(
+      !(yield* groups.get({ groupId: created.group.id })).messages.some(
+        (message) => message.text === "Must not return after removal",
+      ),
+    );
+    assert.equal(native.projections.get(ux)?.thread.id, ux);
+  }).pipe(Effect.provide(native.layer));
+});
 
 it.effect("durably releases a removed remote AI reservation once", () => {
   const releases: string[] = [];

@@ -8,6 +8,7 @@ describe("guest moderation permissions", () => {
   it.each([
     "thread.guest-share.close",
     "thread.guest-share.kick",
+    "thread.guest-share.permission.set",
     "thread.guest-share.ban",
     "thread.guest-share.unban",
     "thread.guest-message.dismiss",

@@ -22,5 +22,9 @@ export function guestProxyPath(path: string, method: string): boolean {
   const [pathname] = path.split("?", 1);
   if (!pathname?.startsWith("/api/guest/")) return false;
   const suffix = pathname.slice("/api/guest/".length);
-  return method === "GET" ? GET_ROUTES.has(suffix) : method === "POST" && POST_ROUTES.has(suffix);
+  return method === "GET"
+    ? GET_ROUTES.has(suffix)
+    : method === "POST"
+      ? POST_ROUTES.has(suffix)
+      : (method === "PATCH" || method === "DELETE") && suffix === "messages";
 }

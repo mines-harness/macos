@@ -17,7 +17,7 @@ const Base64 = Schema.String.check(
 export const GuestProxyRequest = Schema.Struct({
   type: Schema.Literal("request"),
   id: Id,
-  method: Schema.Literals(["GET", "POST"]),
+  method: Schema.Literals(["GET", "POST", "PATCH", "DELETE"]),
   path: Schema.String.check(Schema.isMaxLength(4096)),
   headers: Headers,
   body: Schema.optionalKey(

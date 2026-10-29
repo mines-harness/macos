@@ -446,6 +446,22 @@ export interface KickGuestInput extends ThreadCommandInput {
   readonly guestId: GuestSessionId;
 }
 
+export interface SetGuestPermissionInput extends KickGuestInput {
+  readonly permission: "viewer" | "confirm";
+}
+
+export const setGuestPermission = Effect.fn("EnvironmentCommands.setGuestPermission")(function* (
+  input: SetGuestPermissionInput,
+) {
+  return yield* dispatch({
+    type: "thread.guest-share.permission.set",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    guestId: input.guestId,
+    permission: input.permission,
+  });
+});
+
 export type BanGuestInput = KickGuestInput;
 
 export interface UnbanGuestInput extends ThreadCommandInput {
@@ -487,6 +503,7 @@ export interface ResolveGuestMessageInput extends ThreadCommandInput {
   readonly guestMessageId: GuestMessageId;
   readonly decision: "send" | "dismiss";
   readonly creationSource?: "web" | "mobile";
+  readonly expectedRevision?: number;
 }
 /** Send runs the guest's text as a normal turn; the server supplies the text, not the client. */
 export const resolveGuestMessage = Effect.fn("EnvironmentCommands.resolveGuestMessage")(function* (
@@ -499,6 +516,7 @@ export const resolveGuestMessage = Effect.fn("EnvironmentCommands.resolveGuestMe
       commandId,
       threadId: input.threadId,
       guestMessageId: input.guestMessageId,
+      ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
     });
   }
   return yield* dispatch({
@@ -507,6 +525,9 @@ export const resolveGuestMessage = Effect.fn("EnvironmentCommands.resolveGuestMe
     threadId: input.threadId,
     messageId: MessageId.make(commandId),
     guestMessageId: input.guestMessageId,
+    ...(input.expectedRevision === undefined
+      ? {}
+      : { guestMessageRevision: input.expectedRevision }),
     text: "",
     attachments: [],
     dispatchMode: { type: "queue_after_active" },

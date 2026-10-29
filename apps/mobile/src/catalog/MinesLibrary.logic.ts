@@ -20,8 +20,10 @@ export function buildLibraryRows(
   subagentIds: ReadonlySet<string> = new Set(),
 ): LibraryRow[] {
   const result: LibraryRow[] = [];
+  const pinnedIds = new Set(snapshot.pins.map((entry) => entry.entity.id));
   const visible = (entry: MinesCatalogEntry, pinned: boolean, nestedUnderMine: boolean) =>
     !hidden.has(entry.entity.id) &&
+    (pinned || !pinnedIds.has(entry.entity.id)) &&
     (entry.entity.kind !== "thread" ||
       pinned ||
       nestedUnderMine ||

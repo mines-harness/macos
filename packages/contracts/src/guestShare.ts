@@ -5,6 +5,7 @@ import {
   GuestMessageId,
   GuestShareId,
   GuestSessionId,
+  MessageId,
   IsoDateTime,
   ThreadId,
   TrimmedNonEmptyString,
@@ -40,6 +41,7 @@ export const ThreadGuestSession = Schema.Struct({
   name: TrimmedNonEmptyString,
   joinedAt: IsoDateTime,
   ipAddress: Schema.optional(TrimmedNonEmptyString),
+  permission: Schema.optional(Schema.Literals(["viewer", "confirm"])),
 });
 export type ThreadGuestSession = typeof ThreadGuestSession.Type;
 
@@ -51,6 +53,10 @@ export const ThreadGuestMessage = Schema.Struct({
   guestId: Schema.optional(GuestSessionId),
   guestName: Schema.optional(TrimmedNonEmptyString),
   direct: Schema.optional(Schema.Boolean),
+  revision: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  editedAt: Schema.optional(IsoDateTime),
+  deletedAt: Schema.optional(IsoDateTime),
+  sentMessageId: Schema.optional(MessageId),
   /** The thread's attachments, deleted if the message is dismissed. Absent on older messages. */
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
 });
@@ -84,8 +90,16 @@ export const guestShareGuests = (
   share: ThreadGuestShare | null | undefined,
 ): ReadonlyArray<ThreadGuestSession> => share?.guests ?? [];
 
+export const guestSessionPermission = (
+  share: ThreadGuestShare | null | undefined,
+  guestId: GuestSessionId | undefined,
+): GuestSharePermission =>
+  guestShareGuests(share).find((guest) => guest.id === guestId)?.permission ??
+  guestSharePermission(share);
+
 export const pendingGuestMessageCount = (share: ThreadGuestShare | null | undefined): number =>
-  share?.messages.filter((message) => message.status === "pending").length ?? 0;
+  share?.messages.filter((message) => message.status === "pending" && !message.deletedAt).length ??
+  0;
 
 export const GuestShareCreateInput = Schema.Struct({
   threadId: ThreadId,
@@ -157,6 +171,21 @@ export const GuestSubmitRequest = Schema.Struct({
   requestId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
 });
 export type GuestSubmitRequest = typeof GuestSubmitRequest.Type;
+
+export const GuestDeleteRequest = Schema.Struct({
+  shareId: GuestShareId,
+  guestMessageId: GuestMessageId,
+  messageId: Schema.optional(MessageId),
+  requestId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+});
+export type GuestDeleteRequest = typeof GuestDeleteRequest.Type;
+
+export const GuestEditRequest = Schema.Struct({
+  ...GuestDeleteRequest.fields,
+  text: TrimmedString.check(Schema.isMaxLength(GUEST_MESSAGE_MAX_LENGTH)),
+  expectedRevision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type GuestEditRequest = typeof GuestEditRequest.Type;
 
 export const GUEST_ROUTE_PREFIX = "/api/guest";
 /** The guest page and guest routes name the share they mean with this query parameter. */

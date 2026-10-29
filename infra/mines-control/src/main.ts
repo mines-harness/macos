@@ -150,7 +150,7 @@ const handle = async (request: NodeHttp.IncomingMessage, response: NodeHttp.Serv
     response.setHeader("access-control-allow-origin", origin);
     response.setHeader("vary", "Origin");
     response.setHeader("access-control-allow-headers", "authorization,content-type");
-    response.setHeader("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
+    response.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
     response.setHeader("access-control-expose-headers", "set-auth-token");
   }
   if (request.method === "OPTIONS") {

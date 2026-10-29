@@ -242,6 +242,7 @@ interface MessagesTimelineProps {
   onOpenTurnDiff?: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   renderHtmlRender?: TimelineRowSharedState["renderHtmlRender"];
+  renderUserMessageActions?: TimelineRowSharedState["renderUserMessageActions"];
   turnItemSource?: TimelineRowSharedState["turnItemSource"];
   parentThreadLink?: {
     readonly threadId: ThreadId;
@@ -350,6 +351,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenTurnDiff,
   onOpenThread,
   renderHtmlRender,
+  renderUserMessageActions,
   turnItemSource,
   parentThreadLink = null,
   workflowOpening = null,
@@ -702,6 +704,17 @@ const ConversationTimeline = memo(function ConversationTimeline({
   if (nextOpening !== listOpening) setListOpening(nextOpening);
   const listOpenedOn = nextOpening.mounted ? nextOpening.identity : null;
   const viewportRef = useRef<TimelineViewport | null>(null);
+  const releaseOpeningScrollHoldRef = useRef<(() => void) | null>(null);
+  const openingScrollRef = useRef<{
+    readonly list: LegendListRef;
+    readonly rows: ReadonlyArray<MessagesTimelineRow>;
+    complete: boolean;
+  } | null>(null);
+  const finishOpeningScroll = () => {
+    releaseOpeningScrollHoldRef.current?.();
+    releaseOpeningScrollHoldRef.current = null;
+    if (openingScrollRef.current) openingScrollRef.current.complete = true;
+  };
   const navigatedThreadKeyRef = useRef<string | null>(null);
   const navigateTimeline = () => viewportRef.current?.navigate({ releasesFollow: true });
   const restoreReady = restoringThreadPosition && rows.length > 0;
@@ -757,6 +770,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
   const [findListReady, setFindListReady] = useState(false);
   const handleListLoad = () => {
+    finishOpeningScroll();
     if (
       listOpenedOn === listIdentityKey &&
       rememberedPosition?.atEnd !== false &&
@@ -954,6 +968,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   };
 
   const handleScroll = () => {
+    if (resolveTimelineIsAtEnd(listRef.current?.getState()) === true) finishOpeningScroll();
     if (restoringThreadPosition || listRef.current?.getState?.().data !== rows) return;
     const isAtEnd = rememberPosition(liveFollowEnabled && !anchoredEndSpace);
     if (isAtEnd !== undefined && !citationPositioning) {
@@ -1047,6 +1062,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onOpenTurnDiff,
     onOpenThread,
     renderHtmlRender,
+    renderUserMessageActions,
     turnItemSource,
     workflowOpening,
     onForkFromRun,
@@ -1134,6 +1150,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
     registerTimeline?.(scrollNode);
     const viewport = scrollNode ? attachTimelineViewport(scrollNode) : null;
     viewportRef.current = viewport;
+    if (
+      list &&
+      (openingScrollRef.current?.list !== list ||
+        (!findListReady && openingScrollRef.current.rows !== rows))
+    )
+      openingScrollRef.current = { list, rows, complete: false };
+    // Initial measurements can move the viewport upward before onLoad; real input still wins.
+    const releaseOpeningScrollHold =
+      openingScrollRef.current?.complete === false ? viewport?.holdProgrammaticScroll() : undefined;
+    releaseOpeningScrollHoldRef.current = releaseOpeningScrollHold ?? null;
     const stopTrackingNavigation = viewport?.subscribe(() => {
       navigatedThreadKeyRef.current = listIdentityKey;
     });
@@ -1161,6 +1187,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     scheduleContentSizeChanged();
     return () => {
       stopListeningToContentSize?.();
+      releaseOpeningScrollHold?.();
+      if (releaseOpeningScrollHoldRef.current === releaseOpeningScrollHold)
+        releaseOpeningScrollHoldRef.current = null;
       stopTrackingNavigation?.();
       stopRememberingRelease?.();
       onContentOverflowChange?.(false);

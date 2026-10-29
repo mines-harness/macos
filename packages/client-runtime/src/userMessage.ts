@@ -1,5 +1,7 @@
 import {
+  type ChatAttachment,
   type GuestMessageAttribution,
+  type OrchestrationMessageContext,
   type OrchestrationV2Actor,
   type OrchestrationV2CreationSource,
   type OrchestrationV2IdleCompaction,
@@ -20,6 +22,23 @@ export const IDLE_COMPACTION_TITLES = {
 
 const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
 const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
+
+export function redactDeletedGuestMessage<
+  Message extends {
+    readonly text: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly context?: OrchestrationMessageContext;
+  },
+>(message: Message): Message {
+  const guest = message.context?.guest;
+  if (!guest?.deletedAt) return message;
+  return {
+    ...message,
+    text: "",
+    attachments: [],
+    context: { ...message.context, records: [], guest: { ...guest, text: "" } },
+  };
+}
 
 export function resolveUserMessagePresentation(message: {
   readonly id?: string;
@@ -43,7 +62,7 @@ export function resolveUserMessagePresentation(message: {
   const guest = message.context?.guest;
   if (guest !== undefined) {
     return {
-      text: guest.text,
+      text: guest.deletedAt ? "" : guest.text,
       attribution: "guest",
       scheduledTaskId: undefined,
       guestName: guest.name,

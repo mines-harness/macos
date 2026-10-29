@@ -166,6 +166,17 @@ export function unplacedGuestMessages(
     .toSorted((a, b) => a.submittedAt.localeCompare(b.submittedAt));
 }
 
+export function latestEditableGuestMessage(
+  messages: ReadonlyArray<ThreadGuestMessage>,
+  guestId: string | undefined,
+): ThreadGuestMessage | null {
+  return (
+    messages
+      .filter((message) => message.guestId === guestId && message.status === "pending")
+      .toSorted((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0] ?? null
+  );
+}
+
 /** "23h left" or "5m left", rounded down, for the guest page header. */
 export function formatGuestExpiry(expiresAt: string, nowMs: number): string {
   const minutes = Math.floor((Date.parse(expiresAt) - nowMs) / 60_000);

@@ -637,17 +637,26 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarContent({
   className,
   fixedHeader,
+  scrollFade = true,
+  onViewportScroll,
   ...props
 }: React.ComponentProps<"div"> & {
   fixedHeader?: React.ReactNode;
+  scrollFade?: boolean;
+  onViewportScroll?: (viewport: HTMLElement) => void;
 }) {
   return (
     <>
       {fixedHeader ? <div className="w-full shrink-0">{fixedHeader}</div> : null}
       <ScrollArea
         hideScrollbars
-        scrollFade
+        scrollFade={scrollFade}
         scrollFadePadding={false}
+        onScrollCapture={(event) => {
+          const viewport = event.target;
+          if (viewport instanceof HTMLElement && viewport.dataset.slot === "scroll-area-viewport")
+            onViewportScroll?.(viewport);
+        }}
         // Rows provide keyboard access; exclude the viewport from tab order to flatten VoiceOver's WebKit
         // interaction boundary.
         viewportTabIndex={-1}

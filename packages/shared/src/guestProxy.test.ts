@@ -16,6 +16,9 @@ describe("guest proxy boundary", () => {
     expect(guestProxyPath("/api/guest/stream?share=test", "GET")).toBe(true);
     expect(guestProxyPath("/api/guest/attachment?share=test&id=file", "GET")).toBe(true);
     expect(guestProxyPath("/api/guest/messages?share=test", "POST")).toBe(true);
+    expect(guestProxyPath("/api/guest/messages?share=test", "PATCH")).toBe(true);
+    expect(guestProxyPath("/api/guest/messages?share=test", "DELETE")).toBe(true);
+    expect(guestProxyPath("/api/guest/redeem?share=test", "DELETE")).toBe(false);
     for (const path of [
       "/api/projects",
       "/api/guest/../projects",
@@ -53,7 +56,7 @@ describe("guest proxy boundary", () => {
       isRequest({
         type: "request",
         id,
-        method: "DELETE",
+        method: "PUT",
         path: "/api/guest/messages",
         headers: {},
         ipAddress: "127.0.0.1",

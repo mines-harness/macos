@@ -895,6 +895,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   const allProjectConfigsReady = useAtomValue(environmentProjects.projectConfigsReadyAtom);
   const headerSearchRef = useRef<HTMLDivElement | null>(null);
+  const sidebarViewportRef = useRef<HTMLElement | null>(null);
+  const searchSlideDistanceRef = useRef<number | null>(null);
   // Safari may click after Ctrl+click opens settings; suppress that selection until the picker reopens.
   const suppressNextScopeChangeRef = useRef(false);
   const highlightedProjectScopeKeyRef = useRef<string | null>(null);
@@ -2690,16 +2692,49 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+  const resetSidebarSearchPosition = () => {
+    sidebarViewportRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    headerSearchRef.current?.style.setProperty("--sidebar-search-offset", "0px");
+    searchSlideDistanceRef.current = null;
+  };
+  const updateSidebarSearchPosition = (viewport: HTMLElement) => {
+    sidebarViewportRef.current = viewport;
+    const search = headerSearchRef.current;
+    if (!search || isSearchingThreads || activityView) return;
+    if (viewport.scrollTop <= 0) {
+      searchSlideDistanceRef.current = null;
+      search.style.setProperty("--sidebar-search-offset", "0px");
+      return;
+    }
+    if (searchSlideDistanceRef.current === null) {
+      const fixed = viewport.querySelector('[data-sidebar="catalog-fixed"]');
+      if (!fixed) return;
+      searchSlideDistanceRef.current = Math.max(
+        0,
+        fixed.getBoundingClientRect().top -
+          search.getBoundingClientRect().top +
+          search.offsetHeight,
+      );
+    }
+    search.style.setProperty(
+      "--sidebar-search-offset",
+      `${Math.min(viewport.scrollTop, searchSlideDistanceRef.current)}px`,
+    );
+  };
   return (
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
-        className="min-h-full"
+        className="min-h-full [--sidebar-view-height:2.5rem] sm:[--sidebar-view-height:2.25rem]"
+        scrollFade={isSearchingThreads || activityView}
+        onViewportScroll={updateSidebarSearchPosition}
         fixedHeader={
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
+              collapseSearchOnScroll={!isSearchingThreads && !activityView}
+              onSearchFocus={resetSidebarSearchPosition}
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
@@ -2848,18 +2883,31 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       >
         <SidebarGroup className="flex-1" role="presentation">
           {!isSearchingThreads ? (
-            <div className="flex gap-1 px-2 py-1" role="group" aria-label="Sidebar view">
+            <div
+              className={cn(
+                "flex gap-1 px-2 py-1",
+                !activityView && "sticky top-0 z-30 bg-sidebar",
+              )}
+              role="group"
+              aria-label="Sidebar view"
+            >
               <Button
                 size="sm"
                 variant={activityView ? "ghost-muted" : "secondary"}
-                onClick={() => setActivityView(false)}
+                onClick={() => {
+                  resetSidebarSearchPosition();
+                  setActivityView(false);
+                }}
               >
                 Library
               </Button>
               <Button
                 size="sm"
                 variant={activityView ? "secondary" : "ghost-muted"}
-                onClick={() => setActivityView(true)}
+                onClick={() => {
+                  resetSidebarSearchPosition();
+                  setActivityView(true);
+                }}
               >
                 Activity
               </Button>
@@ -2935,22 +2983,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             )
           ) : null}
           {!isSearchingThreads && !activityView ? (
-            <>
-              <ul>
-                <SidebarDraftBlock
-                  projectByKey={projectByKey}
-                  projectDisplayNameByKey={projectDisplayNameByKey}
-                  scopedProjectKeys={scopedProjectKeys}
-                  routeDraftId={routeDraftIdForRows}
-                  onNavigateToDraft={navigateToDraft}
-                  onDraftContextMenu={handleDraftContextMenu}
-                />
-              </ul>
-              <MinesCatalogTree
-                onActivateThread={navigateToThread}
-                activeThreadKey={routeThreadKey}
-              />
-            </>
+            <MinesCatalogTree
+              onActivateThread={navigateToThread}
+              activeThreadKey={routeThreadKey}
+              beforeLibrary={
+                <ul>
+                  <SidebarDraftBlock
+                    projectByKey={projectByKey}
+                    projectDisplayNameByKey={projectDisplayNameByKey}
+                    scopedProjectKeys={scopedProjectKeys}
+                    routeDraftId={routeDraftIdForRows}
+                    onNavigateToDraft={navigateToDraft}
+                    onDraftContextMenu={handleDraftContextMenu}
+                  />
+                </ul>
+              }
+            />
           ) : null}
           {!isSearchingThreads && activityView ? (
             <TooltipProvider

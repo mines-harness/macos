@@ -76,6 +76,7 @@ import * as DateTime from "effect/DateTime";
 import {
   IDLE_COMPACTION_TITLES,
   IDLE_COMPACTING_LABELS,
+  redactDeletedGuestMessage,
 } from "@t3tools/client-runtime/user-message";
 
 export type PendingApproval = ThreadPendingApproval;
@@ -937,6 +938,7 @@ function singleToolCallLabel(activity: ThreadFeedActivity, expanded: boolean): s
 function isEmptyMessage(entry: RawThreadFeedEntry): boolean {
   return (
     entry.type === "message" &&
+    !entry.message.context?.guest?.deletedAt &&
     entry.message.text.trim().length === 0 &&
     entry.message.attachments.length === 0
   );
@@ -2233,7 +2235,7 @@ export function buildThreadFeed(
         type: "message",
         id: item.messageId,
         createdAt,
-        message: {
+        message: redactDeletedGuestMessage({
           id: item.messageId,
           role: item.type === "user_message" ? "user" : "assistant",
           text: item.text,
@@ -2256,7 +2258,7 @@ export function buildThreadFeed(
           createdAt,
           updatedAt,
           projectedItem: row,
-        },
+        }),
       };
       projectedEntriesCache.set(row, { attemptId, entry });
       entries.push(entry);
@@ -2286,7 +2288,7 @@ export function buildThreadFeed(
       type: "message",
       id: message.id,
       createdAt: message.createdAt,
-      message: {
+      message: redactDeletedGuestMessage({
         id: message.id,
         role: message.role === "assistant" ? "assistant" : "user",
         text: message.text,
@@ -2298,7 +2300,7 @@ export function buildThreadFeed(
         sourceThreadId: ThreadId.make("local-feedback"),
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
-      },
+      }),
     };
     localMessageEntriesCache.set(message, entry);
     return entry;

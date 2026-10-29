@@ -1,5 +1,6 @@
 import {
   boundAttachmentIds,
+  resolveComposerInteractionMode,
   findRecordedWorktreeSetup,
   mergeDirectPreviewAnnotation,
   planComposerTurn,
@@ -1198,5 +1199,28 @@ describe("deriveWorkspaceMutationId", () => {
     expect(deriveWorkspaceMutationId([item("reply", "assistant_message", "completed")], null)).toBe(
       null,
     );
+  });
+});
+
+describe("composer plan mode availability", () => {
+  it("preserves planning despite the retired false preference", () => {
+    expect(
+      resolveComposerInteractionMode({
+        planModeEnabled: false,
+        provider: { showInteractionModeToggle: true },
+        interactionMode: "plan",
+      }),
+    ).toEqual({ enabled: true, interactionMode: "plan" });
+  });
+  it("respects provider capability and missing provider states", () => {
+    for (const provider of [undefined, null, { showInteractionModeToggle: false }]) {
+      expect(
+        resolveComposerInteractionMode({
+          planModeEnabled: true,
+          provider,
+          interactionMode: "plan",
+        }),
+      ).toEqual({ enabled: false, interactionMode: "default" });
+    }
   });
 });

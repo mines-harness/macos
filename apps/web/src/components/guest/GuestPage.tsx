@@ -5,9 +5,12 @@ import {
   GUEST_ROUTE_PREFIX,
   GUEST_SHARE_PARAM,
   GuestMessageId,
+  type GuestDeleteRequest,
+  type GuestEditRequest,
   type GuestRedeemRequest,
   type GuestShareView,
   type GuestThreadModel,
+  type MessageId,
   type OrchestrationV2ThreadProjection,
   type ThreadGuestMessage,
   type ThreadGuestMessageStatus,
@@ -22,7 +25,7 @@ import {
   deriveThreadStructureRuntime,
 } from "@t3tools/client-runtime/state/thread-execution";
 import { createQuestionHistoryProjector } from "@t3tools/client-runtime/state/thread-requests";
-import { ArrowUpIcon, PaperclipIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, CheckIcon, PaperclipIcon, PencilIcon, Trash2Icon, XIcon } from "lucide-react";
 import {
   createRef,
   useEffect,
@@ -66,6 +69,7 @@ import {
   guestFilesProblem,
   initialGuestStreamState,
   inviteShareId,
+  latestEditableGuestMessage,
   type GuestStreamState,
   unplacedGuestMessages,
 } from "./guestStream.logic";
@@ -139,7 +143,8 @@ const decodeErrorBody = Schema.decodeUnknownOption(Schema.Struct({ message: Sche
 /** Resolves to null on success, or to a message the guest can read. */
 async function postGuest(
   path: "redeem" | `messages?${string}`,
-  body: typeof GuestRedeemRequest.Encoded | FormData,
+  body: typeof GuestRedeemRequest.Encoded | FormData | GuestEditRequest | GuestDeleteRequest,
+  method: "POST" | "PATCH" | "DELETE" = "POST",
 ): Promise<string | null> {
   try {
     const response = await fetch(
@@ -147,7 +152,7 @@ async function postGuest(
       body instanceof FormData
         ? { method: "POST", body }
         : {
-            method: "POST",
+            method,
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
           },
@@ -365,6 +370,11 @@ const NO_TURN_DIFFS: ReadonlyArray<never> = [];
 const NO_OPTIMISTIC_MESSAGES: ReadonlyArray<never> = [];
 const ignore = () => {};
 
+interface GuestMessageEdit {
+  readonly message: ThreadGuestMessage;
+  readonly text: string;
+}
+
 /**
  * The owner's timeline, read-only: every action that would reach the owner's machine (fork,
  * revert, diffs, files, other threads, shell) is left out, so its control does not render.
@@ -381,6 +391,66 @@ function GuestThread({
   // No ":" so the timeline finds no environment thread behind the key.
   const threadKey = `guest-${shareId}`;
   const listRef = useRef<LegendListRef | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [editing, setEditing] = useState<GuestMessageEdit | null>(null);
+  const [deleting, setDeleting] = useState<GuestMessageId | null>(null);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const activeEdit =
+    editing !== null &&
+    messages.some(
+      (message) =>
+        message.id === editing.message.id &&
+        message.status === "pending" &&
+        message.guestId === guestId,
+    )
+      ? editing
+      : null;
+  const beginEdit = (message: ThreadGuestMessage) => {
+    setMessageError(null);
+    setEditing({ message, text: message.text });
+    composerRef.current?.focus();
+  };
+  const deleteMessage = async (guestMessageId: GuestMessageId, messageId?: MessageId) => {
+    if (deleting !== null) return;
+    setDeleting(guestMessageId);
+    const failure = await postGuest(
+      `messages?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
+      { shareId, guestMessageId, ...(messageId ? { messageId } : {}), requestId: randomUUID() },
+      "DELETE",
+    );
+    setDeleting(null);
+    setMessageError(failure);
+    if (failure === null)
+      setEditing((current) => (current?.message.id === guestMessageId ? null : current));
+  };
+  const deleteAction = (guestMessageId: GuestMessageId, messageId?: MessageId) => (
+    <Button
+      size="icon-xs"
+      variant="ghost-muted"
+      aria-label="Delete your message"
+      disabled={deleting !== null}
+      onClick={() => void deleteMessage(guestMessageId, messageId)}
+    >
+      <Trash2Icon />
+    </Button>
+  );
+  const renderMessageActions = (message: ThreadGuestMessage, messageId?: MessageId) =>
+    message.guestId !== guestId ? null : (
+      <div className="flex items-center gap-0.5">
+        {message.status === "pending" && permission !== "viewer" ? (
+          <Button
+            size="icon-xs"
+            variant="ghost-muted"
+            aria-label="Edit your message"
+            disabled={deleting !== null}
+            onClick={() => beginEdit(message)}
+          >
+            <PencilIcon />
+          </Button>
+        ) : null}
+        {deleteAction(message.id, messageId)}
+      </div>
+    );
   const { resolvedTheme } = useTheme();
   // The rest is what ChatView derives from the same projection.
   const [projectQuestionHistory] = useState(() => createQuestionHistoryProjector());
@@ -490,6 +560,19 @@ function GuestThread({
           onFileOpen={openFile}
           onFileDownload={openFile}
           renderHtmlRender={renderHtmlRender}
+          renderUserMessageActions={(row) => {
+            const attribution = row.message.context?.guest;
+            const id = attribution?.guestMessageId;
+            const message =
+              id === undefined ? undefined : messages.find((candidate) => candidate.id === id);
+            if (message) return renderMessageActions(message, row.message.id);
+            return attribution &&
+              guestId !== undefined &&
+              attribution.guestId === guestId &&
+              attribution.shareId === shareId
+              ? deleteAction(attribution.guestMessageId, row.message.id)
+              : null;
+          }}
           turnItemSource={turnItemSource}
           activeThreadEnvironmentId={GUEST_ENVIRONMENT_ID}
           markdownCwd={undefined}
@@ -509,7 +592,12 @@ function GuestThread({
               <ol ref={footerRef} className="chat-content-lane flex flex-col gap-4 pb-4">
                 {unplaced.map((message) => (
                   <li key={message.id}>
-                    <UnplacedGuestMessage shareId={shareId} message={message} guestId={guestId} />
+                    <UnplacedGuestMessage
+                      shareId={shareId}
+                      message={message}
+                      guestId={guestId}
+                      actions={renderMessageActions(message)}
+                    />
                   </li>
                 ))}
               </ol>
@@ -525,12 +613,34 @@ function GuestThread({
         ) : null}
       </div>
       <div className={cn(LANE, "shrink-0 pb-4")}>
+        {messageError ? (
+          <p role="alert" className="pb-2 text-sm text-destructive">
+            {messageError}
+          </p>
+        ) : null}
+        {editing !== null && activeEdit === null ? (
+          <p role="status" className="pb-2 text-xs text-muted-foreground">
+            This message can no longer be edited.
+          </p>
+        ) : null}
         {permission === "viewer" ? (
           <p className="py-3 text-center text-sm text-muted-foreground">
             Viewer access · You can follow this conversation.
           </p>
         ) : (
-          <GuestComposer shareId={shareId} model={model} permission={permission ?? "confirm"} />
+          <GuestComposer
+            shareId={shareId}
+            model={model}
+            permission={permission ?? "confirm"}
+            textareaRef={composerRef}
+            editing={activeEdit}
+            latestEditableMessage={latestEditableGuestMessage(messages, guestId)}
+            onEditStart={beginEdit}
+            onEditTextChange={(text) =>
+              setEditing((current) => (current ? { ...current, text } : null))
+            }
+            onEditEnd={() => setEditing(null)}
+          />
         )}
       </div>
     </>
@@ -561,10 +671,12 @@ function UnplacedGuestMessage({
   shareId,
   message,
   guestId,
+  actions,
 }: {
   readonly shareId: GuestShareView["shareId"];
   readonly message: ThreadGuestMessage;
   readonly guestId: string | undefined;
+  readonly actions: React.ReactNode;
 }) {
   // A dismissed message's files are deleted, so only their names remain.
   const served = message.status !== "dismissed";
@@ -593,7 +705,13 @@ function UnplacedGuestMessage({
         />
         {message.text ? <span>{message.text}</span> : null}
       </div>
-      <p className="me-1 text-2xs text-muted-foreground">{STATUS_LABEL[message.status]}</p>
+      <div className="flex items-center gap-2">
+        <p className="me-1 text-2xs text-muted-foreground">
+          {STATUS_LABEL[message.status]}
+          {message.editedAt ? " · Edited" : ""}
+        </p>
+        {actions}
+      </div>
     </div>
   );
 }
@@ -647,12 +765,25 @@ function GuestComposer({
   shareId,
   model,
   permission,
+  textareaRef,
+  editing,
+  latestEditableMessage,
+  onEditStart,
+  onEditTextChange,
+  onEditEnd,
 }: {
   readonly shareId: GuestShareView["shareId"];
   readonly model: GuestThreadModel;
   readonly permission: "confirm" | "send";
+  readonly textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  readonly editing: GuestMessageEdit | null;
+  readonly latestEditableMessage: ThreadGuestMessage | null;
+  readonly onEditStart: (message: ThreadGuestMessage) => void;
+  readonly onEditTextChange: (text: string) => void;
+  readonly onEditEnd: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [draftText, setText] = useState("");
+  const text = editing?.text ?? draftText;
   const [files, setFiles] = useState<ReadonlyArray<StagedFile>>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -663,9 +794,10 @@ function GuestComposer({
     readonly files: ReadonlyArray<StagedFile>;
     readonly requestId: string;
   } | null>(null);
+  const editSubmissionRef = useRef<GuestEditRequest | null>(null);
   const { resolvedTheme } = useTheme();
   const addFiles = (added: ReadonlyArray<File>) => {
-    if (added.length === 0) return;
+    if (added.length === 0 || editing !== null) return;
     const next = [
       ...files,
       ...added.map((file) => ({ key: `staged-${nextFileKey.current++}`, file })),
@@ -676,8 +808,37 @@ function GuestComposer({
   };
   const send = async () => {
     const trimmed = text.trim();
-    if ((trimmed === "" && files.length === 0) || sending) return;
+    const attachments = editing === null ? files : (editing.message.attachments ?? []);
+    if ((trimmed === "" && attachments.length === 0) || sending) return;
     setSending(true);
+    if (editing !== null) {
+      const previous = editSubmissionRef.current;
+      const request =
+        previous?.guestMessageId === editing.message.id &&
+        previous.text === trimmed &&
+        previous.expectedRevision === (editing.message.revision ?? 0)
+          ? previous
+          : {
+              shareId,
+              guestMessageId: editing.message.id,
+              text: trimmed,
+              expectedRevision: editing.message.revision ?? 0,
+              requestId: randomUUID(),
+            };
+      editSubmissionRef.current = request;
+      const failure = await postGuest(
+        `messages?${GUEST_SHARE_PARAM}=${encodeURIComponent(shareId)}`,
+        request,
+        "PATCH",
+      );
+      setSending(false);
+      setError(failure);
+      if (failure === null) {
+        editSubmissionRef.current = null;
+        onEditEnd();
+      }
+      return;
+    }
     const sentFiles = files;
     const previous = submissionRef.current;
     const requestId =
@@ -706,6 +867,25 @@ function GuestComposer({
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Escape" && editing !== null) {
+      event.preventDefault();
+      if (!sending) onEditEnd();
+      return;
+    }
+    if (
+      event.key === "ArrowUp" &&
+      editing === null &&
+      text === "" &&
+      files.length === 0 &&
+      latestEditableMessage !== null &&
+      !sending
+    ) {
+      event.preventDefault();
+      setError(null);
+      onEditStart(latestEditableMessage);
+      return;
+    }
     // Same as the app composer: Enter sends, Shift+Enter adds a line, IME composition is left alone.
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
@@ -738,7 +918,30 @@ function GuestComposer({
         addFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      {files.length > 0 ? (
+      {editing !== null ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <PencilIcon aria-hidden className="size-3" />
+          <span className="flex-1">Editing your message · Awaiting approval</span>
+          <Button
+            size="icon-xs"
+            variant="ghost-muted"
+            aria-label="Cancel editing"
+            disabled={sending}
+            onClick={onEditEnd}
+          >
+            <XIcon />
+          </Button>
+        </div>
+      ) : null}
+      {editing !== null && (editing.message.attachments?.length ?? 0) > 0 ? (
+        <GuestMessageAttachments
+          attachments={editing.message.attachments ?? []}
+          imageUrl={(attachment) => guestAttachmentUrl(shareId, attachment.id)}
+          fileHref={(attachment) => guestAttachmentUrl(shareId, attachment.id)}
+          onOpenImage={(attachment) => openInNewTab(guestAttachmentUrl(shareId, attachment.id))}
+        />
+      ) : null}
+      {editing === null && files.length > 0 ? (
         <ul className="flex flex-wrap gap-2" aria-label="Attached files">
           {files.map((staged) => (
             <li
@@ -774,12 +977,16 @@ function GuestComposer({
         </ul>
       ) : null}
       <textarea
+        ref={textareaRef}
         aria-label="Message"
-        placeholder="Message"
+        placeholder={editing === null ? "Message" : "Edit your message"}
         rows={2}
         maxLength={GUEST_MESSAGE_MAX_LENGTH}
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        disabled={editing !== null && sending}
+        onChange={(event) =>
+          editing === null ? setText(event.target.value) : onEditTextChange(event.target.value)
+        }
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         className="max-h-60 min-h-12 w-full resize-none bg-transparent text-sm outline-none field-sizing-content placeholder:text-placeholder"
@@ -797,7 +1004,11 @@ function GuestComposer({
             event.target.value = "";
           }}
         />
-        <ComposerControl aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>
+        <ComposerControl
+          aria-label="Attach files"
+          disabled={editing !== null}
+          onClick={() => fileInputRef.current?.click()}
+        >
           <ComposerControlIcon icon={PaperclipIcon} />
         </ComposerControl>
         <GuestModelLabel model={model} />
@@ -814,11 +1025,19 @@ function GuestComposer({
         )}
         <button
           type="submit"
-          aria-label="Send"
-          disabled={sending || (text.trim() === "" && files.length === 0)}
+          aria-label={editing === null ? "Send" : "Save edit"}
+          disabled={
+            sending ||
+            (text.trim() === "" &&
+              (editing === null ? files.length : (editing.message.attachments?.length ?? 0)) === 0)
+          }
           className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs hover:bg-message-action-hover focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-64"
         >
-          <ArrowUpIcon aria-hidden className="size-4" />
+          {editing === null ? (
+            <ArrowUpIcon aria-hidden className="size-4" />
+          ) : (
+            <CheckIcon aria-hidden className="size-4" />
+          )}
         </button>
       </div>
     </form>

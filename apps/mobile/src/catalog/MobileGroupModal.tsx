@@ -23,6 +23,7 @@ import { useGroupDraft } from "./useGroupDraft";
 import { GroupParticipantsButton } from "./GroupParticipantsButton";
 import { MobileGroupParticipantsModal } from "./MobileGroupParticipantsModal";
 import { ComposerEditor } from "../native/MinesComposerEditor";
+import { MobileGroupRoster } from "./MobileGroupRoster";
 
 export function MobileGroupModal({
   environmentId: rawEnvironmentId,
@@ -49,6 +50,7 @@ export function MobileGroupModal({
   const { store, draft, error: draftError } = useGroupDraft(environmentId, groupId);
   const [busy, setBusy] = useState(false);
   const [addingParticipants, setAddingParticipants] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectDetail = useSelectWorkspaceDetail();
   const snapshot = query.data?.group.visibility === "shared" ? null : query.data;
@@ -131,6 +133,15 @@ export function MobileGroupModal({
             <Text className="flex-1 text-lg font-semibold" numberOfLines={1}>
               {snapshot?.group.name ?? "Group chat"}
             </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show participants"
+              accessibilityState={{ expanded: rosterOpen }}
+              onPress={() => setRosterOpen((open) => !open)}
+              className="p-2"
+            >
+              <Text>Participants</Text>
+            </Pressable>
             {snapshot?.rounds.some((round) => round.status === "active") ? (
               <Pressable
                 accessibilityRole="button"
@@ -147,156 +158,150 @@ export function MobileGroupModal({
               Open this conversation from Shared groups.
             </Text>
           ) : null}
-          {snapshot ? (
-            <View className="flex-row items-center gap-3 px-4 py-2">
-              <Text className="flex-1 text-xs text-muted-foreground">
-                {archived
-                  ? "Archived · member mines are available for other groups."
-                  : "Archiving stops this group and releases its member mines."}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy || !archiveAllowed}
-                onPress={() =>
-                  void runAction(async () => {
-                    const result = await archive({
-                      environmentId,
-                      input: { groupId, archived: !archived },
-                    });
-                    if (result._tag === "Success") groups.refresh();
-                    return result;
-                  })
-                }
-                className="p-2"
-              >
-                <Text>{archived ? "Reopen" : "Archive"}</Text>
-              </Pressable>
-            </View>
-          ) : null}
-          {snapshot ? (
-            <View className="px-4 py-2">
-              <GroupParticipantsButton
-                disabled={
-                  busy ||
-                  archived ||
-                  !addAllowed ||
-                  snapshot.members.length >= 12 ||
-                  snapshot.rounds.some((round) => round.status === "active")
-                }
-                onPress={() => setAddingParticipants(true)}
-              />
-            </View>
-          ) : null}
-          <View className="flex-row flex-wrap gap-2 px-4 py-2">
-            <Pressable
-              accessibilityRole="button"
-              disabled={!store || archived}
-              onPress={() => appendMention("everyone")}
-              className="rounded-full bg-muted px-3 py-2"
-            >
-              <Text className="text-xs">@everyone</Text>
-            </Pressable>
-            {snapshot?.members.map((member) => (
-              <Pressable
-                accessibilityRole="button"
-                key={member.id}
-                disabled={!store || archived}
-                onPress={() => appendMention(member.alias)}
-                className="rounded-full bg-muted px-3 py-2"
-              >
-                <Text className="text-xs">@{member.alias}</Text>
-              </Pressable>
-            ))}
-          </View>
           {query.error || error || draftError ? (
             <Text accessibilityRole="alert" className="px-4 text-destructive">
               {error ?? draftError ?? query.error}
             </Text>
           ) : null}
-          <FlatList
-            data={snapshot?.messages ?? []}
-            keyExtractor={(message) => message.id}
-            contentContainerStyle={{ padding: 16, gap: 16 }}
-            renderItem={({ item }) => {
-              const member =
-                snapshot?.rounds
-                  .find((round) => round.id === item.roundId)
-                  ?.members.find((candidate) => candidate.id === item.memberId) ??
-                snapshot?.members.find((candidate) => candidate.id === item.memberId);
-              return (
-                <View>
-                  <Text className="mb-1 text-xs text-muted-foreground">
-                    {member?.alias ?? (item.kind === "user" ? "You" : "Group")}
-                  </Text>
-                  <Text selectable className="text-base leading-6">
-                    {item.text}
-                  </Text>
-                  {member ? (
+          <View className="min-h-0 flex-1">
+            <FlatList
+              style={{ flex: 1 }}
+              data={snapshot?.messages ?? []}
+              keyExtractor={(message) => message.id}
+              contentContainerStyle={{ padding: 16, gap: 16 }}
+              renderItem={({ item }) => {
+                const member =
+                  snapshot?.rounds
+                    .find((round) => round.id === item.roundId)
+                    ?.members.find((candidate) => candidate.id === item.memberId) ??
+                  snapshot?.members.find((candidate) => candidate.id === item.memberId);
+                return (
+                  <View>
+                    <Text className="mb-1 text-xs text-muted-foreground">
+                      {member?.alias ?? (item.kind === "user" ? "You" : "Group")}
+                    </Text>
+                    <Text selectable className="text-base leading-6">
+                      {item.text}
+                    </Text>
+                    {member ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => {
+                          onClose();
+                          selectDetail({
+                            name: "Thread",
+                            params: {
+                              environmentId: member.environmentId ?? environmentId,
+                              threadId: member.threadId,
+                            },
+                          });
+                        }}
+                        className="py-2"
+                      >
+                        <Text className="text-xs text-primary">
+                          {item.truncated
+                            ? "Open complete reply in original mine"
+                            : "Open original mine"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              }}
+              ListFooterComponent={
+                <>
+                  {snapshot?.rounds.slice(-1).flatMap((round) =>
+                    round.deliveries.map((delivery) => (
+                      <View key={delivery.id} className="gap-2 py-2">
+                        <Text className="text-xs text-muted-foreground">
+                          {round.members.find((member) => member.id === delivery.memberId)?.alias} ·{" "}
+                          {delivery.stage} · {delivery.status}
+                        </Text>
+                        {delivery.error ? (
+                          <Text className="text-xs text-muted-foreground">{delivery.error}</Text>
+                        ) : null}
+                        {["failed", "unavailable"].includes(delivery.status) ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={busy || archived || !retryAllowed}
+                            onPress={() =>
+                              void runAction(() =>
+                                retry({
+                                  environmentId,
+                                  input: { groupId, roundId: round.id, deliveryId: delivery.id },
+                                }),
+                              )
+                            }
+                            className="py-2"
+                          >
+                            <Text className="text-primary">Retry member</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    )),
+                  ) ?? null}
+                </>
+              }
+              ListEmptyComponent={
+                <Text className="py-8 text-center text-muted-foreground">
+                  {snapshot
+                    ? "Message your group to begin."
+                    : "Connecting to the group’s computer…"}
+                </Text>
+              }
+            />
+            {rosterOpen ? (
+              <MobileGroupRoster
+                snapshot={snapshot}
+                onClose={() => setRosterOpen(false)}
+                disabled={!store || archived}
+                onMention={(alias) => {
+                  appendMention(alias);
+                  setRosterOpen(false);
+                }}
+              >
+                {snapshot ? (
+                  <View className="flex-row items-center gap-3 px-4 py-2">
+                    <Text className="flex-1 text-xs text-muted-foreground">
+                      {archived
+                        ? "Archived · member mines are available for other groups."
+                        : "Archiving stops this group and releases its member mines."}
+                    </Text>
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => {
-                        onClose();
-                        selectDetail({
-                          name: "Thread",
-                          params: {
-                            environmentId: member.environmentId ?? environmentId,
-                            threadId: member.threadId,
-                          },
-                        });
-                      }}
-                      className="py-2"
+                      disabled={busy || !archiveAllowed}
+                      onPress={() =>
+                        void runAction(async () => {
+                          const result = await archive({
+                            environmentId,
+                            input: { groupId, archived: !archived },
+                          });
+                          if (result._tag === "Success") groups.refresh();
+                          return result;
+                        })
+                      }
+                      className="p-2"
                     >
-                      <Text className="text-xs text-primary">
-                        {item.truncated
-                          ? "Open complete reply in original mine"
-                          : "Open original mine"}
-                      </Text>
+                      <Text>{archived ? "Reopen" : "Archive"}</Text>
                     </Pressable>
-                  ) : null}
-                </View>
-              );
-            }}
-            ListFooterComponent={
-              <>
-                {snapshot?.rounds.slice(-1).flatMap((round) =>
-                  round.deliveries.map((delivery) => (
-                    <View key={delivery.id} className="gap-2 py-2">
-                      <Text className="text-xs text-muted-foreground">
-                        {round.members.find((member) => member.id === delivery.memberId)?.alias} ·{" "}
-                        {delivery.stage} · {delivery.status}
-                      </Text>
-                      {delivery.error ? (
-                        <Text className="text-xs text-muted-foreground">{delivery.error}</Text>
-                      ) : null}
-                      {["failed", "unavailable"].includes(delivery.status) ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          disabled={busy || archived || !retryAllowed}
-                          onPress={() =>
-                            void runAction(() =>
-                              retry({
-                                environmentId,
-                                input: { groupId, roundId: round.id, deliveryId: delivery.id },
-                              }),
-                            )
-                          }
-                          className="py-2"
-                        >
-                          <Text className="text-primary">Retry member</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  )),
-                ) ?? null}
-              </>
-            }
-            ListEmptyComponent={
-              <Text className="py-8 text-center text-muted-foreground">
-                {snapshot ? "Message your group to begin." : "Connecting to the group’s computer…"}
-              </Text>
-            }
-          />
-          <View className="gap-3 border-t border-border p-4">
+                  </View>
+                ) : null}
+                {snapshot ? (
+                  <GroupParticipantsButton
+                    disabled={
+                      busy ||
+                      archived ||
+                      !addAllowed ||
+                      snapshot.members.length >= 12 ||
+                      snapshot.rounds.some((round) => round.status === "active")
+                    }
+                    onPress={() => setAddingParticipants(true)}
+                  />
+                ) : null}
+              </MobileGroupRoster>
+            ) : null}
+          </View>
+          <View className="shrink-0 gap-3 border-t border-border p-4">
             <ComposerEditor
               key={JSON.stringify([environmentId, groupId])}
               accessibilityLabel="Message the group"

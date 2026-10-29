@@ -1,3 +1,4 @@
+import { redactDeletedGuestMessage } from "@t3tools/client-runtime/user-message";
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -136,6 +137,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     if (action === "edit") {
       if (editBlockedReason !== null) return;
       const entry = queuedRuns[index]!;
+      if (entry.context?.guest?.deletedAt) return;
       void Haptics.selectionAsync();
       beginQueuedRunEdit(
         threadKey,
@@ -228,7 +230,8 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
           No messages waiting in this queue.
         </Text>
       ) : null}
-      {queuedRuns.map(({ run, text, attachments, context }, index) => {
+      {queuedRuns.map((queued, index) => {
+        const { run, text, attachments, context } = redactDeletedGuestMessage(queued);
         const layout = dragRows?.find((row) => row.id === run.id);
         const offset =
           sourceLayout?.y !== undefined &&
@@ -249,8 +252,9 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
           queuedCount: queuedRuns.length,
           text,
         });
-        const title =
-          controls.displayText || (attachments.length > 0 ? "Attachments" : "Queued message");
+        const title = context?.guest?.deletedAt
+          ? "Message deleted"
+          : controls.displayText || (attachments.length > 0 ? "Attachments" : "Queued message");
         return (
           <QueueShiftedRow
             key={run.id}

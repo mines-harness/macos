@@ -50,7 +50,8 @@ export function appendGuestPendingMessages(
   presentedFeed: ReadonlyArray<PendingThreadFeedEntry>,
   share: ThreadGuestShare | null,
 ): ReadonlyArray<ThreadFeedRow> {
-  const pending = share?.messages.filter((message) => message.status === "pending") ?? [];
+  const pending =
+    share?.messages.filter((message) => message.status === "pending" && !message.deletedAt) ?? [];
   if (share === null || pending.length === 0) return presentedFeed;
   return [
     ...presentedFeed,

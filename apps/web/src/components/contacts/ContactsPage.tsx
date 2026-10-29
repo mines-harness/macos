@@ -54,10 +54,12 @@ export function ContactsPageFrame({
   title,
   actions,
   children,
+  conversation = false,
 }: {
   readonly title: string;
   readonly actions?: ReactNode;
   readonly children: ReactNode;
+  readonly conversation?: boolean;
 }) {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
@@ -65,9 +67,13 @@ export function ContactsPageFrame({
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
         <div className="flex items-center gap-2">{actions}</div>
       </WorkspacePageHeader>
-      <ScrollArea className="min-h-0 flex-1">
-        <WorkspacePageContainer>{children}</WorkspacePageContainer>
-      </ScrollArea>
+      {conversation ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3 sm:px-6">{children}</div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          <WorkspacePageContainer>{children}</WorkspacePageContainer>
+        </ScrollArea>
+      )}
     </SidebarInset>
   );
 }

@@ -52,6 +52,7 @@ import {
   type UnarchiveThreadInput,
   type CloseGuestShareInput,
   type KickGuestInput,
+  type SetGuestPermissionInput,
   type BanGuestInput,
   type UnbanGuestInput,
   type ResolveGuestMessageInput,
@@ -65,6 +66,7 @@ import {
   archiveThread,
   closeGuestShare,
   kickGuest,
+  setGuestPermission,
   banGuest,
   unbanGuest,
   resolveGuestMessage,
@@ -123,6 +125,7 @@ export type {
   DeleteThreadInput,
   CloseGuestShareInput,
   KickGuestInput,
+  SetGuestPermissionInput,
   BanGuestInput,
   UnbanGuestInput,
   EditQueuedRunInput,
@@ -232,6 +235,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     type:
       | "thread.guest-share.close"
       | "thread.guest-share.kick"
+      | "thread.guest-share.permission.set"
       | "thread.guest-share.ban"
       | "thread.guest-share.unban"
       | undefined,
@@ -284,6 +288,11 @@ export function createThreadEnvironmentAtoms<R, E>(
       "thread.guest-share.kick",
       "environment-data:commands:thread:kick-guest",
       (input: KickGuestInput) => kickGuest(input),
+    ),
+    setGuestPermission: createGuestShareCommand(
+      "thread.guest-share.permission.set",
+      "environment-data:commands:thread:set-guest-permission",
+      (input: SetGuestPermissionInput) => setGuestPermission(input),
     ),
     banGuest: createGuestShareCommand(
       "thread.guest-share.ban",

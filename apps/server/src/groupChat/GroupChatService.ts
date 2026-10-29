@@ -92,6 +92,7 @@ export class GroupChatService extends Context.Service<
     readonly removeMembers: (input: {
       readonly groupId: GroupId;
       readonly memberIds: ReadonlyArray<string>;
+      readonly cancelActive?: boolean;
     }) => Effect.Effect<GroupSnapshot, GroupChatError>;
     readonly ask: (
       callerThreadId: ThreadId,
@@ -506,8 +507,9 @@ const make = Effect.gen(function* () {
   const removeMembers = Effect.fn("GroupChatService.removeMembers")(function* (input: {
     readonly groupId: GroupId;
     readonly memberIds: ReadonlyArray<string>;
+    readonly cancelActive?: boolean;
   }) {
-    yield* lock.withPermits(1)(
+    const toStop = yield* lock.withPermits(1)(
       Effect.gen(function* () {
         const snapshot = yield* store.get(input.groupId);
         if (snapshot.group.visibility !== "shared")
@@ -525,12 +527,16 @@ const make = Effect.gen(function* () {
           });
         const selected = new Set(input.memberIds);
         const removed = snapshot.members.filter((member) => selected.has(member.id));
-        if (removed.length === 0) return;
-        if ((yield* store.activeRounds()).some((round) => round.groupId === input.groupId))
+        if (removed.length === 0) return [];
+        if (
+          !input.cancelActive &&
+          (yield* store.activeRounds()).some((round) => round.groupId === input.groupId)
+        )
           return yield* new GroupChatError({
             code: "busy",
             message: "Stop the AI discussion before removing a participant.",
           });
+        const stopped = input.cancelActive ? yield* cancelRounds(input) : [];
         for (const member of removed)
           if (member.environmentId !== null)
             yield* peers.defer({
@@ -559,8 +565,10 @@ const make = Effect.gen(function* () {
           },
           removedMemberIds: removed.map((member) => member.id),
         });
+        return stopped;
       }),
     );
+    yield* interruptRounds(toStop);
     yield* Queue.offer(wake, undefined);
     return yield* store.get(input.groupId);
   });
@@ -726,7 +734,15 @@ const make = Effect.gen(function* () {
           round: {
             ...round,
             deliveries: round.deliveries.map((delivery) =>
-              delivery.id === deliveryId ? { ...delivery, ...update } : delivery,
+              delivery.id === deliveryId
+                ? {
+                    ...delivery,
+                    ...update,
+                    ...(update.status === "running" && delivery.status !== "running"
+                      ? { startedAt: at }
+                      : {}),
+                  }
+                : delivery,
             ),
           },
           ...(output ? { messages: [output] } : {}),
@@ -933,6 +949,7 @@ const make = Effect.gen(function* () {
                       ...pending,
                       runId: sent.runId,
                       status: sent.queued ? "queued" : "running",
+                      ...(sent.queued ? {} : { startedAt: at }),
                       error: null,
                     }
                   : item,
@@ -1293,36 +1310,36 @@ const make = Effect.gen(function* () {
     return response.result;
   });
 
-  const stop = Effect.fn("GroupChatService.stop")(function* (input: {
+  const cancelRounds = Effect.fn("GroupChatService.cancelRounds")(function* (input: {
     readonly groupId: GroupId;
     readonly roundId?: string | undefined;
   }) {
-    const toStop = yield* lock.withPermits(1)(
-      Effect.gen(function* () {
-        const rounds = (yield* store.activeRounds()).filter(
-          (round) =>
-            round.groupId === input.groupId &&
-            (input.roundId === undefined || round.id === input.roundId),
-        );
-        for (const round of rounds) {
-          const at = yield* now;
-          yield* store.commit({
-            groupId: input.groupId,
-            kind: "round.cancelled",
-            at,
-            round: {
-              ...round,
-              status: "cancelled",
-              completedAt: at,
-              deliveries: round.deliveries.map((delivery) =>
-                isDeliverySettled(delivery) ? delivery : { ...delivery, status: "cancelled" },
-              ),
-            },
-          });
-        }
-        return rounds;
-      }),
+    const rounds = (yield* store.activeRounds()).filter(
+      (round) =>
+        round.groupId === input.groupId &&
+        (input.roundId === undefined || round.id === input.roundId),
     );
+    for (const round of rounds) {
+      const at = yield* now;
+      yield* store.commit({
+        groupId: input.groupId,
+        kind: "round.cancelled",
+        at,
+        round: {
+          ...round,
+          status: "cancelled",
+          completedAt: at,
+          deliveries: round.deliveries.map((delivery) =>
+            isDeliverySettled(delivery) ? delivery : { ...delivery, status: "cancelled" },
+          ),
+        },
+      });
+    }
+    return rounds;
+  });
+  const interruptRounds = Effect.fn("GroupChatService.interruptRounds")(function* (
+    toStop: ReadonlyArray<GroupRound>,
+  ) {
     for (const round of toStop)
       for (const delivery of round.deliveries) {
         const member = round.members.find((candidate) => candidate.id === delivery.memberId);
@@ -1366,6 +1383,13 @@ const make = Effect.gen(function* () {
           })
           .pipe(Effect.ignore);
       }
+  });
+  const stop = Effect.fn("GroupChatService.stop")(function* (input: {
+    readonly groupId: GroupId;
+    readonly roundId?: string | undefined;
+  }) {
+    const toStop = yield* lock.withPermits(1)(cancelRounds(input));
+    yield* interruptRounds(toStop);
     return yield* store.get(input.groupId);
   });
   const archive = Effect.fn("GroupChatService.archive")(function* (input: {
@@ -1458,11 +1482,12 @@ const make = Effect.gen(function* () {
         // Unknown dispatch outcomes retain their identity; a known failed native run needs a new turn.
         const replacement =
           target.runId === null
-            ? { ...target, status: "ready" as const, error: null }
+            ? { ...target, startedAt: undefined, status: "ready" as const, error: null }
             : {
                 ...target,
                 id: `delivery:${yield* uuid}`,
                 runId: null,
+                startedAt: undefined,
                 contextContinuationOfRunId: target.contextContinuationOfRunId ?? target.runId,
                 status: "ready" as const,
                 error: null,

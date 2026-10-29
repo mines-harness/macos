@@ -87,6 +87,10 @@ export class SharedGroupTransport extends Context.Service<
       request: GroupPeerRequest,
     ) => Effect.Effect<GroupPeerResponse, GroupChatError>;
     readonly selected: (groupKey: string) => Effect.Effect<ReadonlyArray<ThreadId>, GroupChatError>;
+    readonly revokedRoutes: (
+      groupKey: string,
+      environmentIds: ReadonlySet<EnvironmentId>,
+    ) => Effect.Effect<ReadonlyArray<EnvironmentId>, GroupChatError>;
     readonly select: (
       groupKey: string,
       threadIds: ReadonlyArray<ThreadId>,
@@ -337,6 +341,31 @@ const make = Effect.gen(function* () {
         .filter((item) => item.groupKey === groupKey)
         .map((item) => item.threadId);
     }),
+    revokedRoutes: Effect.fn("SharedGroupTransport.revokedRoutes")(
+      function* (groupKey, environmentIds) {
+        if (environmentIds.size === 0) return [];
+        const { data } = yield* read();
+        const revoked = yield* Effect.forEach(
+          data.routes.filter(
+            (route) =>
+              route.groupKey === groupKey &&
+              environmentIds.has(sharedGroupEnvironmentId(groupKey, route.deviceId)),
+          ),
+          (route) =>
+            authorize(groupKey, route.deviceId).pipe(
+              Effect.match({
+                onFailure: (error) =>
+                  error.code === "not-group-turn"
+                    ? [sharedGroupEnvironmentId(groupKey, route.deviceId)]
+                    : [],
+                onSuccess: () => [],
+              }),
+            ),
+          { concurrency: 4 },
+        );
+        return revoked.flat();
+      },
+    ),
     select: Effect.fn("SharedGroupTransport.select")(function* (groupKey, threadIds, selected) {
       yield* metadataLock.withPermit(
         Effect.gen(function* () {

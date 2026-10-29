@@ -3,7 +3,7 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { SharedContactGroup } from "@t3tools/contracts/contacts";
 import type { SharedGroupView } from "@t3tools/contracts/sharedGroups";
 import { ArrowUpIcon, PlusIcon, RefreshCwIcon, BotMessageSquareIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useMinesAuth } from "../../cloud/MinesAuthProvider";
@@ -30,7 +30,9 @@ import {
   DialogPanel,
   DialogFooter,
 } from "../ui/dialog";
+import type { ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { GroupMessageComposer } from "../groups/GroupMessageComposer";
+import { GroupConversationSidebar } from "../groups/GroupConversationSidebar";
 import { ContactAvatar } from "./ContactsPage";
 import { useContacts } from "./ContactsProvider";
 import { sharedChatMembers } from "./SharedGroupConversation.logic";
@@ -172,12 +174,26 @@ function SharedChatPicker({
 export function SharedGroupConversation({
   group,
   environmentId,
+  renderUsers,
 }: {
   readonly group: SharedContactGroup;
   readonly environmentId: EnvironmentId;
+  readonly renderUsers?: (onChanged: () => void) => ReactNode;
 }) {
   const address = { groupKey: group.key, coordinatorDeviceId: group.coordinatorDeviceId };
   const query = useEnvironmentQuery(sharedGroupSubscription({ environmentId, input: address }));
+  const membershipRevision = JSON.stringify([
+    group.members.map((member) => member.friendId).toSorted(),
+    group.memberships.map((member) => [member.friendId, member.invitationId]).toSorted(),
+  ]);
+  const previousMembership = useRef(membershipRevision);
+  const refreshGroup = query.refresh;
+  // oxlint-disable-next-line mines/react-effect-budget -- Refresh host membership when the control service reports a changed group roster.
+  useEffect(() => {
+    if (previousMembership.current === membershipRevision) return;
+    previousMembership.current = membershipRevision;
+    refreshGroup();
+  }, [membershipRevision, refreshGroup]);
   const view = query.data;
   const snapshot = view?.snapshot;
   const { data } = useContacts();
@@ -194,6 +210,7 @@ export function SharedGroupConversation({
     initialDraft,
     SharedMessageDraft,
   );
+  const editorRef = useRef<ComposerPromptEditorHandle>(null);
   const [askAi, setAskAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -252,7 +269,7 @@ export function SharedGroupConversation({
     }
   };
   return (
-    <section className="flex flex-col gap-4" aria-label="Shared conversation">
+    <section className="flex min-h-0 flex-1 flex-col gap-3" aria-label="Shared conversation">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 flex-1 text-sm font-medium">Conversation</h2>
         <Button
@@ -289,129 +306,151 @@ export function SharedGroupConversation({
           {error ?? query.error}
         </p>
       ) : null}
-      {snapshot?.members.length ? (
-        <div className="flex flex-wrap gap-2" aria-label="Chats in this group">
-          {snapshot.members.map((member) => (
-            <span
-              key={member.id}
-              className="inline-flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs"
-            >
-              <span>@{member.alias}</span>
-              {view?.selectedThreadIds.includes(member.threadId) &&
-              (member.environmentId === null || member.environmentId === environmentId) ? (
-                <Button
-                  size="icon-tiny"
-                  variant="ghost-muted"
-                  aria-label={`Remove your chat ${member.alias}`}
-                  disabled={busy || !online || !canRemove}
-                  onClick={() => {
-                    setBusy(true);
-                    void checkSharedGroupHost(environmentId, userId, readConnection)
-                      .then(() =>
-                        remove({
-                          environmentId,
-                          input: { ...address, threadIds: [member.threadId] },
-                        }),
-                      )
-                      .then(
-                        (result) => {
-                          setBusy(false);
-                          if (result._tag === "Success") query.refresh();
-                          else {
-                            const cause = squashAtomCommandFailure(result);
-                            setError(
-                              cause instanceof Error
-                                ? cause.message
-                                : "The chat could not be removed.",
-                            );
-                          }
-                        },
-                        (cause: unknown) => {
-                          setBusy(false);
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div
+          className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 pr-14 lg:pr-4"
+          role="log"
+          aria-label="Group messages"
+          aria-live="polite"
+          aria-relevant="additions text"
+        >
+          {snapshot?.messages.map((message) => {
+            const author = message.authorFriendId
+              ? profiles.get(message.authorFriendId)
+              : undefined;
+            const label = message.memberId
+              ? (snapshot.members.find((member) => member.id === message.memberId)?.alias ?? "Mine")
+              : message.authorFriendId === data?.profile.friendId
+                ? "You"
+                : (author?.displayName ?? "Group member");
+            return (
+              <article key={message.id} className="flex items-start gap-3">
+                {author ? <ContactAvatar profile={author} /> : null}
+                <div className="min-w-0 flex-1">
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                    {message.text}
+                  </p>
+                </div>
+              </article>
+            );
+          })}
+          {online && snapshot?.messages.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Start a conversation. AI stays quiet until you ask.
+            </p>
+          ) : null}
+        </div>
+        <GroupConversationSidebar
+          snapshot={snapshot ?? null}
+          onMention={(alias) => {
+            setDraft((current) => ({
+              text: `${current.text}${current.text ? " " : ""}@${alias} `,
+              requestId: randomUUID(),
+            }));
+            editorRef.current?.focus();
+          }}
+          users={
+            renderUsers
+              ? renderUsers(query.refresh)
+              : group.members.map((member) => (
+                  <div key={member.friendId} className="flex items-center gap-3">
+                    <ContactAvatar profile={member} />
+                    <span className="min-w-0 truncate text-sm">
+                      {member.displayName}
+                      {member.friendId === data?.profile.friendId ? " (you)" : ""}
+                    </span>
+                  </div>
+                ))
+          }
+          renderMineActions={(member) =>
+            view?.selectedThreadIds.includes(member.threadId) &&
+            (member.environmentId === null || member.environmentId === environmentId) ? (
+              <Button
+                size="icon-tiny"
+                variant="ghost-muted"
+                aria-label={`Remove your chat ${member.alias}`}
+                disabled={busy || !online || !canRemove}
+                onClick={() => {
+                  setBusy(true);
+                  void checkSharedGroupHost(environmentId, userId, readConnection)
+                    .then(() =>
+                      remove({
+                        environmentId,
+                        input: { ...address, threadIds: [member.threadId] },
+                      }),
+                    )
+                    .then(
+                      (result) => {
+                        setBusy(false);
+                        if (result._tag === "Success") query.refresh();
+                        else {
+                          const cause = squashAtomCommandFailure(result);
                           setError(
                             cause instanceof Error
                               ? cause.message
-                              : "Your computer’s account could not be checked.",
+                              : "The chat could not be removed.",
                           );
-                        },
-                      );
-                  }}
-                >
-                  <XIcon />
-                </Button>
-              ) : null}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <div
-        className="flex min-h-40 flex-col gap-5 rounded-xl border border-border/70 p-4"
-        aria-live="polite"
-        aria-relevant="additions text"
-      >
-        {snapshot?.messages.map((message) => {
-          const author = message.authorFriendId ? profiles.get(message.authorFriendId) : undefined;
-          const label = message.memberId
-            ? (snapshot.members.find((member) => member.id === message.memberId)?.alias ?? "Mine")
-            : message.authorFriendId === data?.profile.friendId
-              ? "You"
-              : (author?.displayName ?? "Group member");
-          return (
-            <article key={message.id} className="flex items-start gap-3">
-              {author ? <ContactAvatar profile={author} /> : null}
-              <div className="min-w-0 flex-1">
-                <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
-                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                  {message.text}
-                </p>
-              </div>
-            </article>
-          );
-        })}
-        {online && snapshot?.messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Start a conversation. AI stays quiet until you ask.
-          </p>
-        ) : null}
+                        }
+                      },
+                      (cause: unknown) => {
+                        setBusy(false);
+                        setError(
+                          cause instanceof Error
+                            ? cause.message
+                            : "Your computer’s account could not be checked.",
+                        );
+                      },
+                    );
+                }}
+              >
+                <XIcon />
+              </Button>
+            ) : null
+          }
+        />
       </div>
-      <GroupMessageComposer
-        draftKey={JSON.stringify([userId, environmentId, group.key])}
-        ariaLabel="Message your group"
-        placeholder="Message your group…"
-        value={draft.text}
-        disabled={busy}
-        submitOnEnter
-        onChange={(text) => {
-          setDraft((current) =>
-            current.text === text ? current : { text, requestId: randomUUID() },
-          );
-        }}
-        onSubmit={(alternate) => void submit(effectiveAskAi || alternate)}
-      >
-        <Button
-          size="sm"
-          variant={effectiveAskAi ? "secondary" : "ghost-muted"}
-          aria-pressed={effectiveAskAi}
-          disabled={busy || !hasAiChats}
-          onClick={() => setAskAi((current) => !current)}
+      <div className="shrink-0">
+        <GroupMessageComposer
+          editorRef={editorRef}
+          draftKey={JSON.stringify([userId, environmentId, group.key])}
+          ariaLabel="Message your group"
+          placeholder="Message your group…"
+          value={draft.text}
+          disabled={busy}
+          submitOnEnter
+          onChange={(text) => {
+            setDraft((current) =>
+              current.text === text ? current : { text, requestId: randomUUID() },
+            );
+          }}
+          onSubmit={(alternate) => void submit(effectiveAskAi || alternate)}
         >
-          <BotMessageSquareIcon />
-          Ask AI
-        </Button>
-        <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-          {hasAiChats
-            ? "Turn on Ask AI when you want a mine to respond."
-            : "Bring a chat to enable Ask AI."}
-        </span>
-        <Button
-          type="submit"
-          size="icon"
-          aria-label={effectiveAskAi ? "Send and ask AI" : "Send message"}
-          disabled={!draft.text.trim() || busy || !online || !canSend}
-        >
-          <ArrowUpIcon />
-        </Button>
-      </GroupMessageComposer>
+          <Button
+            size="sm"
+            variant={effectiveAskAi ? "secondary" : "ghost-muted"}
+            aria-pressed={effectiveAskAi}
+            disabled={busy || !hasAiChats}
+            onClick={() => setAskAi((current) => !current)}
+          >
+            <BotMessageSquareIcon />
+            Ask AI
+          </Button>
+          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {hasAiChats
+              ? "Turn on Ask AI when you want a mine to respond."
+              : "Bring a chat to enable Ask AI."}
+          </span>
+          <Button
+            type="submit"
+            size="icon"
+            aria-label={effectiveAskAi ? "Send and ask AI" : "Send message"}
+            disabled={!draft.text.trim() || busy || !online || !canSend}
+          >
+            <ArrowUpIcon />
+          </Button>
+        </GroupMessageComposer>
+      </div>
       {picking && view ? (
         <SharedChatPicker
           group={group}

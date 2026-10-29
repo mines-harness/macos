@@ -44,7 +44,7 @@ import {
   describeUnavailableModelSelection,
   isModelSelectionUnavailable,
 } from "../lib/modelOptions";
-import { resolveProviderInteractionMode } from "./legacy-plan-mode";
+import { resolveProviderInteractionMode } from "./plan-mode";
 import {
   createPastedTextComposerAttachment,
   pasteComposerClipboard,

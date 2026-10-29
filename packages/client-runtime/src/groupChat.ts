@@ -1,3 +1,5 @@
+import type { GroupMember, GroupRound } from "@t3tools/contracts/groupChat";
+
 /** Only user-authored prose addresses members; copied excerpts do not dispatch work. */
 export function groupRecipients(
   text: string,
@@ -61,4 +63,24 @@ export function groupRecipients(
       .filter((member) => names.has(member.alias.toLowerCase()))
       .map((member) => member.id),
   };
+}
+
+export function groupActivity(members: readonly GroupMember[], rounds: readonly GroupRound[]) {
+  const running = new Map<string, string | null>();
+  for (const round of rounds) {
+    if (round.status !== "active") continue;
+    for (const delivery of round.deliveries) {
+      if (delivery.status !== "running") continue;
+      const startedAt = delivery.startedAt ?? null;
+      const previous = running.get(delivery.memberId);
+      if (
+        previous === undefined ||
+        (startedAt !== null && (previous === null || startedAt < previous))
+      )
+        running.set(delivery.memberId, startedAt);
+    }
+  }
+  return members.flatMap((member) =>
+    running.has(member.id) ? [{ member, startedAt: running.get(member.id) ?? null }] : [],
+  );
 }

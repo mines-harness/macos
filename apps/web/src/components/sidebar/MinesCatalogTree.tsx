@@ -8,7 +8,7 @@ import {
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { CloudCatalogDevices } from "../cloud/CloudCatalogDevices";
 import { CatalogLocalSync } from "../../catalog/CatalogLocalSync";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
@@ -171,9 +171,11 @@ function CatalogMineTransferItem({ threadRef }: { threadRef: ScopedThreadRef }) 
 export function MinesCatalogTree({
   onActivateThread,
   activeThreadKey,
+  beforeLibrary,
 }: {
   onActivateThread: (thread: ScopedThreadRef) => void;
   activeThreadKey: string | null;
+  beforeLibrary?: ReactNode;
 }) {
   const { catalog, snapshot, error, accountId, flush } = useMinesCatalog();
   const projects = useProjects();
@@ -382,7 +384,12 @@ export function MinesCatalogTree({
         return next;
       });
   };
-  const visible = (entry: MinesCatalogEntry, pinned = false, nestedUnderMine = false) => {
+  const visible = (
+    entry: MinesCatalogEntry,
+    pinned = false,
+    nestedUnderMine = false,
+    pinRoot = false,
+  ) => {
     if (hiddenProjects.has(entry.entity.id) || legacyWorkgroupIds.has(entry.entity.id))
       return false;
     const workgroupKey = catalogWorkgroupKey(entry.entity.id);
@@ -396,6 +403,8 @@ export function MinesCatalogTree({
       entity: entry.entity,
       thread: threadById.get(entry.entity.id),
       pinned,
+      pinnedIds,
+      pinRoot,
       mode,
       primaryEnvironmentId,
       nestedUnderMine,
@@ -410,7 +419,7 @@ export function MinesCatalogTree({
     nestedUnderMine = false,
   ) => {
     const visibleEntries = entries.filter((entry) =>
-      visible(entry, pinned || withinPins, nestedUnderMine),
+      visible(entry, pinned || withinPins, nestedUnderMine, pinned),
     );
     const listKey = pinned ? "pins" : (entries[0]?.parentId ?? "root");
     const count = visibleCounts[listKey] ?? 100;
@@ -841,119 +850,125 @@ export function MinesCatalogTree({
             catalog={catalog}
           />
         ))}
-        <div className="flex items-center justify-between px-2 py-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            {mode === "workgroups" ? "Workgroups" : "Your library"}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon-xs"
-              variant="ghost-muted"
-              aria-label="Workgroups"
-              aria-pressed={mode === "workgroups"}
-              data-pressed={mode === "workgroups" ? "" : undefined}
-              onClick={() =>
-                setMode((current) => (current === "personal" ? "workgroups" : "personal"))
-              }
-            >
-              <UsersIcon />
-              {invitations > 0 ? (
-                <span className="absolute -top-1 -right-1 min-w-3.5 rounded-full bg-primary px-1 text-3xs leading-3.5 text-primary-foreground">
-                  {invitations}
-                  <span className="sr-only"> pending invitations</span>
-                </span>
-              ) : null}
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost-muted"
-              aria-label="New section"
-              hidden={mode === "workgroups"}
-              onClick={() => setEditor({ id: null, title: "" })}
-            >
-              <PlusIcon />
-            </Button>
-            <Menu>
-              <MenuTrigger
-                aria-label="Library options"
-                render={<Button size="icon-xs" variant="ghost-muted" />}
+        <div
+          data-sidebar="catalog-fixed"
+          className="sticky top-[var(--sidebar-view-height,0px)] z-20 shrink-0 bg-sidebar"
+        >
+          <div className="flex items-center justify-between px-2 py-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              {mode === "workgroups" ? "Workgroups" : "Your library"}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label="Workgroups"
+                aria-pressed={mode === "workgroups"}
+                data-pressed={mode === "workgroups" ? "" : undefined}
+                onClick={() =>
+                  setMode((current) => (current === "personal" ? "workgroups" : "personal"))
+                }
               >
-                <MoreHorizontalIcon />
-              </MenuTrigger>
-              <MenuPopup>
-                <MenuSub>
-                  <MenuSubTrigger>Archived sections</MenuSubTrigger>
-                  <MenuSubPopup>
-                    {catalog.getArchivedSections().length === 0 ? (
-                      <MenuItem disabled>No archived sections</MenuItem>
-                    ) : (
-                      catalog.getArchivedSections().map((section) => (
-                        <MenuItem
-                          key={section.id}
-                          disabled={restoringSection !== null}
-                          onClick={() => {
-                            setRestoringSection(section.id);
-                            void restoreCatalogSection({
-                              catalog,
-                              flush,
-                              sectionId: section.id,
-                              unarchive: async (ref) => {
-                                assertCurrentAccount();
-                                const environmentId = EnvironmentId.make(ref.environmentId);
-                                const result = await restoreMine({
-                                  environmentId,
-                                  input: { threadId: ThreadId.make(ref.threadId) },
-                                });
-                                if (result._tag === "Failure")
-                                  throw squashAtomCommandFailure(result);
-                                refreshArchivedThreadsForEnvironment(environmentId);
-                              },
-                            })
-                              .then(
-                                () => setActionError(null),
-                                (cause: unknown) =>
-                                  setActionError(
-                                    cause instanceof Error
-                                      ? cause.message
-                                      : "The section could not be restored.",
-                                  ),
-                              )
-                              .finally(() => setRestoringSection(null));
-                          }}
-                        >
-                          Restore {section.title}
-                        </MenuItem>
-                      ))
-                    )}
-                  </MenuSubPopup>
-                </MenuSub>
-              </MenuPopup>
-            </Menu>
+                <UsersIcon />
+                {invitations > 0 ? (
+                  <span className="absolute -top-1 -right-1 min-w-3.5 rounded-full bg-primary px-1 text-3xs leading-3.5 text-primary-foreground">
+                    {invitations}
+                    <span className="sr-only"> pending invitations</span>
+                  </span>
+                ) : null}
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label="New section"
+                hidden={mode === "workgroups"}
+                onClick={() => setEditor({ id: null, title: "" })}
+              >
+                <PlusIcon />
+              </Button>
+              <Menu>
+                <MenuTrigger
+                  aria-label="Library options"
+                  render={<Button size="icon-xs" variant="ghost-muted" />}
+                >
+                  <MoreHorizontalIcon />
+                </MenuTrigger>
+                <MenuPopup>
+                  <MenuSub>
+                    <MenuSubTrigger>Archived sections</MenuSubTrigger>
+                    <MenuSubPopup>
+                      {catalog.getArchivedSections().length === 0 ? (
+                        <MenuItem disabled>No archived sections</MenuItem>
+                      ) : (
+                        catalog.getArchivedSections().map((section) => (
+                          <MenuItem
+                            key={section.id}
+                            disabled={restoringSection !== null}
+                            onClick={() => {
+                              setRestoringSection(section.id);
+                              void restoreCatalogSection({
+                                catalog,
+                                flush,
+                                sectionId: section.id,
+                                unarchive: async (ref) => {
+                                  assertCurrentAccount();
+                                  const environmentId = EnvironmentId.make(ref.environmentId);
+                                  const result = await restoreMine({
+                                    environmentId,
+                                    input: { threadId: ThreadId.make(ref.threadId) },
+                                  });
+                                  if (result._tag === "Failure")
+                                    throw squashAtomCommandFailure(result);
+                                  refreshArchivedThreadsForEnvironment(environmentId);
+                                },
+                              })
+                                .then(
+                                  () => setActionError(null),
+                                  (cause: unknown) =>
+                                    setActionError(
+                                      cause instanceof Error
+                                        ? cause.message
+                                        : "The section could not be restored.",
+                                    ),
+                                )
+                                .finally(() => setRestoringSection(null));
+                            }}
+                          >
+                            Restore {section.title}
+                          </MenuItem>
+                        ))
+                      )}
+                    </MenuSubPopup>
+                  </MenuSub>
+                </MenuPopup>
+              </Menu>
+            </div>
           </div>
-        </div>
-        {error ? (
-          <p role="alert" className="px-2 pb-2 text-xs text-destructive">
-            {error}
-          </p>
-        ) : null}
-        {actionError ? (
-          <p role="alert" className="px-2 pb-2 text-xs text-destructive">
-            {actionError}
-          </p>
-        ) : null}
-        <CatalogDropArea id="pins" target={{ parentId: null, pinned: true }} label="Pinned">
-          <div className="flex items-center gap-2 px-3 py-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-            <PinIcon className="size-3" />
-            Pinned
-          </div>
-          <ul aria-label="Pinned items">{renderRows(snapshot.pins, true, "pins")}</ul>
-          {snapshot.pins.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground/65">
-              Pin a mine, workgroup, project, section, or device.
+          {error ? (
+            <p role="alert" className="px-2 pb-2 text-xs text-destructive">
+              {error}
             </p>
           ) : null}
-        </CatalogDropArea>
-        <div className="my-2 border-t border-sidebar-border" />
+          {actionError ? (
+            <p role="alert" className="px-2 pb-2 text-xs text-destructive">
+              {actionError}
+            </p>
+          ) : null}
+          <CatalogDropArea id="pins" target={{ parentId: null, pinned: true }} label="Pinned">
+            <div className="flex items-center gap-2 px-3 py-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+              <PinIcon className="size-3" />
+              Pinned
+            </div>
+            <ul aria-label="Pinned items">{renderRows(snapshot.pins, true, "pins")}</ul>
+            {snapshot.pins.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground/65">
+                Pin a mine, workgroup, project, section, or device.
+              </p>
+            ) : null}
+          </CatalogDropArea>
+          <div className="my-2 border-t border-sidebar-border" />
+        </div>
+        {beforeLibrary}
         <CatalogDropArea
           id="library"
           target={{ parentId: null, pinned: false }}

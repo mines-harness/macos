@@ -244,7 +244,13 @@ function SharedGroupCreate({
   );
 }
 
-function SharedGroupPeople({ group }: { readonly group: SharedContactGroup }) {
+function SharedGroupPeople({
+  group,
+  onChanged,
+}: {
+  readonly group: SharedContactGroup;
+  readonly onChanged: () => void;
+}) {
   const { data, busy, pending, mutate } = useContacts();
   const [friendId, setFriendId] = useState<string | null>(null);
   if (!data) return null;
@@ -261,12 +267,8 @@ function SharedGroupPeople({ group }: { readonly group: SharedContactGroup }) {
   );
   const selected = available.find((friend) => friend.friendId === friendId);
   return (
-    <section
-      aria-label="People in this group"
-      className="flex flex-col gap-3 rounded-xl border border-border/70 p-4"
-    >
-      <h2 className="text-sm font-medium">People</h2>
-      <div className="flex flex-wrap gap-3">
+    <section aria-label="People in this group" className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         {group.members.map((member) => {
           const invitationId = contactGroupMembershipInvitationId(
             group,
@@ -276,7 +278,7 @@ function SharedGroupPeople({ group }: { readonly group: SharedContactGroup }) {
           return (
             <div key={member.friendId} className="flex items-center gap-2">
               <ContactAvatar profile={member} />
-              <span className="text-sm">
+              <span className="min-w-0 flex-1 truncate text-sm">
                 {member.displayName}
                 {member.friendId === group.owner.friendId ? (
                   <span className="ml-1 text-xs text-muted-foreground">Owner</span>
@@ -288,7 +290,13 @@ function SharedGroupPeople({ group }: { readonly group: SharedContactGroup }) {
                   variant="ghost-destructive"
                   aria-label={`Remove ${member.displayName} from group`}
                   disabled={busy || pending}
-                  onClick={() => void mutate((client) => client.respond(invitationId, "revoke"))}
+                  onClick={() =>
+                    void mutate((client) => client.respond(invitationId, "revoke")).then(
+                      (saved) => {
+                        if (saved) onChanged();
+                      },
+                    )
+                  }
                 >
                   <XIcon />
                 </Button>
@@ -313,7 +321,10 @@ function SharedGroupPeople({ group }: { readonly group: SharedContactGroup }) {
                   coordinatorDeviceId: group.coordinatorDeviceId,
                 }),
               ).then((saved) => {
-                if (saved) setFriendId(null);
+                if (saved) {
+                  setFriendId(null);
+                  onChanged();
+                }
               });
           }}
         >
@@ -393,6 +404,7 @@ function ManagedSharedGroupsPage() {
   return (
     <ContactsPageFrame
       title="Workgroups"
+      conversation={selected !== undefined}
       actions={
         <>
           <Popover>
@@ -485,7 +497,6 @@ function ManagedSharedGroupsPage() {
           </label>
           {selected ? (
             <>
-              <SharedGroupPeople key={`${userId}:${selected.key}`} group={selected} />
               {localHost ? (
                 <SharedGroupHostAccountGate
                   key={`${userId}:${localHost.environmentId}:${selected.key}`}
@@ -494,6 +505,13 @@ function ManagedSharedGroupsPage() {
                   <SharedGroupConversation
                     group={selected}
                     environmentId={localHost.environmentId}
+                    renderUsers={(onChanged) => (
+                      <SharedGroupPeople
+                        key={`${userId}:${selected.key}`}
+                        group={selected}
+                        onChanged={onChanged}
+                      />
+                    )}
                   />
                 </SharedGroupHostAccountGate>
               ) : (

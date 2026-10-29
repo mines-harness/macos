@@ -7,6 +7,27 @@ import {
 
 const mine = { id: "mine", kind: "thread" as const, title: "Mine" };
 
+it("shows explicitly pinned items only at the top level of Pinned", () => {
+  for (const kind of ["section", "project", "thread", "group", "device"] as const) {
+    const entity = { id: kind, kind, title: kind };
+    const pinnedIds = new Set([entity.id]);
+    expect(isCatalogLibraryEntryVisible({ entity, pinned: false, pinnedIds })).toBe(false);
+    expect(isCatalogLibraryEntryVisible({ entity, pinned: true, pinnedIds })).toBe(false);
+    expect(isCatalogLibraryEntryVisible({ entity, pinned: true, pinRoot: true, pinnedIds })).toBe(
+      true,
+    );
+    expect(isCatalogLibraryEntryVisible({ entity, pinned: false, pinnedIds: new Set() })).toBe(
+      true,
+    );
+  }
+});
+
+it("keeps unpinned children visible inside pinned containers", () => {
+  expect(
+    isCatalogLibraryEntryVisible({ entity: mine, pinned: true, pinnedIds: new Set(["section"]) }),
+  ).toBe(true);
+});
+
 it("keeps imported agent histories out of the default library even without a loaded shell", () => {
   const entity = {
     ...mine,

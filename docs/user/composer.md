@@ -29,6 +29,14 @@ at the end, leave the block. **Backspace** at the start of a code block turns it
 back into plain lines. Choose the language in a code block's corner to change
 it. Very large code blocks are shown without syntax highlighting.
 
+## Plan mode
+
+Normal messages use the agent's default build mode. On web and desktop, choose **Plan mode**
+from the composer's access menu, type `/plan`, or press `Shift+Tab` to plan before making changes.
+The Plan control appears while planning; select it or use `/default` to return to normal work.
+On mobile, use `/plan` and tap **Plan** to exit. Availability follows the selected provider;
+providers with their own native planning command keep that command.
+
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most

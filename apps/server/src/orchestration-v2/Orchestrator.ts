@@ -468,9 +468,12 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.guest-share.redeem":
     case "thread.guest-share.update-ip":
     case "thread.guest-share.close":
+    case "thread.guest-share.permission.set":
     case "thread.guest-share.kick":
     case "thread.guest-share.ban":
     case "thread.guest-share.unban":
+    case "thread.guest-message.edit":
+    case "thread.guest-message.delete":
     case "thread.guest-message.submit":
     case "thread.guest-message.dismiss":
     case "thread.settle":
@@ -2755,7 +2758,55 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
         ),
       );
-    const thread = projection.thread;
+    let thread = projection.thread;
+    if (command.type === "thread.guest-message.delete" && command.messageId !== undefined) {
+      const records = yield* projectionStore
+        .getThreadRecords(command.threadId, ["messages"], { messageIds: [command.messageId] })
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const message = records.messages[0];
+      const guest = message?.context?.guest;
+      if (
+        !thread.guestShare ||
+        !message ||
+        !guest ||
+        guest.guestId !== command.guestId ||
+        guest.shareId !== command.shareId ||
+        guest.guestMessageId !== command.guestMessageId
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "This is not your guest message.",
+        });
+      }
+      if (
+        !thread.guestShare.messages.some((candidate) => candidate.id === command.guestMessageId)
+      ) {
+        thread = {
+          ...thread,
+          guestShare: {
+            ...thread.guestShare,
+            messages: [
+              ...thread.guestShare.messages,
+              {
+                id: command.guestMessageId,
+                guestId: command.guestId,
+                guestName: guest.name,
+                text: guest.text,
+                status: "sent",
+                submittedAt: DateTime.formatIso(message.createdAt),
+                sentMessageId: message.id,
+                ...(guest.deletedAt === undefined ? {} : { deletedAt: guest.deletedAt }),
+              },
+            ],
+          },
+        };
+      }
+    }
     const now = yield* DateTime.now;
     const decided =
       thread.deletedAt !== null
@@ -2784,6 +2835,65 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: decided.success,
     });
     yield* releaseGuestAttachments(command, thread.guestShare, decided.success.guestShare, effects);
+    if (command.type === "thread.guest-message.delete") {
+      const guestMessage = thread.guestShare?.messages.find(
+        (message) => message.id === command.guestMessageId,
+      );
+      if (guestMessage?.status === "sent") {
+        const sentMessageId = guestMessage.sentMessageId ?? command.messageId;
+        const records = yield* projectionStore
+          .getThreadRecords(
+            command.threadId,
+            ["messages"],
+            sentMessageId === undefined
+              ? { messageRoles: ["user"] }
+              : { messageIds: [sentMessageId] },
+          )
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
+        const message = records.messages.find(
+          (candidate) =>
+            candidate.context?.guest?.guestMessageId === command.guestMessageId &&
+            candidate.context.guest.shareId === command.shareId,
+        );
+        if (message?.context?.guest) {
+          const context = {
+            ...message.context,
+            guest: { ...message.context.guest, deletedAt: DateTime.formatIso(now) },
+          };
+          const emitEvent = emit(events, command);
+          yield* emitEvent({
+            type: "message.updated",
+            threadId: command.threadId,
+            occurredAt: now,
+            payload: { ...message, context, updatedAt: now },
+          });
+          const items = yield* projectionStore
+            .getThreadRecords(command.threadId, ["turnItems"], {
+              turnItemRunIds: [message.runId],
+              turnItemTypes: ["user_message"],
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+              ),
+            );
+          for (const item of items.turnItems) {
+            if (item.type === "user_message" && item.messageId === message.id) {
+              yield* emitEvent({
+                type: "turn-item.updated",
+                threadId: command.threadId,
+                occurredAt: now,
+                payload: { ...item, context, updatedAt: now },
+              });
+            }
+          }
+        }
+      }
+    }
   });
 
   // Emitted before the message so the send and the status change commit together, and so
@@ -2795,7 +2905,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
   ) {
     const now = yield* DateTime.now;
-    const decided = decideGuestMessageSend({ thread, guestMessageId, now });
+    const decided = decideGuestMessageSend({
+      thread,
+      guestMessageId,
+      now,
+      ...(command.guestMessageRevision === undefined
+        ? {}
+        : { expectedRevision: command.guestMessageRevision }),
+      messageId: command.messageId,
+    });
     if (Result.isFailure(decided)) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
@@ -12083,9 +12201,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.guest-share.redeem":
       case "thread.guest-share.update-ip":
       case "thread.guest-share.close":
+      case "thread.guest-share.permission.set":
       case "thread.guest-share.kick":
       case "thread.guest-share.ban":
       case "thread.guest-share.unban":
+      case "thread.guest-message.edit":
+      case "thread.guest-message.delete":
       case "thread.guest-message.submit":
       case "thread.guest-message.dismiss":
         yield* dispatchGuestShare(command, events, effects);
@@ -12430,6 +12551,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.guest-share.kick" ||
           command.type === "thread.guest-share.ban" ||
           command.type === "thread.guest-share.unban" ||
+          command.type === "thread.guest-share.permission.set" ||
+          command.type === "thread.guest-message.delete" ||
           command.type === "thread.guest-share.update-ip" ||
           command.type === "thread.guest-message.submit",
         () =>

@@ -63,6 +63,9 @@ export interface TimelineRowSharedState {
    * loads it through its own route.
    */
   renderHtmlRender: ((row: Extract<TimelineRow, { kind: "html-render" }>) => ReactNode) | undefined;
+  renderUserMessageActions?:
+    | ((row: Extract<TimelineRow, { kind: "message" }>) => ReactNode)
+    | undefined;
   /** Unset, expanded rows read detail and command output from the environment. */
   turnItemSource: TurnItemSource | undefined;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;

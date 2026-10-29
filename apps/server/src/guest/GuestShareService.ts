@@ -5,7 +5,9 @@ import {
   CommandId,
   DEFAULT_GUEST_SHARE_TTL_MS,
   guestShareGuests,
-  guestSharePermission,
+  guestSessionPermission,
+  type GuestEditRequest,
+  type GuestDeleteRequest,
   GuestSessionId,
   MessageId,
   GuestMessageId,
@@ -189,6 +191,16 @@ export class GuestShareService extends Context.Service<
       session: string,
       ipAddress: string,
     ) => Effect.Effect<Stream.Stream<GuestStreamEvent>, GuestShareAccessError>;
+    readonly edit: (
+      session: string,
+      request: GuestEditRequest,
+      ipAddress: string,
+    ) => Effect.Effect<void, GuestShareAccessError>;
+    readonly deleteMessage: (
+      session: string,
+      request: GuestDeleteRequest,
+      ipAddress: string,
+    ) => Effect.Effect<void, GuestShareAccessError>;
     /** The file of an HTML render in the shared thread, and its title. */
     readonly render: (
       session: string,
@@ -556,7 +568,7 @@ const make = Effect.gen(function* () {
     refreshIp = true,
   ) {
     const { thread, share, guest } = yield* authorize(session, "session", ipAddress, refreshIp);
-    if (guestSharePermission(share) === "viewer") {
+    if (guestSessionPermission(share, guest!.id) === "viewer") {
       return yield* new GuestShareAccessError({ reason: "forbidden" });
     }
     if (request.shareId !== share.id) {
@@ -602,7 +614,7 @@ const make = Effect.gen(function* () {
       );
       yield* removeStored(attachments.filter(({ id }) => !retained.has(id)));
     }
-    if (guestSharePermission(share) === "send" && existing?.status !== "sent") {
+    if (guestSessionPermission(share, guest!.id) === "send" && existing?.status !== "sent") {
       yield* authorize(session, "session", ipAddress, false);
       yield* ThreadMessageIntake.dispatchCommand({
         type: "message.dispatch",
@@ -795,6 +807,45 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const edit = Effect.fn("GuestShareService.edit")(function* (
+    session: string,
+    request: GuestEditRequest,
+    ipAddress: string,
+  ) {
+    const { thread, share, guest } = yield* authorize(session, "session", ipAddress);
+    if (request.shareId !== share.id)
+      return yield* new GuestShareAccessError({ reason: "stale_page" });
+    yield* dispatchGuestCommand({
+      type: "thread.guest-message.edit",
+      commandId: CommandId.make(`server:guest-edit:${guest!.id}:${request.requestId}`),
+      threadId: thread.id,
+      shareId: share.id,
+      guestId: guest!.id,
+      guestMessageId: request.guestMessageId,
+      text: request.text,
+      expectedRevision: request.expectedRevision,
+    });
+  });
+
+  const deleteMessage = Effect.fn("GuestShareService.deleteMessage")(function* (
+    session: string,
+    request: GuestDeleteRequest,
+    ipAddress: string,
+  ) {
+    const { thread, share, guest } = yield* authorize(session, "session", ipAddress);
+    if (request.shareId !== share.id)
+      return yield* new GuestShareAccessError({ reason: "stale_page" });
+    yield* dispatchGuestCommand({
+      type: "thread.guest-message.delete",
+      commandId: CommandId.make(`server:guest-delete:${guest!.id}:${request.requestId}`),
+      threadId: thread.id,
+      shareId: share.id,
+      guestId: guest!.id,
+      guestMessageId: request.guestMessageId,
+      ...(request.messageId === undefined ? {} : { messageId: request.messageId }),
+    });
+  });
+
   const attachment = Effect.fn("GuestShareService.attachment")(function* (
     session: string,
     attachmentId: string,
@@ -827,6 +878,8 @@ const make = Effect.gen(function* () {
     redeem,
     check,
     submit,
+    edit,
+    deleteMessage,
     stream,
     render,
     item,

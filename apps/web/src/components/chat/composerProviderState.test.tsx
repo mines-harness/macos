@@ -138,7 +138,7 @@ describe("getComposerProviderState", () => {
     expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "plan"]));
   });
 
-  it("drops the plan agent from dispatch when legacy plan mode is disabled", () => {
+  it("preserves the plan agent despite a retired false preference", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,
       model: MODEL,
@@ -152,7 +152,7 @@ describe("getComposerProviderState", () => {
       planModeEnabled: false,
     });
 
-    expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "build"]));
+    expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "plan"]));
   });
 
   it("preserves explicit options when the selected model is absent from the catalog", () => {

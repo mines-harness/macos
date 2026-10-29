@@ -18,6 +18,8 @@ group's mines to respond.
 After joining, choose which of your mines to add. Each mine keeps its own workspace,
 model and provider account. Group members see the shared conversation; joining
 does not share your private library, previous private messages or credentials.
+Leaving or being removed also removes all the mines you brought to the group. Their private
+conversations remain in your library.
 
 The group's host computer must stay online. Conversations use direct connections
 between devices. If the host or a direct connection is unavailable, the group

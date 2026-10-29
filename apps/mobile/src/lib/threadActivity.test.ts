@@ -1,5 +1,6 @@
 import {
   MessageId,
+  GuestMessageId,
   CheckpointId,
   CheckpointRef,
   CheckpointScopeId,
@@ -283,6 +284,62 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
+  it.each([false, true])(
+    "masks deleted guest messages in projected and fallback feeds (cache: %s)",
+    (cached) => {
+      const context = {
+        version: 1 as const,
+        records: [],
+        guest: { guestMessageId: GuestMessageId.make("guest"), name: "Sam", text: "private text" },
+      };
+      const original = {
+        ...userMessage(),
+        text: "Message from guest Sam: private text",
+        attachments: [
+          {
+            id: "private-image",
+            type: "image" as const,
+            name: "private.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+          },
+        ],
+        context,
+      };
+      const cache = cached ? createThreadFeedCache() : undefined;
+      buildThreadFeed([projected(original, 0)], { cache });
+      const deleted = {
+        ...original,
+        context: { ...context, guest: { ...context.guest, deletedAt: "2026-10-29T00:00:00.000Z" } },
+      };
+      const local = {
+        ...deleted,
+        id: deleted.messageId,
+        role: "user",
+        streaming: false,
+        createdAt: "2026-06-20T00:00:00.000Z",
+        updatedAt: "2026-10-29T00:00:00.000Z",
+      };
+      for (const feed of [
+        buildThreadFeed([projected(deleted, 0)], { cache }),
+        buildThreadFeed([], { anchoredMessages: [local] }),
+      ]) {
+        expect(feed).toHaveLength(1);
+        expect(feed[0]).toMatchObject({
+          type: "message",
+          message: {
+            text: "",
+            attachments: [],
+            context: { guest: { text: "", deletedAt: "2026-10-29T00:00:00.000Z" } },
+          },
+        });
+      }
+      expect(original.text).toContain("private text");
+      expect(original.attachments).toHaveLength(1);
+      expect(deleted.context.guest.text).toBe("private text");
+    },
+  );
+
   it("keeps empty voice placeholders hidden and restores their first transcript", () => {
     const placeholder = { ...userMessage(), text: "", attachments: [] };
     const ordinary = { ...placeholder, messageId: MessageId.make("ordinary-empty") };

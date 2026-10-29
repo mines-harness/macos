@@ -203,6 +203,24 @@ const fixture = Effect.gen(function* () {
 
 describe("shared group direct transport", () => {
   it.effect(
+    "prunes only authoritatively revoked routes, preserving routes during a control outage",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* fixture;
+        const route = yield* h.coordinator.bindRoute(h.groupKey, h.friend.device.deviceId);
+        const current = new Set([route]);
+        expect(yield* h.coordinator.revokedRoutes(h.groupKey, current)).toEqual([]);
+        h.offline();
+        expect(yield* h.coordinator.revokedRoutes(h.groupKey, current)).toEqual([]);
+        h.online();
+        h.revoke();
+        expect(yield* h.coordinator.revokedRoutes(h.groupKey, current)).toEqual([route]);
+        const checked = h.checks;
+        expect(yield* h.coordinator.revokedRoutes(h.groupKey, new Set())).toEqual([]);
+        expect(h.checks).toBe(checked);
+      }),
+  );
+  it.effect(
     "keeps selected chats on a real control outage and releases only their reservations on HTTP revocation",
     () =>
       Effect.gen(function* () {

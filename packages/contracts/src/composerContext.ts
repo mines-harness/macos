@@ -6,6 +6,7 @@ import {
   GuestMessageId,
   GuestSessionId,
   GuestShareId,
+  IsoDateTime,
   NonNegativeInt,
   PositiveInt,
   ThreadId,
@@ -260,6 +261,7 @@ const COMPOSER_CONTEXT_MAX_SERIALIZED_CHARS = 16_000_000;
  */
 export const GuestMessageAttribution = Schema.Struct({
   guestMessageId: GuestMessageId,
+  deletedAt: Schema.optional(IsoDateTime),
   guestId: Schema.optional(GuestSessionId),
   direct: Schema.optional(Schema.Boolean),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(GUEST_NAME_MAX_LENGTH)),
